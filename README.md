@@ -20,22 +20,22 @@ say "hello" 42
 # Parens create sub-expressions
 + 1 (* 2 3)
 
-# Variables and scope thunks
+# Expressions and scope references
 $term
-:variable
+:name
 
 # Lists and blocks
 [1 2 3]
 {say "block"}
 
-# Macros
-|greet name| say (concat "hello " $name)
+# Macros (params accessed with :)
+|greet name| say (concat "hello " :name)
 ```
 
 ### Key Concepts
 
-- `$term` — single-term expression lookup
-- `:var` — scope thunk (deferred variable reference)
+- `$term` — single-term expression (evaluates the term as a zero-argument call)
+- `:name` — scope thunk (looks up a named entry in the current scope; used to access macro parameters)
 - `[...]` — list sugar
 - `{...}` — block/proc sugar
 - `~param` — lazy parameter in macro definitions
@@ -108,8 +108,8 @@ pub fn main() !void {
 
 ```zig
 const macro_source =
-    \\|double x| * $x 2
-    \\|greet name| say (concat "Hello, " $name)
+    \\|double x| * :x 2
+    \\|greet name| say (concat "Hello, " :name)
 ;
 
 const load_result = try sh.loadMacroModule(allocator, &registry, macro_source);

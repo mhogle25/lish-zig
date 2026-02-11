@@ -113,7 +113,7 @@ pub const Parser = struct {
         if (thunk_count < 1) {
             return ast.makeExpression(
                 self.allocator,
-                try self.syntaxErr("An expression must have an ID."),
+                try self.syntaxErr("An expression must have an ID"),
                 &.{},
                 null,
                 null,
@@ -136,7 +136,7 @@ pub const Parser = struct {
         if (closure.expr_count < 1) {
             return ast.makeExpression(
                 self.allocator,
-                try self.syntaxErr("An expression must have an ID."),
+                try self.syntaxErr("An expression must have an ID"),
                 &.{},
                 closure.open_err,
                 closure.close_err,

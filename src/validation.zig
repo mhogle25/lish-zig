@@ -115,8 +115,9 @@ fn validateExpression(
     }
 
     // Validate ID (continue to args even if ID fails, to accumulate all errors)
+    const pre_id_error_count = errors.count();
     const id_thunk = try validateStep(allocator, expr.id, errors);
-    if (id_thunk == null) {
+    if (id_thunk == null and errors.count() == pre_id_error_count) {
         try errors.add(allocator, .{ .message = "An expression must have an ID" });
     }
 

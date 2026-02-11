@@ -6,7 +6,7 @@ pub const TokenType = enum {
     float,
     macro_bracket,
     call_expression_symbol,
-    lazy_macro_param_symbol,
+    deferred_macro_param_symbol,
     call_scope_thunk_symbol,
 
     expression_opening_bracket,
@@ -31,7 +31,7 @@ pub const TokenType = enum {
             .float => "Floating-Point Number",
             .macro_bracket => "Macro Bar",
             .call_expression_symbol => "Call Expression Symbol",
-            .lazy_macro_param_symbol => "Call-by-Name Macro Param Symbol",
+            .deferred_macro_param_symbol => "Deferred Macro Param Symbol",
             .call_scope_thunk_symbol => "Call Scope Thunk Symbol",
             .expression_opening_bracket => "Expression Opening Parenthesis",
             .expression_closing_bracket => "Expression Closing Parenthesis",
@@ -109,7 +109,7 @@ pub const BLOCK_CLOSE = '}';
 pub const QUOTE_DOUBLE = '"';
 pub const QUOTE_SINGLE = '\'';
 pub const MACRO_BRACKET = '|';
-pub const LAZY = '~';
+pub const DEFERRED = '~';
 pub const DECIMAL_POINT = '.';
 pub const NEGATIVE_SIGN = '-';
 pub const BACKSLASH = '\\';
@@ -132,7 +132,7 @@ pub fn isReservedChar(char: u8) bool {
     return switch (char) {
         EXPRESSION_SINGLE,
         MACRO_BRACKET,
-        LAZY,
+        DEFERRED,
         SCOPE_THUNK,
         EXPRESSION_OPEN,
         EXPRESSION_CLOSE,

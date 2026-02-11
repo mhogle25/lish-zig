@@ -45,7 +45,7 @@ pub const MacroParamData = struct {
     param_type: MacroParamType,
 };
 
-pub const MacroParamType = enum { value, lazy };
+pub const MacroParamType = enum { value, deferred };
 
 pub const MacroError = struct {
     message: []const u8,
@@ -76,7 +76,7 @@ const MacroParser = struct {
     id_set: std.StringHashMapUnmanaged(void) = .{},
     string_buf: std.ArrayListUnmanaged(u8) = .{},
 
-    const State = enum { init, in_params, past_id, lazy_param };
+    const State = enum { init, in_params, past_id, deferred_param };
 
     const EOF_TOKEN: Token = .{
         .type = .eof,
@@ -104,7 +104,7 @@ const MacroParser = struct {
                 .init => self.handleInit(),
                 .in_params => try self.handleInParams(),
                 .past_id => try self.handlePastId(),
-                .lazy_param => try self.handleLazyParam(),
+                .deferred_param => try self.handleDeferredParam(),
             }
         }
         return .{ .macros = self.macros.items };
@@ -161,8 +161,8 @@ const MacroParser = struct {
                 });
             }
             self.token = self.lexer.nextToken();
-        } else if (self.token.type == .lazy_macro_param_symbol) {
-            self.state = .lazy_param;
+        } else if (self.token.type == .deferred_macro_param_symbol) {
+            self.state = .deferred_param;
             self.token = self.lexer.nextToken();
         } else if (self.token.type == .macro_bracket) {
             try self.parseMacroBody();
@@ -174,13 +174,13 @@ const MacroParser = struct {
         }
     }
 
-    fn handleLazyParam(self: *MacroParser) Allocator.Error!void {
+    fn handleDeferredParam(self: *MacroParser) Allocator.Error!void {
         if (isTerm(self.token.type)) {
-            // Lazy parameter
+            // Deferred parameter
             const identifier = try self.processIdentifier();
             if (identifier) |param_id| {
                 try self.parameters.append(self.allocator, .{
-                    .valid = .{ .id = param_id, .param_type = .lazy },
+                    .valid = .{ .id = param_id, .param_type = .deferred },
                 });
             } else {
                 try self.parameters.append(self.allocator, .{
@@ -190,9 +190,9 @@ const MacroParser = struct {
             self.state = .past_id;
             self.token = self.lexer.nextToken();
         } else if (self.token.type == .macro_bracket) {
-            // Missing lazy param name
+            // Missing deferred param name
             try self.parameters.append(self.allocator, .{
-                .err = self.errorAtToken("Missing parameter name for lazy argument"),
+                .err = self.errorAtToken("Missing parameter name for deferred argument"),
             });
             try self.parseMacroBody();
         } else {
@@ -349,7 +349,7 @@ fn validateMacro(
                     .id = param.id,
                     .param_type = switch (param.param_type) {
                         .value => .value,
-                        .lazy => .lazy,
+                        .deferred => .deferred,
                     },
                 });
             },
@@ -416,7 +416,7 @@ test "parse multiple macros" {
     try std.testing.expectEqualStrings("triple", module.macros[1].macro.id.valid);
 }
 
-test "parse macro with lazy parameter" {
+test "parse macro with deferred parameter" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -427,7 +427,7 @@ test "parse macro with lazy parameter" {
     const macro = module.macros[0].macro;
     try std.testing.expectEqual(@as(usize, 2), macro.parameters.len);
     try std.testing.expect(macro.parameters[0].valid.param_type == .value);
-    try std.testing.expect(macro.parameters[1].valid.param_type == .lazy);
+    try std.testing.expect(macro.parameters[1].valid.param_type == .deferred);
     try std.testing.expectEqualStrings("cond", macro.parameters[0].valid.id);
     try std.testing.expectEqualStrings("body", macro.parameters[1].valid.id);
 }
@@ -509,7 +509,7 @@ test "validate and execute macro" {
     try std.testing.expectEqual(@as(i32, 42), value.?.int);
 }
 
-test "end-to-end: macro with lazy parameter" {
+test "end-to-end: macro with deferred parameter" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();

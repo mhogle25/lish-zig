@@ -281,7 +281,7 @@ pub const Parser = struct {
                 .unterminated_string => try self.syntaxErr("Missing closing quotation mark"),
                 .too_long_term => try self.syntaxErr("The term was too long"),
                 .too_long_string_literal => try self.syntaxErr("The string literal was too long"),
-                .lazy_macro_param_symbol => try self.syntaxErr("Invalid use of a lazy modifier"),
+                .deferred_macro_param_symbol => try self.syntaxErr("Invalid use of a deferred modifier"),
                 .macro_bracket => try self.syntaxErr("Invalid use of a macro bar"),
                 .identifier => try self.identifierLiteral(),
                 .int => try self.intLiteral(),
@@ -376,8 +376,8 @@ pub const Parser = struct {
                     try self.stackPush(try self.syntaxErr("The string literal was too long"));
                     expr_count += 1;
                 },
-                .lazy_macro_param_symbol => {
-                    try self.stackPush(try self.syntaxErr("Invalid use of a lazy modifier"));
+                .deferred_macro_param_symbol => {
+                    try self.stackPush(try self.syntaxErr("Invalid use of a deferred modifier"));
                     expr_count += 1;
                 },
                 .macro_bracket => {
@@ -545,7 +545,7 @@ pub const Parser = struct {
             .unterminated_string => singleTermResult(try self.syntaxErr("Missing closing quotation mark")),
             .too_long_term => singleTermResult(try self.syntaxErr("The term was too long")),
             .too_long_string_literal => singleTermResult(try self.syntaxErr("The string literal was too long")),
-            .lazy_macro_param_symbol => singleTermResult(try self.syntaxErr("Invalid use of a lazy modifier")),
+            .deferred_macro_param_symbol => singleTermResult(try self.syntaxErr("Invalid use of a deferred modifier")),
             .macro_bracket => singleTermResult(try self.syntaxErr("Invalid use of a macro bar")),
             .eof => singleTermResult(try self.syntaxErr("Expected a term but got the end of the input")),
             .identifier => singleTermResult(try self.identifierLiteral()),

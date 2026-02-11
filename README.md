@@ -4,7 +4,7 @@ A Lisp-family expression language interpreter for Zig. Designed to be embedded i
 
 ## Features
 
-- **Lazy evaluation** — arguments are evaluated on demand
+- **Deferred evaluation** — arguments are evaluated on demand, not ahead of time
 - **Macro system** — define reusable patterns with `|name params| body`
 - **Existential truthiness** — no booleans; values either exist (`?Value`) or they don't (`null`)
 - **Arena allocation** — parse and execute within a single arena lifecycle
@@ -53,7 +53,7 @@ Macros (params accessed with `:`):
 - `:name` — scope thunk (looks up a named entry in the current scope; used to access macro parameters)
 - `[...]` — list sugar
 - `{...}` — block sugar (desugars to `proc`; evaluates each sub-expression in order, returns the last)
-- `~param` — lazy parameter in macro definitions
+- `~param` — deferred parameter in macro definitions (not evaluated until accessed)
 - `?Value` = truthy, `null` = falsy
 
 ## Built-in Operations

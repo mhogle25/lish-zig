@@ -65,7 +65,7 @@ pub const Scope = struct {
     pub const EMPTY: Scope = .{};
 };
 
-// ── Arg — Lazy argument wrapper ──
+// ── Arg — Deferred argument wrapper ──
 
 pub const Arg = struct {
     thunk: *const Thunk,
@@ -111,7 +111,7 @@ pub const Arg = struct {
     }
 };
 
-// ── Args — Collection of lazy arguments ──
+// ── Args — Collection of deferred arguments ──
 
 pub const Args = struct {
     items: []const Arg,
@@ -183,7 +183,7 @@ pub const Operation = *const fn (Args) ExecError!?Value;
 
 pub const MacroParameterType = enum {
     value,
-    lazy,
+    deferred,
 };
 
 pub const MacroParameter = struct {
@@ -223,7 +223,7 @@ pub const Macro = struct {
                     literal.* = .{ .value_literal = evaluated };
                     break :blk .{ .thunk = literal, .scope = caller_scope };
                 },
-                .lazy => .{ .thunk = arg_thunk, .scope = caller_scope },
+                .deferred => .{ .thunk = arg_thunk, .scope = caller_scope },
             };
             try macro_scope.entries.put(env.allocator, param.id, entry);
         }
@@ -516,7 +516,7 @@ test "macro with value parameters" {
     try std.testing.expectEqual(@as(i32, 6), result.?.int);
 }
 
-test "macro with lazy parameter" {
+test "macro with deferred parameter" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -524,10 +524,10 @@ test "macro with lazy parameter" {
     var registry = Registry{};
     try registry.registerOperation(alloc, "identity", &testIdentityOp);
 
-    // Define macro: |run-lazy ~thunk| identity :thunk
-    // The lazy parameter means the thunk is not evaluated until :thunk is referenced
+    // Define macro: |run-deferred ~thunk| identity :thunk
+    // The deferred parameter means the thunk is not evaluated until :thunk is referenced
     const params = [_]MacroParameter{
-        .{ .id = "thunk", .param_type = .lazy },
+        .{ .id = "thunk", .param_type = .deferred },
     };
 
     const identity_id = try makeValueLiteral(alloc, .{ .string = "identity" });
@@ -536,20 +536,20 @@ test "macro with lazy parameter" {
 
     const macro = try alloc.create(Macro);
     macro.* = .{
-        .id = "run-lazy",
+        .id = "run-deferred",
         .parameters = &params,
         .body = .{
             .id = identity_id,
             .args = try alloc.dupe(*const Thunk, &.{thunk_ref}),
         },
     };
-    try registry.registerMacro(alloc, "run-lazy", macro);
+    try registry.registerMacro(alloc, "run-deferred", macro);
 
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
-    // Call: run-lazy 42 → the literal 42 is passed lazily, resolved when :thunk is accessed
-    const call_id = try makeValueLiteral(alloc, .{ .string = "run-lazy" });
+    // Call: run-deferred 42 → the literal 42 is passed deferred, resolved when :thunk is accessed
+    const call_id = try makeValueLiteral(alloc, .{ .string = "run-deferred" });
     const forty_two = try makeValueLiteral(alloc, .{ .int = 42 });
     const call_thunk = try makeExpression(alloc, call_id, &.{forty_two});
 

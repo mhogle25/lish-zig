@@ -65,7 +65,7 @@ pub const Lexer = struct {
         return switch (first) {
             tok.EXPRESSION_SINGLE => self.singleCharToken(.call_expression_symbol, start),
             tok.MACRO_BRACKET => self.singleCharToken(.macro_bracket, start),
-            tok.LAZY => self.singleCharToken(.lazy_macro_param_symbol, start),
+            tok.DEFERRED => self.singleCharToken(.deferred_macro_param_symbol, start),
             tok.SCOPE_THUNK => self.singleCharToken(.call_scope_thunk_symbol, start),
 
             tok.EXPRESSION_OPEN => self.singleCharToken(.expression_opening_bracket, start),
@@ -314,7 +314,7 @@ test "lex symbols" {
     try std.testing.expectEqual(TokenType.macro_bracket, lex.nextToken().type);
     try std.testing.expectEqual(TokenType.identifier, lex.nextToken().type); // baz
     try std.testing.expectEqual(TokenType.macro_bracket, lex.nextToken().type);
-    try std.testing.expectEqual(TokenType.lazy_macro_param_symbol, lex.nextToken().type);
+    try std.testing.expectEqual(TokenType.deferred_macro_param_symbol, lex.nextToken().type);
     try std.testing.expectEqual(TokenType.identifier, lex.nextToken().type); // qux
 }
 

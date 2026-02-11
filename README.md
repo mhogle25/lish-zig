@@ -9,7 +9,7 @@ A Lisp-family expression language interpreter for Zig. Designed to be embedded i
 - **Existential truthiness** — no booleans; values either exist (`?Value`) or they don't (`null`)
 - **Arena allocation** — parse and execute within a single arena lifecycle
 - **Expression caching** — generic LRU cache avoids redundant parsing
-- **34 built-in operations** — arithmetic, comparison, logic, control flow, string, list, and higher-order functions
+- **42 built-in operations** — arithmetic, comparison, logic, control flow, string, list, and higher-order functions
 - **Session API** — backend-agnostic REPL core; terminal now, custom UI later
 - **Embeddable** — use as a Zig module with `zig fetch`
 
@@ -63,12 +63,13 @@ Macros (params accessed with `:`):
 | Constants    | `some`, `none`                                        |
 | Arithmetic   | `+`, `-`, `*`, `/`, `%`, `^`                          |
 | Comparison   | `<`, `<=`, `>`, `>=`, `is`, `isnt`, `compare`         |
-| Logic        | `and`, `or`, `not`, `first`                           |
+| Logic        | `and`, `or`, `not`                                    |
 | Control Flow | `if`, `when`, `match`, `matchby`                      |
 | String       | `concat`, `join`, `say`, `error`                      |
-| List         | `list`, `flat`, `length`                              |
-| Higher-Order | `map`, `foreach`, `apply`                             |
+| List         | `list`, `flat`, `length`, `first`, `rest`, `at`, `reverse`, `range`, `until` |
+| Higher-Order | `map`, `foreach`, `apply`, `filter`, `reduce`         |
 | Sequencing   | `proc`                                                |
+| Utility      | `identity`                                            |
 
 ## Usage
 
@@ -217,7 +218,7 @@ zig build run -- -m path/to/macros
 | `parser.zig`       | Recursive descent expression parser                  |
 | `validation.zig`   | AST to executable transformation with error checking |
 | `exec.zig`         | Runtime: Thunk, Expression, Scope, Env, Registry     |
-| `builtins.zig`     | 34 built-in operations                               |
+| `builtins.zig`     | 42 built-in operations                               |
 | `macro_parser.zig` | Macro definition parser and validator                |
 | `cache.zig`        | Generic LRU cache (`LruCache(V)`)                    |
 | `process.zig`      | Convenience API: processRaw, macro file loading      |

@@ -38,8 +38,6 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
     try registry.registerOperation(allocator, "and", &andOp);
     try registry.registerOperation(allocator, "or", &orOp);
     try registry.registerOperation(allocator, "not", &notOp);
-    try registry.registerOperation(allocator, "first", &firstOp);
-
     // Control flow
     try registry.registerOperation(allocator, "if", &ifElseOp);
     try registry.registerOperation(allocator, "when", &whenOp);
@@ -56,11 +54,22 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
     try registry.registerOperation(allocator, "list", &listOp);
     try registry.registerOperation(allocator, "flat", &flatOp);
     try registry.registerOperation(allocator, "length", &lengthOp);
+    try registry.registerOperation(allocator, "first", &firstOp);
+    try registry.registerOperation(allocator, "rest", &restOp);
+    try registry.registerOperation(allocator, "at", &atOp);
+    try registry.registerOperation(allocator, "reverse", &reverseOp);
+    try registry.registerOperation(allocator, "range", &rangeOp);
+    try registry.registerOperation(allocator, "until", &untilOp);
 
     // Higher-order
     try registry.registerOperation(allocator, "map", &mapOp);
     try registry.registerOperation(allocator, "foreach", &foreachOp);
     try registry.registerOperation(allocator, "apply", &applyOp);
+    try registry.registerOperation(allocator, "filter", &filterOp);
+    try registry.registerOperation(allocator, "reduce", &reduceOp);
+
+    // Utility
+    try registry.registerOperation(allocator, "identity", &identityOp);
 
     // Sequencing
     try registry.registerOperation(allocator, "proc", &procOp);
@@ -264,15 +273,6 @@ fn notOp(args: Args) ExecError!?Value {
     return if (result != null) null else val.some();
 }
 
-fn firstOp(args: Args) ExecError!?Value {
-    try args.expectMinCount(1);
-    for (0..args.count()) |i| {
-        const result = try args.at(i).get();
-        if (result != null) return result;
-    }
-    return args.env.fail("'first' found no value");
-}
-
 // ── Control flow ──
 
 fn ifElseOp(args: Args) ExecError!?Value {
@@ -465,6 +465,106 @@ fn lengthOp(args: Args) ExecError!?Value {
     };
 }
 
+fn firstOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const list = try args.at(0).resolveList();
+    if (list.len == 0) return null;
+    return list[0];
+}
+
+fn restOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const list = try args.at(0).resolveList();
+    if (list.len <= 1) return .{ .list = &.{} };
+    return .{ .list = list[1..] };
+}
+
+fn atOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    const list = try args.at(0).resolveList();
+    const index_value = try args.at(1).resolve();
+    const index = index_value.getI() catch return args.env.fail("'at' expects an integer index");
+    if (index < 0 or index >= @as(i32, @intCast(list.len))) return null;
+    return list[@intCast(index)];
+}
+
+fn reverseOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const list = try args.at(0).resolveList();
+    const alloc = args.env.allocator;
+    const reversed = try alloc.alloc(?Value, list.len);
+    for (list, 0..) |item, i| {
+        reversed[list.len - 1 - i] = item;
+    }
+    return .{ .list = reversed };
+}
+
+fn rangeOp(args: Args) ExecError!?Value {
+    const count = args.count();
+    if (count < 2 or count > 3) return args.env.fail("'range' expects 2 or 3 arguments");
+
+    const start_value = try args.at(0).resolve();
+    const end_value = try args.at(1).resolve();
+    const start = start_value.getI() catch return args.env.fail("'range' expects integer arguments");
+    const end = end_value.getI() catch return args.env.fail("'range' expects integer arguments");
+
+    var step: i32 = if (start <= end) 1 else -1;
+    if (count == 3) {
+        const step_value = try args.at(2).resolve();
+        step = step_value.getI() catch return args.env.fail("'range' expects an integer step");
+        if (step == 0) return args.env.fail("'range' step cannot be zero");
+    }
+
+    const alloc = args.env.allocator;
+    var items = std.ArrayListUnmanaged(?Value){};
+
+    var current = start;
+    if (step > 0) {
+        while (current <= end) : (current += step) {
+            try items.append(alloc, .{ .int = current });
+        }
+    } else {
+        while (current >= end) : (current += step) {
+            try items.append(alloc, .{ .int = current });
+        }
+    }
+
+    return .{ .list = items.items };
+}
+
+fn untilOp(args: Args) ExecError!?Value {
+    const count = args.count();
+    if (count < 2 or count > 3) return args.env.fail("'until' expects 2 or 3 arguments");
+
+    const start_value = try args.at(0).resolve();
+    const end_value = try args.at(1).resolve();
+    const start = start_value.getI() catch return args.env.fail("'until' expects integer arguments");
+    const end = end_value.getI() catch return args.env.fail("'until' expects integer arguments");
+
+    var step: i32 = if (start <= end) 1 else -1;
+    if (count == 3) {
+        const step_value = try args.at(2).resolve();
+        step = step_value.getI() catch return args.env.fail("'until' expects an integer step");
+        if (step == 0) return args.env.fail("'until' step cannot be zero");
+    }
+
+    const alloc = args.env.allocator;
+    var items = std.ArrayListUnmanaged(?Value){};
+
+    var current = start;
+    if (step > 0) {
+        while (current < end) : (current += step) {
+            try items.append(alloc, .{ .int = current });
+        }
+    } else {
+        while (current > end) : (current += step) {
+            try items.append(alloc, .{ .int = current });
+        }
+    }
+
+    return .{ .list = items.items };
+}
+
 // ── Higher-order ──
 
 fn mapOp(args: Args) ExecError!?Value {
@@ -518,6 +618,56 @@ fn applyOp(args: Args) ExecError!?Value {
 
     const expression = Expression{ .id = id_thunk, .args = thunks };
     return args.env.processExpression(expression, args.scope);
+}
+
+fn filterOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    const id_value = try args.at(0).resolve();
+    const list = try args.at(1).resolveList();
+
+    const alloc = args.env.allocator;
+    const id_thunk = try exec.makeValueLiteral(alloc, id_value);
+    var results = std.ArrayListUnmanaged(?Value){};
+
+    for (list) |item| {
+        const item_thunk = try exec.makeValueLiteral(alloc, item);
+        const arg_thunks = try alloc.alloc(*const Thunk, 1);
+        arg_thunks[0] = item_thunk;
+        const expression = Expression{ .id = id_thunk, .args = arg_thunks };
+        const result = try args.env.processExpression(expression, args.scope);
+        if (result != null) {
+            try results.append(alloc, item);
+        }
+    }
+    return .{ .list = results.items };
+}
+
+fn reduceOp(args: Args) ExecError!?Value {
+    try args.expectCount(3);
+    const id_value = try args.at(0).resolve();
+    var accumulator = try args.at(1).get();
+    const list = try args.at(2).resolveList();
+
+    const alloc = args.env.allocator;
+    const id_thunk = try exec.makeValueLiteral(alloc, id_value);
+
+    for (list) |item| {
+        const acc_thunk = try exec.makeValueLiteral(alloc, accumulator);
+        const item_thunk = try exec.makeValueLiteral(alloc, item);
+        const arg_thunks = try alloc.alloc(*const Thunk, 2);
+        arg_thunks[0] = acc_thunk;
+        arg_thunks[1] = item_thunk;
+        const expression = Expression{ .id = id_thunk, .args = arg_thunks };
+        accumulator = try args.env.processExpression(expression, args.scope);
+    }
+    return accumulator;
+}
+
+// ── Utility ──
+
+fn identityOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    return args.at(0).get();
 }
 
 // ── Sequencing ──
@@ -820,6 +970,148 @@ test "constants: some and none" {
     try std.testing.expect(some_result != null);
     const none_result = try evalWithBuiltins(arena.allocator(), "none");
     try std.testing.expect(none_result == null);
+}
+
+test "list: first" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "first [10 20 30]");
+    try std.testing.expectEqual(@as(i32, 10), result.?.int);
+}
+
+test "list: first on empty list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "first []");
+    try std.testing.expect(result == null);
+}
+
+test "list: rest" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (rest [10 20 30])");
+    try std.testing.expectEqual(@as(i32, 2), result.?.int);
+}
+
+test "list: rest on single element" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (rest [10])");
+    try std.testing.expectEqual(@as(i32, 0), result.?.int);
+}
+
+test "list: rest on empty list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (rest [])");
+    try std.testing.expectEqual(@as(i32, 0), result.?.int);
+}
+
+test "list: at" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "at [10 20 30] 1");
+    try std.testing.expectEqual(@as(i32, 20), result.?.int);
+}
+
+test "list: at out of bounds" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "at [10 20 30] 5");
+    try std.testing.expect(result == null);
+}
+
+test "list: at negative index" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "at [10 20 30] (- 0 1)");
+    try std.testing.expect(result == null);
+}
+
+test "list: reverse" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "first (reverse [10 20 30])");
+    try std.testing.expectEqual(@as(i32, 30), result.?.int);
+}
+
+test "list: range inclusive" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (range 1 5)");
+    try std.testing.expectEqual(@as(i32, 5), result.?.int);
+}
+
+test "list: range with step" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "at (range 0 10 3) 2");
+    try std.testing.expectEqual(@as(i32, 6), result.?.int);
+}
+
+test "list: range descending" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "first (range 5 1)");
+    try std.testing.expectEqual(@as(i32, 5), result.?.int);
+}
+
+test "list: range start > end returns empty" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (range 5 1 1)");
+    try std.testing.expectEqual(@as(i32, 0), result.?.int);
+}
+
+test "list: until exclusive" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (until 1 5)");
+    try std.testing.expectEqual(@as(i32, 4), result.?.int);
+}
+
+test "list: until same start and end" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (until 5 5)");
+    try std.testing.expectEqual(@as(i32, 0), result.?.int);
+}
+
+test "higher-order: filter" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // filter "not" over [some none some] — keeps elements where (not element) is truthy
+    // (not some) = null (filtered out), (not none) = some (kept), (not some) = null (filtered out)
+    const result = try evalWithBuiltins(arena.allocator(), "length (filter \"not\" [$some $none $some])");
+    try std.testing.expectEqual(@as(i32, 1), result.?.int);
+}
+
+test "higher-order: reduce" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "reduce \"+\" 0 [1 2 3 4 5]");
+    try std.testing.expectEqual(@as(i32, 15), result.?.int);
+}
+
+test "higher-order: reduce with multiply" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "reduce \"*\" 1 [2 3 4]");
+    try std.testing.expectEqual(@as(i32, 24), result.?.int);
+}
+
+test "utility: identity" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "identity 42");
+    try std.testing.expectEqual(@as(i32, 42), result.?.int);
+}
+
+test "utility: identity with none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "identity $none");
+    try std.testing.expect(result == null);
 }
 
 test "block literal as proc" {

@@ -10,7 +10,7 @@ A Lisp-family expression language interpreter for Zig. Designed to be embedded i
 - **Arena allocation** — parse and execute within a single arena lifecycle
 - **Expression caching** — generic LRU cache avoids redundant parsing
 - **41 built-in operations** — arithmetic, comparison, logic, control flow, string, list, and higher-order functions
-- **Session API** — backend-agnostic REPL core; terminal now, custom UI later
+- **Session API** — backend-agnostic REPL core 
 - **Embeddable** — use as a Zig module with `zig fetch`
 
 ## Syntax Overview

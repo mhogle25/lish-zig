@@ -17,7 +17,9 @@ pub const exec = @import("exec.zig");
 pub const validation = @import("validation.zig");
 pub const builtins = @import("builtins.zig");
 pub const macro_parser = @import("macro_parser.zig");
+pub const cache = @import("cache.zig");
 pub const process = @import("process.zig");
+pub const session = @import("session.zig");
 
 pub const Lexer = lexer.Lexer;
 pub const AstNode = ast.AstNode;
@@ -32,9 +34,20 @@ pub const Macro = exec.Macro;
 pub const processRaw = process.processRaw;
 pub const loadMacroModule = process.loadMacroModule;
 pub const loadFragments = process.loadFragments;
+pub const loadMacroFile = process.loadMacroFile;
+pub const loadMacroDir = process.loadMacroDir;
 pub const ProcessResult = process.ProcessResult;
 pub const MacroLoadResult = process.MacroLoadResult;
+pub const MacroDirResult = process.MacroDirResult;
 pub const RegistryFragment = process.RegistryFragment;
+pub const ExpressionCache = process.ExpressionCache;
+pub const LruCache = process.LruCache;
+pub const processRawCached = process.processRawCached;
+pub const MACRO_EXTENSION = process.MACRO_EXTENSION;
+
+pub const Session = session.Session;
+pub const SessionConfig = session.SessionConfig;
+pub const fdWriter = session.fdWriter;
 
 test {
     _ = value;
@@ -46,5 +59,7 @@ test {
     _ = validation;
     _ = builtins;
     _ = macro_parser;
+    _ = cache;
     _ = process;
+    _ = session;
 }

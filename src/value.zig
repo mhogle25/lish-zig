@@ -2,7 +2,6 @@ const std = @import("std");
 
 /// The core value type for the shell language.
 /// Represents one of four types: string, integer, float, or list.
-/// The core value type for the shell DSL.
 pub const Value = union(enum) {
     string: []const u8,
     int: i32,

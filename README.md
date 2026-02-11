@@ -30,10 +30,16 @@ Parens create sub-expressions:
 say $hello :myVar
 ```
 
-Lists and blocks:
+Lists and blocks (`[...]` is sugar for `list`, `{...}` is sugar for `proc`):
 ```
 [1 2 3]
 {(say "hello") (say "world")}
+```
+
+At the top level, use the operation names directly since the sugar forms become sub-expressions:
+```
+list 1 2 3
+proc (say "hello") (say "world")
 ```
 
 Macros (params accessed with `:`):

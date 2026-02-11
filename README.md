@@ -17,7 +17,7 @@ A Lisp-family expression language interpreter for Zig. Designed to be embedded i
 
 Top-level expressions don't need parens:
 ```
-say "hello" 42
+say hello 42
 ```
 
 Parens create sub-expressions:
@@ -25,21 +25,28 @@ Parens create sub-expressions:
 + 1 (* 2 3)
 ```
 
+Bare terms, `'single-quoted'`, and `"double-quoted"` strings are all string literals:
+```
+say hello
+say 'hello world'
+say "hello world"
+```
+
 `$term` for single-term expressions, `:name` for scope references:
 ```
-say $hello :myVar
+say $some :myVar
 ```
 
 Lists and blocks (`[...]` is sugar for `list`, `{...}` is sugar for `proc`):
 ```
 [1 2 3]
-{(say "hello") (say "world")}
+{(say hello) (say world)}
 ```
 
 At the top level, use the operation names directly since the sugar forms become sub-expressions:
 ```
 list 1 2 3
-proc (say "hello") (say "world")
+proc (say hello) (say world)
 ```
 
 Macros (params accessed with `:`):

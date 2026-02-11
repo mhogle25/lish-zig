@@ -66,7 +66,7 @@ Macros (params accessed with `:`):
 | Logic        | `and`, `or`, `not`                                    |
 | Control Flow | `if`, `when`, `match`, `matchby`                      |
 | String       | `concat`, `join`                                      |
-| I/O          | `say`, `error`                                        |
+| Output       | `say`, `error`                                        |
 | List         | `list`, `flat`, `length`, `first`, `rest`, `at`, `reverse`, `range`, `until` |
 | Higher-Order | `map`, `foreach`, `apply`, `filter`, `reduce`         |
 | Sequencing   | `proc`                                                |

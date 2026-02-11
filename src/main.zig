@@ -50,6 +50,11 @@ pub fn main() !void {
             break;
         }
 
+        if (std.mem.eql(u8, trimmed, "clear")) {
+            stdout.print("\x1b[2J\x1b[H", .{}) catch {};
+            continue;
+        }
+
         const result = session.execute(trimmed) catch |err| {
             stderr.print("Error: {}\n", .{err}) catch {};
             continue;

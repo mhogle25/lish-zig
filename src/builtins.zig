@@ -42,7 +42,6 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
     try registry.registerOperation(allocator, "if", &ifElseOp);
     try registry.registerOperation(allocator, "when", &whenOp);
     try registry.registerOperation(allocator, "match", &matchOp);
-    try registry.registerOperation(allocator, "matchby", &matchbyOp);
 
     // String
     try registry.registerOperation(allocator, "concat", &concatOp);
@@ -309,7 +308,7 @@ fn whenOp(args: Args) ExecError!?Value {
         }
     }
 
-    return args.env.fail("No condition matched in 'when'");
+    return null;
 }
 
 fn matchOp(args: Args) ExecError!?Value {
@@ -336,33 +335,7 @@ fn matchOp(args: Args) ExecError!?Value {
         }
     }
 
-    return args.env.fail("No match found");
-}
-
-fn matchbyOp(args: Args) ExecError!?Value {
-    const count = args.count();
-    if (count < 3 or count % 2 == 0) {
-        return args.env.fail("'matchby' expects an odd number of arguments");
-    }
-
-    var i: usize = 1;
-    while (i < count) : (i += 2) {
-        const target = try args.at(0).get();
-        const pattern = try args.at(i).get();
-
-        const matches = if (target == null and pattern == null)
-            true
-        else if (target != null and pattern != null)
-            target.?.eql(pattern.?)
-        else
-            false;
-
-        if (matches) {
-            return args.at(i + 1).get();
-        }
-    }
-
-    return args.env.fail("No match found");
+    return null;
 }
 
 // ── String ──

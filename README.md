@@ -93,24 +93,24 @@ Macros (params accessed with `:`):
 Add as a dependency in your `build.zig.zon`:
 
 ```
-zig fetch --save git+https://github.com/mhogle25/sh-zig.git
+zig fetch --save git+https://github.com/mhogle25/lish-zig.git
 ```
 
 Then in your `build.zig`:
 
 ```zig
-const sh_dep = b.dependency("sh", .{
+const lish_dep = b.dependency("lish", .{
     .target = target,
     .optimize = optimize,
 });
-your_module.addImport("sh", sh_dep.module("sh"));
+your_module.addImport("lish", lish_dep.module("lish"));
 ```
 
 ### Basic Example
 
 ```zig
 const std = @import("std");
-const sh = @import("sh");
+const lish = @import("lish");
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -118,17 +118,17 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     // Set up a registry with built-in operations
-    var registry = sh.Registry{};
-    try sh.builtins.registerAll(&registry, allocator);
+    var registry = lish.Registry{};
+    try lish.builtins.registerAll(&registry, allocator);
 
     // Create an execution environment
-    var env = sh.Env{
+    var env = lish.Env{
         .registry = &registry,
         .allocator = allocator,
     };
 
     // Process an expression
-    const result = try sh.processRaw(&env, "+ 1 2", null);
+    const result = try lish.processRaw(&env, "+ 1 2", null);
     switch (result) {
         .ok => |maybe_value| {
             if (maybe_value) |value| {
@@ -149,12 +149,12 @@ pub fn main() !void {
 The `Session` is the high-level integration point for interactive use. It owns the registry, cache, and arena, and processes one input at a time:
 
 ```zig
-const sh = @import("sh");
+const lish = @import("lish");
 
-var session = try sh.Session.init(allocator, .{
-    .fragments = &.{&sh.builtins.registerAll},
-    .stdout = sh.session.fdWriter(std.posix.STDOUT_FILENO),
-    .stderr = sh.session.fdWriter(std.posix.STDERR_FILENO),
+var session = try lish.Session.init(allocator, .{
+    .fragments = &.{&lish.builtins.registerAll},
+    .stdout = lish.session.fdWriter(std.posix.STDOUT_FILENO),
+    .stderr = lish.session.fdWriter(std.posix.STDERR_FILENO),
 });
 defer session.deinit();
 
@@ -171,20 +171,20 @@ const macro_source =
     \\|greet name| say (concat "Hello, " :name)
 ;
 
-const load_result = try sh.loadMacroModule(allocator, &registry, macro_source);
+const load_result = try lish.loadMacroModule(allocator, &registry, macro_source);
 switch (load_result) {
     .ok => |count| std.debug.print("Loaded {d} macros\n", .{count}),
     .validation_err => |errors| { /* handle errors */ },
 }
 ```
 
-From `.shmacro` files:
+From `.lishmacro` files:
 
 ```zig
 // Load a single file
-_ = try session.loadMacroFile("macros/math.shmacro");
+_ = try session.loadMacroFile("macros/math.lishmacro");
 
-// Or scan a directory for all .shmacro files
+// Or scan a directory for all .lishmacro files
 _ = try session.loadMacroDir("macros/");
 ```
 
@@ -197,7 +197,7 @@ zig build run -- -m macros/
 ### Custom Operations
 
 ```zig
-fn myOperation(args: sh.Args) sh.exec.ExecError!?sh.Value {
+fn myOperation(args: lish.Args) lish.exec.ExecError!?lish.Value {
     const value = try args.at(0).resolve();
     return value; // echo back the first argument
 }

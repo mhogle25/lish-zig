@@ -1,5 +1,5 @@
 const std = @import("std");
-const sh = @import("sh");
+const lish = @import("lish");
 const line_editor_mod = @import("line_editor.zig");
 
 pub fn main() !void {
@@ -7,8 +7,8 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const stdout = sh.session.fdWriter(std.posix.STDOUT_FILENO);
-    const stderr = sh.session.fdWriter(std.posix.STDERR_FILENO);
+    const stdout = lish.session.fdWriter(std.posix.STDOUT_FILENO);
+    const stderr = lish.session.fdWriter(std.posix.STDERR_FILENO);
 
     // Parse --macros/-m arguments
     var macro_dir_storage: [16][]const u8 = undefined;
@@ -30,8 +30,8 @@ pub fn main() !void {
         }
     }
 
-    var session = try sh.Session.init(allocator, .{
-        .fragments = &.{&sh.builtins.registerAll},
+    var session = try lish.Session.init(allocator, .{
+        .fragments = &.{&lish.builtins.registerAll},
         .macro_paths = macro_dir_storage[0..macro_dir_count],
         .stdout = stdout,
         .stderr = stderr,

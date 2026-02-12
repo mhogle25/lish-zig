@@ -5,7 +5,7 @@ const Allocator = std.mem.Allocator;
 
 const BUFFER_SIZE = 4096;
 const MAX_HISTORY = 256;
-const PROMPT = "sh> ";
+const PROMPT = "lish> ";
 
 pub const ReadLineResult = union(enum) {
     line: []const u8,

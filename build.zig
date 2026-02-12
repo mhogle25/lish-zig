@@ -4,20 +4,20 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const mod = b.addModule("sh", .{
+    const mod = b.addModule("lish", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
     });
 
     // CLI executable
     const exe = b.addExecutable(.{
-        .name = "sh",
+        .name = "lish",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "sh", .module = mod },
+                .{ .name = "lish", .module = mod },
             },
         }),
     });
@@ -28,7 +28,7 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
-    const run_step = b.step("run", "Run the sh REPL");
+    const run_step = b.step("run", "Run the lish REPL");
     run_step.dependOn(&run_cmd.step);
 
     // Tests

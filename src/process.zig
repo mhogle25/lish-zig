@@ -16,7 +16,7 @@ const ValidationError = validation_mod.ValidationError;
 pub const ExpressionCache = cache_mod.ExpressionCache;
 pub const LruCache = cache_mod.LruCache;
 
-pub const MACRO_EXTENSION = ".shmacro";
+pub const MACRO_EXTENSION = ".lishmacro";
 
 // ── Result types ──
 
@@ -137,7 +137,7 @@ pub fn loadFragments(
     }
 }
 
-/// Read a .shmacro file from disk, parse, validate, and register macros.
+/// Read a .lishmacro file from disk, parse, validate, and register macros.
 pub fn loadMacroFile(
     allocator: Allocator,
     registry: *Registry,
@@ -163,7 +163,7 @@ fn loadMacroFileError(allocator: Allocator, file_path: []const u8, err: anytype)
     return .{ .validation_err = errors };
 }
 
-/// Scan a directory for .shmacro files and load each one.
+/// Scan a directory for .lishmacro files and load each one.
 pub fn loadMacroDir(
     allocator: Allocator,
     registry: *Registry,

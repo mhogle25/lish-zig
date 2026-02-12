@@ -4,15 +4,15 @@ const std = @import("std");
 /// Represents one of four types: string, integer, float, or list.
 pub const Value = union(enum) {
     string: []const u8,
-    int: i32,
-    float: f32,
+    int: i64,
+    float: f64,
     list: []const ?Value,
 
     pub fn isNumber(self: Value) bool {
         return self == .int or self == .float;
     }
 
-    pub fn getI(self: Value) error{TypeMismatch}!i32 {
+    pub fn getI(self: Value) error{TypeMismatch}!i64 {
         return switch (self) {
             .int => |int_val| int_val,
             .float => |float_val| @intFromFloat(float_val),
@@ -20,7 +20,7 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn getF(self: Value) error{TypeMismatch}!f32 {
+    pub fn getF(self: Value) error{TypeMismatch}!f64 {
         return switch (self) {
             .float => |float_val| float_val,
             .int => |int_val| @floatFromInt(int_val),
@@ -32,7 +32,7 @@ pub const Value = union(enum) {
         return switch (self) {
             .string => |str| str,
             .int => |int_val| std.fmt.bufPrint(buf, "{d}", .{int_val}) catch "?",
-            .float => |float_val| std.fmt.bufPrint(buf, "{d:.2}", .{float_val}) catch "?",
+            .float => |float_val| std.fmt.bufPrint(buf, "{d}", .{float_val}) catch "?",
             .list => |items| {
                 var writer = std.io.fixedBufferStream(buf);
                 writer.writer().writeAll("[ ") catch return "?";
@@ -90,7 +90,7 @@ pub const Value = union(enum) {
         switch (self) {
             .string => |str| try writer.writeAll(str),
             .int => |int_val| try writer.print("{d}", .{int_val}),
-            .float => |float_val| try writer.print("{d:.2}", .{float_val}),
+            .float => |float_val| try writer.print("{d}", .{float_val}),
             .list => |items| {
                 try writer.writeAll("[ ");
                 for (items, 0..) |item, i| {
@@ -123,14 +123,14 @@ pub fn toCondition(condition: bool) ?Value {
 
 test "value int" {
     const val: Value = .{ .int = 42 };
-    try std.testing.expectEqual(@as(i32, 42), try val.getI());
-    try std.testing.expectEqual(@as(f32, 42.0), try val.getF());
+    try std.testing.expectEqual(@as(i64, 42), try val.getI());
+    try std.testing.expectEqual(@as(f64, 42.0), try val.getF());
 }
 
 test "value float" {
     const val: Value = .{ .float = 3.14 };
-    try std.testing.expectEqual(@as(f32, 3.14), try val.getF());
-    try std.testing.expectEqual(@as(i32, 3), try val.getI());
+    try std.testing.expectEqual(@as(f64, 3.14), try val.getF());
+    try std.testing.expectEqual(@as(i64, 3), try val.getI());
 }
 
 test "value string" {
@@ -149,8 +149,8 @@ test "value list" {
     const val: Value = .{ .list = &items };
     const list = try val.getL();
     try std.testing.expectEqual(@as(usize, 3), list.len);
-    try std.testing.expectEqual(@as(i32, 1), list[0].?.int);
-    try std.testing.expectEqual(@as(i32, 2), list[1].?.int);
+    try std.testing.expectEqual(@as(i64, 1), list[0].?.int);
+    try std.testing.expectEqual(@as(i64, 2), list[1].?.int);
     try std.testing.expect(list[2] == null);
 }
 

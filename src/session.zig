@@ -158,7 +158,7 @@ test "session: basic execute" {
     const result = try session.execute("+ 1 2");
     switch (result) {
         .ok => |maybe_value| {
-            try std.testing.expectEqual(@as(i32, 3), maybe_value.?.int);
+            try std.testing.expectEqual(@as(i64, 3), maybe_value.?.int);
         },
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => return error.TestUnexpectedResult,
@@ -174,7 +174,7 @@ test "session: multiple executions reuse cache" {
     // First execution — cache miss
     const result1 = try session.execute("+ 10 20");
     switch (result1) {
-        .ok => |maybe_value| try std.testing.expectEqual(@as(i32, 30), maybe_value.?.int),
+        .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 30), maybe_value.?.int),
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => return error.TestUnexpectedResult,
     }
@@ -182,7 +182,7 @@ test "session: multiple executions reuse cache" {
     // Second execution — cache hit
     const result2 = try session.execute("+ 10 20");
     switch (result2) {
-        .ok => |maybe_value| try std.testing.expectEqual(@as(i32, 30), maybe_value.?.int),
+        .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 30), maybe_value.?.int),
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => return error.TestUnexpectedResult,
     }
@@ -206,7 +206,7 @@ test "session: runtime error does not break subsequent executions" {
     // Should still work fine after error
     const good_result = try session.execute("+ 1 2");
     switch (good_result) {
-        .ok => |maybe_value| try std.testing.expectEqual(@as(i32, 3), maybe_value.?.int),
+        .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 3), maybe_value.?.int),
         else => return error.TestUnexpectedResult,
     }
 }

@@ -251,14 +251,14 @@ pub const Parser = struct {
     }
 
     fn intLiteral(self: *Parser) Allocator.Error!*AstNode {
-        const parsed_int = std.fmt.parseInt(i32, self.token.lexeme, 10) catch {
+        const parsed_int = std.fmt.parseInt(i64, self.token.lexeme, 10) catch {
             return self.logicalErr("An unexpected numeric token was encountered");
         };
         return ast.makeValueLiteral(self.allocator, .{ .int = parsed_int });
     }
 
     fn floatLiteral(self: *Parser) Allocator.Error!*AstNode {
-        const parsed_float = std.fmt.parseFloat(f32, self.token.lexeme) catch {
+        const parsed_float = std.fmt.parseFloat(f64, self.token.lexeme) catch {
             return self.logicalErr("An unexpected numeric token was encountered");
         };
         return ast.makeValueLiteral(self.allocator, .{ .float = parsed_float });
@@ -695,7 +695,7 @@ test "parse top-level expression with args" {
     try std.testing.expectEqualStrings("say", expr.id.value_literal.string);
     try std.testing.expectEqual(@as(usize, 2), expr.args.len);
     try std.testing.expectEqualStrings("hello", expr.args[0].value_literal.string);
-    try std.testing.expectEqual(@as(i32, 42), expr.args[1].value_literal.int);
+    try std.testing.expectEqual(@as(i64, 42), expr.args[1].value_literal.int);
 }
 
 test "parse parenthesized sub-expression" {
@@ -727,10 +727,10 @@ test "parse nested expression" {
     try std.testing.expect(top.args[0].* == .expression);
     const sub = top.args[0].expression;
     try std.testing.expectEqualStrings("+", sub.id.value_literal.string);
-    try std.testing.expectEqual(@as(i32, 1), sub.args[0].value_literal.int);
-    try std.testing.expectEqual(@as(i32, 2), sub.args[1].value_literal.int);
+    try std.testing.expectEqual(@as(i64, 1), sub.args[0].value_literal.int);
+    try std.testing.expectEqual(@as(i64, 2), sub.args[1].value_literal.int);
 
-    try std.testing.expectEqual(@as(i32, 3), top.args[1].value_literal.int);
+    try std.testing.expectEqual(@as(i64, 3), top.args[1].value_literal.int);
 }
 
 test "parse list literal" {

@@ -506,7 +506,7 @@ test "validate and execute macro" {
     const scope = exec.Scope.EMPTY;
     const value = try env.processExpression(expression, &scope);
 
-    try std.testing.expectEqual(@as(i32, 42), value.?.int);
+    try std.testing.expectEqual(@as(i64, 42), value.?.int);
 }
 
 test "end-to-end: macro with deferred parameter" {
@@ -540,7 +540,7 @@ test "end-to-end: macro with deferred parameter" {
     const scope = exec.Scope.EMPTY;
     const value = try env.processExpression(expression, &scope);
 
-    try std.testing.expectEqual(@as(i32, 42), value.?.int);
+    try std.testing.expectEqual(@as(i64, 42), value.?.int);
 }
 
 test "end-to-end: multiple macros in module" {
@@ -574,5 +574,5 @@ test "end-to-end: multiple macros in module" {
     const scope = exec.Scope.EMPTY;
     const value = try env.processExpression(expression, &scope);
 
-    try std.testing.expectEqual(@as(i32, 12), value.?.int);
+    try std.testing.expectEqual(@as(i64, 12), value.?.int);
 }

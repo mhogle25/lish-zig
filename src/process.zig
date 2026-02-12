@@ -221,7 +221,7 @@ test "processRaw: simple expression" {
     const result = try processRaw(&env, "+ 1 2", null);
     switch (result) {
         .ok => |maybe_value| {
-            try std.testing.expectEqual(@as(i32, 3), maybe_value.?.int);
+            try std.testing.expectEqual(@as(i64, 3), maybe_value.?.int);
         },
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => return error.TestUnexpectedResult,
@@ -241,7 +241,7 @@ test "processRaw: nested expressions" {
     switch (result) {
         .ok => |maybe_value| {
             // (1+2) + (3*4) = 3 + 12 = 15
-            try std.testing.expectEqual(@as(i32, 15), maybe_value.?.int);
+            try std.testing.expectEqual(@as(i64, 15), maybe_value.?.int);
         },
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => return error.TestUnexpectedResult,
@@ -322,7 +322,7 @@ test "processRaw: with scope" {
     const result = try processRaw(&env, "+ :x 5", &scope);
     switch (result) {
         .ok => |maybe_value| {
-            try std.testing.expectEqual(@as(i32, 15), maybe_value.?.int);
+            try std.testing.expectEqual(@as(i64, 15), maybe_value.?.int);
         },
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => return error.TestUnexpectedResult,
@@ -349,7 +349,7 @@ test "loadMacroModule: load and execute macros" {
     const result = try processRaw(&env, "double 21", null);
     switch (result) {
         .ok => |maybe_value| {
-            try std.testing.expectEqual(@as(i32, 42), maybe_value.?.int);
+            try std.testing.expectEqual(@as(i64, 42), maybe_value.?.int);
         },
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => return error.TestUnexpectedResult,
@@ -378,7 +378,7 @@ test "loadMacroModule: multiple macros" {
     const result = try processRaw(&env, "quadruple 3", null);
     switch (result) {
         .ok => |maybe_value| {
-            try std.testing.expectEqual(@as(i32, 12), maybe_value.?.int);
+            try std.testing.expectEqual(@as(i64, 12), maybe_value.?.int);
         },
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => return error.TestUnexpectedResult,
@@ -414,7 +414,7 @@ test "loadFragments: load multiple registry fragments" {
     const result = try processRaw(&env, "+ 1 2", null);
     switch (result) {
         .ok => |maybe_value| {
-            try std.testing.expectEqual(@as(i32, 3), maybe_value.?.int);
+            try std.testing.expectEqual(@as(i64, 3), maybe_value.?.int);
         },
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => return error.TestUnexpectedResult,
@@ -447,7 +447,7 @@ test "processRaw: full pipeline with macros and scope" {
     const result = try processRaw(&env, "add-to-x :x 50", &scope);
     switch (result) {
         .ok => |maybe_value| {
-            try std.testing.expectEqual(@as(i32, 150), maybe_value.?.int);
+            try std.testing.expectEqual(@as(i64, 150), maybe_value.?.int);
         },
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => return error.TestUnexpectedResult,
@@ -469,7 +469,7 @@ test "processRawCached: cache hit skips parsing" {
     // First call: cache miss (parse + validate + cache + execute)
     const result1 = try processRawCached(&env, &expression_cache, "+ 1 2", null);
     switch (result1) {
-        .ok => |maybe_value| try std.testing.expectEqual(@as(i32, 3), maybe_value.?.int),
+        .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 3), maybe_value.?.int),
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => return error.TestUnexpectedResult,
     }
@@ -478,7 +478,7 @@ test "processRawCached: cache hit skips parsing" {
     // Second call: cache hit (execute only)
     const result2 = try processRawCached(&env, &expression_cache, "+ 1 2", null);
     switch (result2) {
-        .ok => |maybe_value| try std.testing.expectEqual(@as(i32, 3), maybe_value.?.int),
+        .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 3), maybe_value.?.int),
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => return error.TestUnexpectedResult,
     }
@@ -500,12 +500,12 @@ test "processRawCached: different expressions get separate cache entries" {
     const result2 = try processRawCached(&env, &expression_cache, "* 3 4", null);
 
     switch (result1) {
-        .ok => |maybe_value| try std.testing.expectEqual(@as(i32, 3), maybe_value.?.int),
+        .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 3), maybe_value.?.int),
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => return error.TestUnexpectedResult,
     }
     switch (result2) {
-        .ok => |maybe_value| try std.testing.expectEqual(@as(i32, 12), maybe_value.?.int),
+        .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 12), maybe_value.?.int),
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => return error.TestUnexpectedResult,
     }

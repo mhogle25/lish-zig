@@ -90,14 +90,14 @@ pub const Arg = struct {
     }
 
     /// Evaluate and get as integer.
-    pub fn resolveInt(self: Arg) ExecError!i32 {
+    pub fn resolveInt(self: Arg) ExecError!i64 {
         const result = try self.resolve();
         return result.getI() catch
             return self.env.fail("Expected a number");
     }
 
     /// Evaluate and get as float.
-    pub fn resolveFloat(self: Arg) ExecError!f32 {
+    pub fn resolveFloat(self: Arg) ExecError!f64 {
         const result = try self.resolve();
         return result.getF() catch
             return self.env.fail("Expected a number");
@@ -347,7 +347,7 @@ test "value literal thunk returns stored value" {
 
     const thunk = try makeValueLiteral(alloc, .{ .int = 42 });
     const result = try thunk.proc(&env, &scope);
-    try std.testing.expectEqual(@as(i32, 42), result.?.int);
+    try std.testing.expectEqual(@as(i64, 42), result.?.int);
 }
 
 test "value literal none thunk returns null" {
@@ -384,7 +384,7 @@ test "scope thunk resolves entry from scope" {
     const lookup_thunk = try makeScopeThunk(alloc, id_thunk);
 
     const result = try lookup_thunk.proc(&env, &scope);
-    try std.testing.expectEqual(@as(i32, 99), result.?.int);
+    try std.testing.expectEqual(@as(i64, 99), result.?.int);
 }
 
 test "scope thunk fails for missing entry" {
@@ -420,7 +420,7 @@ test "expression evaluates operation" {
     const expr_thunk = try makeExpression(alloc, id, &.{arg});
 
     const result = try expr_thunk.proc(&env, &scope);
-    try std.testing.expectEqual(@as(i32, 42), result.?.int);
+    try std.testing.expectEqual(@as(i64, 42), result.?.int);
 }
 
 fn testDoubleOp(args: Args) ExecError!?Value {
@@ -466,7 +466,7 @@ test "nested expression evaluation" {
     const outer_expr = try makeExpression(alloc, add_id_outer, &.{ inner_expr, three });
 
     const result = try outer_expr.proc(&env, &scope);
-    try std.testing.expectEqual(@as(i32, 6), result.?.int);
+    try std.testing.expectEqual(@as(i64, 6), result.?.int);
 }
 
 fn testAddOp(args: Args) ExecError!?Value {
@@ -513,7 +513,7 @@ test "macro with value parameters" {
     const call_thunk = try makeExpression(alloc, call_id, &.{five});
 
     const result = try call_thunk.proc(&env, &scope);
-    try std.testing.expectEqual(@as(i32, 6), result.?.int);
+    try std.testing.expectEqual(@as(i64, 6), result.?.int);
 }
 
 test "macro with deferred parameter" {
@@ -554,7 +554,7 @@ test "macro with deferred parameter" {
     const call_thunk = try makeExpression(alloc, call_id, &.{forty_two});
 
     const result = try call_thunk.proc(&env, &scope);
-    try std.testing.expectEqual(@as(i32, 42), result.?.int);
+    try std.testing.expectEqual(@as(i64, 42), result.?.int);
 }
 
 fn testIdentityOp(args: Args) ExecError!?Value {
@@ -610,8 +610,8 @@ test "args validation" {
     const args = Args{ .items = items, .env = &env, .scope = &scope };
 
     try std.testing.expectEqual(@as(usize, 2), args.count());
-    try std.testing.expectEqual(@as(i32, 10), try args.at(0).resolveInt());
-    try std.testing.expectEqual(@as(i32, 20), try args.at(1).resolveInt());
+    try std.testing.expectEqual(@as(i64, 10), try args.at(0).resolveInt());
+    try std.testing.expectEqual(@as(i64, 20), try args.at(1).resolveInt());
 
     // single() should fail with 2 args
     try std.testing.expectError(error.RuntimeError, args.single());
@@ -646,5 +646,5 @@ test "scope entry closure captures scope" {
     // Resolving "my-val" should evaluate :y in inner_scope, finding y=10
     const entry = outer_scope.get("my-val").?;
     const result = try entry.run(&env);
-    try std.testing.expectEqual(@as(i32, 10), result.?.int);
+    try std.testing.expectEqual(@as(i64, 10), result.?.int);
 }

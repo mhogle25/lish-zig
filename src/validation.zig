@@ -329,7 +329,7 @@ test "validate end-to-end with execution" {
     switch (validation_result) {
         .ok => |expression| {
             const exec_result = try env.processExpression(expression, &scope);
-            try std.testing.expectEqual(@as(i32, 42), exec_result.?.int);
+            try std.testing.expectEqual(@as(i64, 42), exec_result.?.int);
         },
         .err => return error.TestUnexpectedResult,
     }

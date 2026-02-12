@@ -124,7 +124,7 @@ pub fn makeLogicalErr(allocator: Allocator, message: []const u8, line: usize, co
 test "ast value literal" {
     const node = AstNode{ .value_literal = .{ .int = 42 } };
     try std.testing.expect(!node.isErr());
-    try std.testing.expectEqual(@as(i32, 42), node.value_literal.int);
+    try std.testing.expectEqual(@as(i64, 42), node.value_literal.int);
 }
 
 test "ast error node" {

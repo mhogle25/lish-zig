@@ -111,50 +111,50 @@ fn noneOp(_: Args) ExecError!?Value {
 fn addOp(args: Args) ExecError!?Value {
     return numericFold(args, addInt, addFloat);
 }
-fn addInt(left: i32, right: i32) i32 {
+fn addInt(left: i64, right: i64) i64 {
     return left +% right;
 }
-fn addFloat(left: f32, right: f32) f32 {
+fn addFloat(left: f64, right: f64) f64 {
     return left + right;
 }
 
 fn subtractOp(args: Args) ExecError!?Value {
     return numericFold(args, subInt, subFloat);
 }
-fn subInt(left: i32, right: i32) i32 {
+fn subInt(left: i64, right: i64) i64 {
     return left -% right;
 }
-fn subFloat(left: f32, right: f32) f32 {
+fn subFloat(left: f64, right: f64) f64 {
     return left - right;
 }
 
 fn multiplyOp(args: Args) ExecError!?Value {
     return numericFold(args, mulInt, mulFloat);
 }
-fn mulInt(left: i32, right: i32) i32 {
+fn mulInt(left: i64, right: i64) i64 {
     return left *% right;
 }
-fn mulFloat(left: f32, right: f32) f32 {
+fn mulFloat(left: f64, right: f64) f64 {
     return left * right;
 }
 
 fn divideOp(args: Args) ExecError!?Value {
     return numericFold(args, divInt, divFloat);
 }
-fn divInt(left: i32, right: i32) i32 {
+fn divInt(left: i64, right: i64) i64 {
     return if (right == 0) 0 else @divTrunc(left, right);
 }
-fn divFloat(left: f32, right: f32) f32 {
+fn divFloat(left: f64, right: f64) f64 {
     return left / right;
 }
 
 fn moduloOp(args: Args) ExecError!?Value {
     return numericFold(args, modInt, modFloat);
 }
-fn modInt(left: i32, right: i32) i32 {
+fn modInt(left: i64, right: i64) i64 {
     return if (right == 0) 0 else @mod(left, right);
 }
-fn modFloat(left: f32, right: f32) f32 {
+fn modFloat(left: f64, right: f64) f64 {
     return @mod(left, right);
 }
 
@@ -170,11 +170,11 @@ fn powerOp(args: Args) ExecError!?Value {
         if (accumulator == .float or operand == .float) {
             const base = accumulator.getF() catch unreachable;
             const exponent = operand.getF() catch unreachable;
-            accumulator = .{ .float = std.math.pow(f32, base, exponent) };
+            accumulator = .{ .float = std.math.pow(f64, base, exponent) };
         } else {
-            const base: f32 = @floatFromInt(accumulator.getI() catch unreachable);
-            const exponent: f32 = @floatFromInt(operand.getI() catch unreachable);
-            accumulator = .{ .int = @intFromFloat(std.math.pow(f32, base, exponent)) };
+            const base: f64 = @floatFromInt(accumulator.getI() catch unreachable);
+            const exponent: f64 = @floatFromInt(operand.getI() catch unreachable);
+            accumulator = .{ .int = @intFromFloat(std.math.pow(f64, base, exponent)) };
         }
     }
     return accumulator;
@@ -185,40 +185,40 @@ fn powerOp(args: Args) ExecError!?Value {
 fn lessThanOp(args: Args) ExecError!?Value {
     return numericComparison(args, cmpLtInt, cmpLtFloat);
 }
-fn cmpLtInt(left: i32, right: i32) bool {
+fn cmpLtInt(left: i64, right: i64) bool {
     return left < right;
 }
-fn cmpLtFloat(left: f32, right: f32) bool {
+fn cmpLtFloat(left: f64, right: f64) bool {
     return left < right;
 }
 
 fn lessThanOrEqualOp(args: Args) ExecError!?Value {
     return numericComparison(args, cmpLeInt, cmpLeFloat);
 }
-fn cmpLeInt(left: i32, right: i32) bool {
+fn cmpLeInt(left: i64, right: i64) bool {
     return left <= right;
 }
-fn cmpLeFloat(left: f32, right: f32) bool {
+fn cmpLeFloat(left: f64, right: f64) bool {
     return left <= right;
 }
 
 fn greaterThanOp(args: Args) ExecError!?Value {
     return numericComparison(args, cmpGtInt, cmpGtFloat);
 }
-fn cmpGtInt(left: i32, right: i32) bool {
+fn cmpGtInt(left: i64, right: i64) bool {
     return left > right;
 }
-fn cmpGtFloat(left: f32, right: f32) bool {
+fn cmpGtFloat(left: f64, right: f64) bool {
     return left > right;
 }
 
 fn greaterThanOrEqualOp(args: Args) ExecError!?Value {
     return numericComparison(args, cmpGeInt, cmpGeFloat);
 }
-fn cmpGeInt(left: i32, right: i32) bool {
+fn cmpGeInt(left: i64, right: i64) bool {
     return left >= right;
 }
-fn cmpGeFloat(left: f32, right: f32) bool {
+fn cmpGeFloat(left: f64, right: f64) bool {
     return left >= right;
 }
 
@@ -250,13 +250,13 @@ fn compareOp(args: Args) ExecError!?Value {
     if (left.isNumber() and right.isNumber()) {
         const left_f = left.getF() catch unreachable;
         const right_f = right.getF() catch unreachable;
-        const result: i32 = if (left_f < right_f) -1 else if (left_f > right_f) @as(i32, 1) else 0;
+        const result: i64 = if (left_f < right_f) -1 else if (left_f > right_f) @as(i64, 1) else 0;
         return .{ .int = result };
     }
 
     if (left == .string and right == .string) {
         const order = std.mem.order(u8, left.string, right.string);
-        const result: i32 = switch (order) {
+        const result: i64 = switch (order) {
             .lt => -1,
             .gt => 1,
             .eq => 0,
@@ -488,11 +488,11 @@ fn atOp(args: Args) ExecError!?Value {
     const collection = try args.at(1).resolve();
     return switch (collection) {
         .list => |items| {
-            if (index >= @as(i32, @intCast(items.len))) return null;
+            if (index >= @as(i64, @intCast(items.len))) return null;
             return items[@intCast(index)];
         },
         .string => |str| {
-            if (index >= @as(i32, @intCast(str.len))) return null;
+            if (index >= @as(i64, @intCast(str.len))) return null;
             const idx: usize = @intCast(index);
             return .{ .string = str[idx .. idx + 1] };
         },
@@ -532,7 +532,7 @@ fn rangeOp(args: Args) ExecError!?Value {
     const start = start_value.getI() catch return args.env.fail("'range' expects integer arguments");
     const end = end_value.getI() catch return args.env.fail("'range' expects integer arguments");
 
-    var step: i32 = if (start <= end) 1 else -1;
+    var step: i64 = if (start <= end) 1 else -1;
     if (count == 3) {
         const step_value = try args.at(2).resolve();
         step = step_value.getI() catch return args.env.fail("'range' expects an integer step");
@@ -565,7 +565,7 @@ fn untilOp(args: Args) ExecError!?Value {
     const start = start_value.getI() catch return args.env.fail("'until' expects integer arguments");
     const end = end_value.getI() catch return args.env.fail("'until' expects integer arguments");
 
-    var step: i32 = if (start <= end) 1 else -1;
+    var step: i64 = if (start <= end) 1 else -1;
     if (count == 3) {
         const step_value = try args.at(2).resolve();
         step = step_value.getI() catch return args.env.fail("'until' expects an integer step");
@@ -715,7 +715,7 @@ fn intOp(args: Args) ExecError!?Value {
         .int => value,
         .float => |float_val| .{ .int = @intFromFloat(float_val) },
         .string => |str| {
-            const parsed = std.fmt.parseInt(i32, str, 10) catch return null;
+            const parsed = std.fmt.parseInt(i64, str, 10) catch return null;
             return .{ .int = parsed };
         },
         .list => null,
@@ -730,7 +730,7 @@ fn floatOp(args: Args) ExecError!?Value {
         .float => value,
         .int => |int_val| .{ .float = @floatFromInt(int_val) },
         .string => |str| {
-            const parsed = std.fmt.parseFloat(f32, str) catch return null;
+            const parsed = std.fmt.parseFloat(f64, str) catch return null;
             return .{ .float = parsed };
         },
         .list => null,
@@ -924,8 +924,8 @@ fn roundOp(args: Args) ExecError!?Value {
 
 fn numericFold(
     args: Args,
-    int_op: *const fn (i32, i32) i32,
-    float_op: *const fn (f32, f32) f32,
+    int_op: *const fn (i64, i64) i64,
+    float_op: *const fn (f64, f64) f64,
 ) ExecError!?Value {
     try args.expectMinCount(2);
     var accumulator = try args.at(0).resolve();
@@ -950,8 +950,8 @@ fn numericFold(
 
 fn numericComparison(
     args: Args,
-    int_cmp: *const fn (i32, i32) bool,
-    float_cmp: *const fn (f32, f32) bool,
+    int_cmp: *const fn (i64, i64) bool,
+    float_cmp: *const fn (f64, f64) bool,
 ) ExecError!?Value {
     try args.expectMinCount(2);
     var prev = try args.at(0).resolve();
@@ -1001,42 +1001,42 @@ test "arithmetic: add" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "+ 1 2 3");
-    try std.testing.expectEqual(@as(i32, 6), result.?.int);
+    try std.testing.expectEqual(@as(i64, 6), result.?.int);
 }
 
 test "arithmetic: subtract" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "- 10 3");
-    try std.testing.expectEqual(@as(i32, 7), result.?.int);
+    try std.testing.expectEqual(@as(i64, 7), result.?.int);
 }
 
 test "arithmetic: multiply" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "* 4 5");
-    try std.testing.expectEqual(@as(i32, 20), result.?.int);
+    try std.testing.expectEqual(@as(i64, 20), result.?.int);
 }
 
 test "arithmetic: divide" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "/ 10 3");
-    try std.testing.expectEqual(@as(i32, 3), result.?.int);
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
 }
 
 test "arithmetic: float promotion" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "+ 1 2.5");
-    try std.testing.expectEqual(@as(f32, 3.5), result.?.float);
+    try std.testing.expectEqual(@as(f64, 3.5), result.?.float);
 }
 
 test "arithmetic: power" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "^ 2 10");
-    try std.testing.expectEqual(@as(i32, 1024), result.?.int);
+    try std.testing.expectEqual(@as(i64, 1024), result.?.int);
 }
 
 test "comparison: less than" {
@@ -1072,11 +1072,11 @@ test "comparison: compare" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const less = try evalWithBuiltins(arena.allocator(), "compare 1 2");
-    try std.testing.expectEqual(@as(i32, -1), less.?.int);
+    try std.testing.expectEqual(@as(i64, -1), less.?.int);
     const greater = try evalWithBuiltins(arena.allocator(), "compare 2 1");
-    try std.testing.expectEqual(@as(i32, 1), greater.?.int);
+    try std.testing.expectEqual(@as(i64, 1), greater.?.int);
     const equal = try evalWithBuiltins(arena.allocator(), "compare 5 5");
-    try std.testing.expectEqual(@as(i32, 0), equal.?.int);
+    try std.testing.expectEqual(@as(i64, 0), equal.?.int);
 }
 
 test "logic: and short-circuits" {
@@ -1110,7 +1110,7 @@ test "control flow: if-then" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const truthy = try evalWithBuiltins(arena.allocator(), "if $some 42");
-    try std.testing.expectEqual(@as(i32, 42), truthy.?.int);
+    try std.testing.expectEqual(@as(i64, 42), truthy.?.int);
     const falsy = try evalWithBuiltins(arena.allocator(), "if $none 42");
     try std.testing.expect(falsy == null);
 }
@@ -1119,9 +1119,9 @@ test "control flow: if-then-else" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const truthy = try evalWithBuiltins(arena.allocator(), "if $some 1 else 2");
-    try std.testing.expectEqual(@as(i32, 1), truthy.?.int);
+    try std.testing.expectEqual(@as(i64, 1), truthy.?.int);
     const falsy = try evalWithBuiltins(arena.allocator(), "if $none 1 else 2");
-    try std.testing.expectEqual(@as(i32, 2), falsy.?.int);
+    try std.testing.expectEqual(@as(i64, 2), falsy.?.int);
 }
 
 test "control flow: when" {
@@ -1129,14 +1129,14 @@ test "control flow: when" {
     defer arena.deinit();
     // First condition is false (none), second is true (some) → returns 2
     const result = try evalWithBuiltins(arena.allocator(), "when $none 1 $some 2");
-    try std.testing.expectEqual(@as(i32, 2), result.?.int);
+    try std.testing.expectEqual(@as(i64, 2), result.?.int);
 }
 
 test "control flow: match" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "match 2 1 10 2 20 3 30");
-    try std.testing.expectEqual(@as(i32, 20), result.?.int);
+    try std.testing.expectEqual(@as(i64, 20), result.?.int);
 }
 
 test "string: concat" {
@@ -1159,16 +1159,16 @@ test "list: construction" {
     const result = try evalWithBuiltins(arena.allocator(), "list 1 2 3");
     const items = result.?.list;
     try std.testing.expectEqual(@as(usize, 3), items.len);
-    try std.testing.expectEqual(@as(i32, 1), items[0].?.int);
-    try std.testing.expectEqual(@as(i32, 2), items[1].?.int);
-    try std.testing.expectEqual(@as(i32, 3), items[2].?.int);
+    try std.testing.expectEqual(@as(i64, 1), items[0].?.int);
+    try std.testing.expectEqual(@as(i64, 2), items[1].?.int);
+    try std.testing.expectEqual(@as(i64, 3), items[2].?.int);
 }
 
 test "list: length" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "length [1 2 3]");
-    try std.testing.expectEqual(@as(i32, 3), result.?.int);
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
 }
 
 test "list: flat" {
@@ -1184,14 +1184,14 @@ test "higher-order: map" {
     defer arena.deinit();
     // map "not" over a list — inverts each element's truthiness
     const result = try evalWithBuiltins(arena.allocator(), "length (map \"length\" [\"ab\" \"cde\"])");
-    try std.testing.expectEqual(@as(i32, 2), result.?.int);
+    try std.testing.expectEqual(@as(i64, 2), result.?.int);
 }
 
 test "higher-order: apply" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "apply \"+\" [1 2 3]");
-    try std.testing.expectEqual(@as(i32, 6), result.?.int);
+    try std.testing.expectEqual(@as(i64, 6), result.?.int);
 }
 
 test "sequencing: proc" {
@@ -1199,7 +1199,7 @@ test "sequencing: proc" {
     defer arena.deinit();
     // proc evaluates all args, returns the last
     const result = try evalWithBuiltins(arena.allocator(), "proc 1 2 3");
-    try std.testing.expectEqual(@as(i32, 3), result.?.int);
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
 }
 
 test "constants: some and none" {
@@ -1215,7 +1215,7 @@ test "list: first" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "first [10 20 30]");
-    try std.testing.expectEqual(@as(i32, 10), result.?.int);
+    try std.testing.expectEqual(@as(i64, 10), result.?.int);
 }
 
 test "list: first on empty list" {
@@ -1229,28 +1229,28 @@ test "list: rest" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "length (rest [10 20 30])");
-    try std.testing.expectEqual(@as(i32, 2), result.?.int);
+    try std.testing.expectEqual(@as(i64, 2), result.?.int);
 }
 
 test "list: rest on single element" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "length (rest [10])");
-    try std.testing.expectEqual(@as(i32, 0), result.?.int);
+    try std.testing.expectEqual(@as(i64, 0), result.?.int);
 }
 
 test "list: rest on empty list" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "length (rest [])");
-    try std.testing.expectEqual(@as(i32, 0), result.?.int);
+    try std.testing.expectEqual(@as(i64, 0), result.?.int);
 }
 
 test "list: at" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "at 1 [10 20 30]");
-    try std.testing.expectEqual(@as(i32, 20), result.?.int);
+    try std.testing.expectEqual(@as(i64, 20), result.?.int);
 }
 
 test "list: at out of bounds" {
@@ -1271,49 +1271,49 @@ test "list: reverse" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "first (reverse [10 20 30])");
-    try std.testing.expectEqual(@as(i32, 30), result.?.int);
+    try std.testing.expectEqual(@as(i64, 30), result.?.int);
 }
 
 test "list: range inclusive" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "length (range 1 5)");
-    try std.testing.expectEqual(@as(i32, 5), result.?.int);
+    try std.testing.expectEqual(@as(i64, 5), result.?.int);
 }
 
 test "list: range with step" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "at 2 (range 0 10 3)");
-    try std.testing.expectEqual(@as(i32, 6), result.?.int);
+    try std.testing.expectEqual(@as(i64, 6), result.?.int);
 }
 
 test "list: range descending" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "first (range 5 1)");
-    try std.testing.expectEqual(@as(i32, 5), result.?.int);
+    try std.testing.expectEqual(@as(i64, 5), result.?.int);
 }
 
 test "list: range start > end returns empty" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "length (range 5 1 1)");
-    try std.testing.expectEqual(@as(i32, 0), result.?.int);
+    try std.testing.expectEqual(@as(i64, 0), result.?.int);
 }
 
 test "list: until exclusive" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "length (until 1 5)");
-    try std.testing.expectEqual(@as(i32, 4), result.?.int);
+    try std.testing.expectEqual(@as(i64, 4), result.?.int);
 }
 
 test "list: until same start and end" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "length (until 5 5)");
-    try std.testing.expectEqual(@as(i32, 0), result.?.int);
+    try std.testing.expectEqual(@as(i64, 0), result.?.int);
 }
 
 test "higher-order: filter" {
@@ -1322,28 +1322,28 @@ test "higher-order: filter" {
     // filter "not" over [some none some] — keeps elements where (not element) is truthy
     // (not some) = null (filtered out), (not none) = some (kept), (not some) = null (filtered out)
     const result = try evalWithBuiltins(arena.allocator(), "length (filter \"not\" [$some $none $some])");
-    try std.testing.expectEqual(@as(i32, 1), result.?.int);
+    try std.testing.expectEqual(@as(i64, 1), result.?.int);
 }
 
 test "higher-order: reduce" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "reduce \"+\" 0 [1 2 3 4 5]");
-    try std.testing.expectEqual(@as(i32, 15), result.?.int);
+    try std.testing.expectEqual(@as(i64, 15), result.?.int);
 }
 
 test "higher-order: reduce with multiply" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "reduce \"*\" 1 [2 3 4]");
-    try std.testing.expectEqual(@as(i32, 24), result.?.int);
+    try std.testing.expectEqual(@as(i64, 24), result.?.int);
 }
 
 test "utility: identity" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "identity 42");
-    try std.testing.expectEqual(@as(i32, 42), result.?.int);
+    try std.testing.expectEqual(@as(i64, 42), result.?.int);
 }
 
 test "utility: identity with none" {
@@ -1360,7 +1360,7 @@ test "block literal as proc" {
     // At top level: the block becomes a sub-expression whose result is the top-level ID
     // So we use it as an arg: proc {1 2 3} evaluates the block (returns 3)
     const result = try evalWithBuiltins(arena.allocator(), "proc {1 2 3}");
-    try std.testing.expectEqual(@as(i32, 3), result.?.int);
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
 }
 
 // ── Type conversion tests ──
@@ -1369,14 +1369,14 @@ test "type conversion: int from float" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "int 3.14");
-    try std.testing.expectEqual(@as(i32, 3), result.?.int);
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
 }
 
 test "type conversion: int from string" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "int \"42\"");
-    try std.testing.expectEqual(@as(i32, 42), result.?.int);
+    try std.testing.expectEqual(@as(i64, 42), result.?.int);
 }
 
 test "type conversion: int from invalid string" {
@@ -1397,14 +1397,14 @@ test "type conversion: float from int" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "float 5");
-    try std.testing.expectEqual(@as(f32, 5.0), result.?.float);
+    try std.testing.expectEqual(@as(f64, 5.0), result.?.float);
 }
 
 test "type conversion: float from string" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "float \"3.14\"");
-    try std.testing.expectApproxEqAbs(@as(f32, 3.14), result.?.float, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f64, 3.14), result.?.float, 0.001);
 }
 
 test "type conversion: string from int" {
@@ -1520,7 +1520,7 @@ test "string predicate: in list returns needle" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "in 2 [1 2 3]");
-    try std.testing.expectEqual(@as(i32, 2), result.?.int);
+    try std.testing.expectEqual(@as(i64, 2), result.?.int);
 }
 
 test "string predicate: in list falsy" {
@@ -1536,98 +1536,98 @@ test "math: min" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "min 3 1 2");
-    try std.testing.expectEqual(@as(i32, 1), result.?.int);
+    try std.testing.expectEqual(@as(i64, 1), result.?.int);
 }
 
 test "math: min float promotion" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "min 3 1.5 2");
-    try std.testing.expectEqual(@as(f32, 1.5), result.?.float);
+    try std.testing.expectEqual(@as(f64, 1.5), result.?.float);
 }
 
 test "math: max" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "max 3 1 2");
-    try std.testing.expectEqual(@as(i32, 3), result.?.int);
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
 }
 
 test "math: clamp within range" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "clamp 5 0 10");
-    try std.testing.expectEqual(@as(i32, 5), result.?.int);
+    try std.testing.expectEqual(@as(i64, 5), result.?.int);
 }
 
 test "math: clamp above max" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "clamp 15 0 10");
-    try std.testing.expectEqual(@as(i32, 10), result.?.int);
+    try std.testing.expectEqual(@as(i64, 10), result.?.int);
 }
 
 test "math: clamp below min" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "clamp (- 0 5) 0 10");
-    try std.testing.expectEqual(@as(i32, 0), result.?.int);
+    try std.testing.expectEqual(@as(i64, 0), result.?.int);
 }
 
 test "math: abs positive" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "abs 5");
-    try std.testing.expectEqual(@as(i32, 5), result.?.int);
+    try std.testing.expectEqual(@as(i64, 5), result.?.int);
 }
 
 test "math: abs negative" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "abs (- 0 5)");
-    try std.testing.expectEqual(@as(i32, 5), result.?.int);
+    try std.testing.expectEqual(@as(i64, 5), result.?.int);
 }
 
 test "math: abs float" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "abs -3.5");
-    try std.testing.expectEqual(@as(f32, 3.5), result.?.float);
+    try std.testing.expectEqual(@as(f64, 3.5), result.?.float);
 }
 
 test "math: floor" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "floor 3.7");
-    try std.testing.expectEqual(@as(i32, 3), result.?.int);
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
 }
 
 test "math: floor int identity" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "floor 5");
-    try std.testing.expectEqual(@as(i32, 5), result.?.int);
+    try std.testing.expectEqual(@as(i64, 5), result.?.int);
 }
 
 test "math: ceil" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "ceil 3.2");
-    try std.testing.expectEqual(@as(i32, 4), result.?.int);
+    try std.testing.expectEqual(@as(i64, 4), result.?.int);
 }
 
 test "math: round" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "round 3.5");
-    try std.testing.expectEqual(@as(i32, 4), result.?.int);
+    try std.testing.expectEqual(@as(i64, 4), result.?.int);
 }
 
 test "math: round down" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "round 3.4");
-    try std.testing.expectEqual(@as(i32, 3), result.?.int);
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
 }
 
 // ── Dual string/list support tests ──
@@ -1687,5 +1687,5 @@ test "comment: inline comment in expression" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "+ 1 ## comment ## 2");
-    try std.testing.expectEqual(@as(i32, 3), result.?.int);
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
 }

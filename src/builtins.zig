@@ -72,6 +72,28 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
 
     // Sequencing
     try registry.registerOperation(allocator, "proc", &procOp);
+
+    // Type conversion
+    try registry.registerOperation(allocator, "int", &intOp);
+    try registry.registerOperation(allocator, "float", &floatOp);
+    try registry.registerOperation(allocator, "string", &stringOp);
+
+    // Type inspection
+    try registry.registerOperation(allocator, "type", &typeOp);
+
+    // String predicates
+    try registry.registerOperation(allocator, "prefix", &prefixOp);
+    try registry.registerOperation(allocator, "suffix", &suffixOp);
+    try registry.registerOperation(allocator, "in", &inOp);
+
+    // Math utilities
+    try registry.registerOperation(allocator, "min", &minOp);
+    try registry.registerOperation(allocator, "max", &maxOp);
+    try registry.registerOperation(allocator, "clamp", &clampOp);
+    try registry.registerOperation(allocator, "abs", &absOp);
+    try registry.registerOperation(allocator, "floor", &floorOp);
+    try registry.registerOperation(allocator, "ceil", &ceilOp);
+    try registry.registerOperation(allocator, "round", &roundOp);
 }
 
 // ── Constants ──
@@ -440,36 +462,65 @@ fn lengthOp(args: Args) ExecError!?Value {
 
 fn firstOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
-    const list = try args.at(0).resolveList();
-    if (list.len == 0) return null;
-    return list[0];
+    const value = try args.at(0).resolve();
+    return switch (value) {
+        .list => |items| if (items.len == 0) null else items[0],
+        .string => |str| if (str.len == 0) null else .{ .string = str[0..1] },
+        else => args.env.fail("'first' expects a list or string"),
+    };
 }
 
 fn restOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
-    const list = try args.at(0).resolveList();
-    if (list.len <= 1) return .{ .list = &.{} };
-    return .{ .list = list[1..] };
+    const value = try args.at(0).resolve();
+    return switch (value) {
+        .list => |items| if (items.len <= 1) .{ .list = &.{} } else .{ .list = items[1..] },
+        .string => |str| if (str.len <= 1) .{ .string = "" } else .{ .string = str[1..] },
+        else => args.env.fail("'rest' expects a list or string"),
+    };
 }
 
 fn atOp(args: Args) ExecError!?Value {
     try args.expectCount(2);
-    const list = try args.at(0).resolveList();
-    const index_value = try args.at(1).resolve();
+    const index_value = try args.at(0).resolve();
     const index = index_value.getI() catch return args.env.fail("'at' expects an integer index");
-    if (index < 0 or index >= @as(i32, @intCast(list.len))) return null;
-    return list[@intCast(index)];
+    if (index < 0) return null;
+    const collection = try args.at(1).resolve();
+    return switch (collection) {
+        .list => |items| {
+            if (index >= @as(i32, @intCast(items.len))) return null;
+            return items[@intCast(index)];
+        },
+        .string => |str| {
+            if (index >= @as(i32, @intCast(str.len))) return null;
+            const idx: usize = @intCast(index);
+            return .{ .string = str[idx .. idx + 1] };
+        },
+        else => args.env.fail("'at' expects a list or string"),
+    };
 }
 
 fn reverseOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
-    const list = try args.at(0).resolveList();
+    const value = try args.at(0).resolve();
     const alloc = args.env.allocator;
-    const reversed = try alloc.alloc(?Value, list.len);
-    for (list, 0..) |item, i| {
-        reversed[list.len - 1 - i] = item;
-    }
-    return .{ .list = reversed };
+    return switch (value) {
+        .list => |items| {
+            const reversed = try alloc.alloc(?Value, items.len);
+            for (items, 0..) |item, i| {
+                reversed[items.len - 1 - i] = item;
+            }
+            return .{ .list = reversed };
+        },
+        .string => |str| {
+            const reversed = try alloc.alloc(u8, str.len);
+            for (str, 0..) |char, i| {
+                reversed[str.len - 1 - i] = char;
+            }
+            return .{ .string = reversed };
+        },
+        else => args.env.fail("'reverse' expects a list or string"),
+    };
 }
 
 fn rangeOp(args: Args) ExecError!?Value {
@@ -652,6 +703,221 @@ fn procOp(args: Args) ExecError!?Value {
         result = try args.at(i).get();
     }
     return result;
+}
+
+// ── Type conversion ──
+
+fn intOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const maybe_value = try args.at(0).get();
+    const value = maybe_value orelse return null;
+    return switch (value) {
+        .int => value,
+        .float => |float_val| .{ .int = @intFromFloat(float_val) },
+        .string => |str| {
+            const parsed = std.fmt.parseInt(i32, str, 10) catch return null;
+            return .{ .int = parsed };
+        },
+        .list => null,
+    };
+}
+
+fn floatOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const maybe_value = try args.at(0).get();
+    const value = maybe_value orelse return null;
+    return switch (value) {
+        .float => value,
+        .int => |int_val| .{ .float = @floatFromInt(int_val) },
+        .string => |str| {
+            const parsed = std.fmt.parseFloat(f32, str) catch return null;
+            return .{ .float = parsed };
+        },
+        .list => null,
+    };
+}
+
+fn stringOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const maybe_value = try args.at(0).get();
+    const value = maybe_value orelse return null;
+    return switch (value) {
+        .string => value,
+        .int, .float, .list => {
+            var buf: [256]u8 = undefined;
+            const str = value.getS(&buf);
+            const owned = try args.env.allocator.dupe(u8, str);
+            return .{ .string = owned };
+        },
+    };
+}
+
+// ── Type inspection ──
+
+fn typeOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const maybe_value = try args.at(0).get();
+    const value = maybe_value orelse return null;
+    return .{ .string = switch (value) {
+        .int => "int",
+        .float => "float",
+        .string => "string",
+        .list => "list",
+    } };
+}
+
+// ── String predicates ──
+
+fn prefixOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    var pattern_buf: [256]u8 = undefined;
+    const pattern = try args.at(0).resolveString(&pattern_buf);
+    const pattern_len = pattern.len;
+    var target_buf: [256]u8 = undefined;
+    const target = try args.at(1).resolveString(&target_buf);
+    if (!std.mem.startsWith(u8, target, pattern)) return null;
+    const remainder = try args.env.allocator.dupe(u8, target[pattern_len..]);
+    return .{ .string = remainder };
+}
+
+fn suffixOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    var pattern_buf: [256]u8 = undefined;
+    const pattern = try args.at(0).resolveString(&pattern_buf);
+    const pattern_len = pattern.len;
+    var target_buf: [256]u8 = undefined;
+    const target = try args.at(1).resolveString(&target_buf);
+    if (!std.mem.endsWith(u8, target, pattern)) return null;
+    const remainder = try args.env.allocator.dupe(u8, target[0 .. target.len - pattern_len]);
+    return .{ .string = remainder };
+}
+
+fn inOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    const needle = try args.at(0).resolve();
+    const haystack = try args.at(1).resolve();
+    return switch (haystack) {
+        .string => |haystack_str| {
+            var needle_buf: [256]u8 = undefined;
+            const needle_str = needle.getS(&needle_buf);
+            if (std.mem.indexOf(u8, haystack_str, needle_str) != null) return needle;
+            return null;
+        },
+        .list => |items| {
+            for (items) |item| {
+                if (item != null and needle.eql(item.?)) return needle;
+            }
+            return null;
+        },
+        else => args.env.fail("'in' expects a string or list as second argument"),
+    };
+}
+
+// ── Math utilities ──
+
+fn minOp(args: Args) ExecError!?Value {
+    try args.expectMinCount(2);
+    var result = try args.at(0).resolve();
+    if (!result.isNumber()) return args.env.fail("Expected a number");
+
+    for (1..args.count()) |i| {
+        const operand = try args.at(i).resolve();
+        if (!operand.isNumber()) return args.env.fail("Expected a number");
+
+        if (result == .float or operand == .float) {
+            const left = result.getF() catch unreachable;
+            const right = operand.getF() catch unreachable;
+            result = .{ .float = @min(left, right) };
+        } else {
+            const left = result.getI() catch unreachable;
+            const right = operand.getI() catch unreachable;
+            result = .{ .int = @min(left, right) };
+        }
+    }
+    return result;
+}
+
+fn maxOp(args: Args) ExecError!?Value {
+    try args.expectMinCount(2);
+    var result = try args.at(0).resolve();
+    if (!result.isNumber()) return args.env.fail("Expected a number");
+
+    for (1..args.count()) |i| {
+        const operand = try args.at(i).resolve();
+        if (!operand.isNumber()) return args.env.fail("Expected a number");
+
+        if (result == .float or operand == .float) {
+            const left = result.getF() catch unreachable;
+            const right = operand.getF() catch unreachable;
+            result = .{ .float = @max(left, right) };
+        } else {
+            const left = result.getI() catch unreachable;
+            const right = operand.getI() catch unreachable;
+            result = .{ .int = @max(left, right) };
+        }
+    }
+    return result;
+}
+
+fn clampOp(args: Args) ExecError!?Value {
+    try args.expectCount(3);
+    const value = try args.at(0).resolve();
+    const min_val = try args.at(1).resolve();
+    const max_val = try args.at(2).resolve();
+    if (!value.isNumber() or !min_val.isNumber() or !max_val.isNumber())
+        return args.env.fail("Expected a number");
+
+    if (value == .float or min_val == .float or max_val == .float) {
+        const val_f = value.getF() catch unreachable;
+        const min_f = min_val.getF() catch unreachable;
+        const max_f = max_val.getF() catch unreachable;
+        return .{ .float = @max(min_f, @min(val_f, max_f)) };
+    } else {
+        const val_i = value.getI() catch unreachable;
+        const min_i = min_val.getI() catch unreachable;
+        const max_i = max_val.getI() catch unreachable;
+        return .{ .int = @max(min_i, @min(val_i, max_i)) };
+    }
+}
+
+fn absOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const value = try args.at(0).resolve();
+    return switch (value) {
+        .int => |int_val| .{ .int = if (int_val < 0) -%int_val else int_val },
+        .float => |float_val| .{ .float = @abs(float_val) },
+        else => args.env.fail("Expected a number"),
+    };
+}
+
+fn floorOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const value = try args.at(0).resolve();
+    return switch (value) {
+        .int => value,
+        .float => |float_val| .{ .int = @intFromFloat(@floor(float_val)) },
+        else => args.env.fail("Expected a number"),
+    };
+}
+
+fn ceilOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const value = try args.at(0).resolve();
+    return switch (value) {
+        .int => value,
+        .float => |float_val| .{ .int = @intFromFloat(@ceil(float_val)) },
+        else => args.env.fail("Expected a number"),
+    };
+}
+
+fn roundOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const value = try args.at(0).resolve();
+    return switch (value) {
+        .int => value,
+        .float => |float_val| .{ .int = @intFromFloat(@round(float_val)) },
+        else => args.env.fail("Expected a number"),
+    };
 }
 
 // ── Numeric helpers ──
@@ -983,21 +1249,21 @@ test "list: rest on empty list" {
 test "list: at" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const result = try evalWithBuiltins(arena.allocator(), "at [10 20 30] 1");
+    const result = try evalWithBuiltins(arena.allocator(), "at 1 [10 20 30]");
     try std.testing.expectEqual(@as(i32, 20), result.?.int);
 }
 
 test "list: at out of bounds" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const result = try evalWithBuiltins(arena.allocator(), "at [10 20 30] 5");
+    const result = try evalWithBuiltins(arena.allocator(), "at 5 [10 20 30]");
     try std.testing.expect(result == null);
 }
 
 test "list: at negative index" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const result = try evalWithBuiltins(arena.allocator(), "at [10 20 30] (- 0 1)");
+    const result = try evalWithBuiltins(arena.allocator(), "at (- 0 1) [10 20 30]");
     try std.testing.expect(result == null);
 }
 
@@ -1018,7 +1284,7 @@ test "list: range inclusive" {
 test "list: range with step" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const result = try evalWithBuiltins(arena.allocator(), "at (range 0 10 3) 2");
+    const result = try evalWithBuiltins(arena.allocator(), "at 2 (range 0 10 3)");
     try std.testing.expectEqual(@as(i32, 6), result.?.int);
 }
 
@@ -1094,5 +1360,332 @@ test "block literal as proc" {
     // At top level: the block becomes a sub-expression whose result is the top-level ID
     // So we use it as an arg: proc {1 2 3} evaluates the block (returns 3)
     const result = try evalWithBuiltins(arena.allocator(), "proc {1 2 3}");
+    try std.testing.expectEqual(@as(i32, 3), result.?.int);
+}
+
+// ── Type conversion tests ──
+
+test "type conversion: int from float" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "int 3.14");
+    try std.testing.expectEqual(@as(i32, 3), result.?.int);
+}
+
+test "type conversion: int from string" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "int \"42\"");
+    try std.testing.expectEqual(@as(i32, 42), result.?.int);
+}
+
+test "type conversion: int from invalid string" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "int \"hello\"");
+    try std.testing.expect(result == null);
+}
+
+test "type conversion: int from none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "int $none");
+    try std.testing.expect(result == null);
+}
+
+test "type conversion: float from int" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "float 5");
+    try std.testing.expectEqual(@as(f32, 5.0), result.?.float);
+}
+
+test "type conversion: float from string" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "float \"3.14\"");
+    try std.testing.expectApproxEqAbs(@as(f32, 3.14), result.?.float, 0.001);
+}
+
+test "type conversion: string from int" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "string 42");
+    try std.testing.expectEqualStrings("42", result.?.string);
+}
+
+test "type conversion: string from none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "string $none");
+    try std.testing.expect(result == null);
+}
+
+// ── Type inspection tests ──
+
+test "type inspection: int" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "type 42");
+    try std.testing.expectEqualStrings("int", result.?.string);
+}
+
+test "type inspection: float" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "type 3.14");
+    try std.testing.expectEqualStrings("float", result.?.string);
+}
+
+test "type inspection: string" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "type \"hello\"");
+    try std.testing.expectEqualStrings("string", result.?.string);
+}
+
+test "type inspection: list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "type [1 2]");
+    try std.testing.expectEqualStrings("list", result.?.string);
+}
+
+test "type inspection: none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "type $none");
+    try std.testing.expect(result == null);
+}
+
+// ── String predicate tests ──
+
+test "string predicate: prefix returns remainder" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "prefix \"hel\" \"hello\"");
+    try std.testing.expectEqualStrings("lo", result.?.string);
+}
+
+test "string predicate: prefix full match returns empty string" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "prefix \"hello\" \"hello\"");
+    try std.testing.expectEqualStrings("", result.?.string);
+}
+
+test "string predicate: prefix falsy" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "prefix \"xyz\" \"hello\"");
+    try std.testing.expect(result == null);
+}
+
+test "string predicate: suffix returns remainder" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "suffix \"llo\" \"hello\"");
+    try std.testing.expectEqualStrings("he", result.?.string);
+}
+
+test "string predicate: suffix full match returns empty string" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "suffix \"hello\" \"hello\"");
+    try std.testing.expectEqualStrings("", result.?.string);
+}
+
+test "string predicate: suffix falsy" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "suffix \"xyz\" \"hello\"");
+    try std.testing.expect(result == null);
+}
+
+test "string predicate: in string returns needle" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "in \"ell\" \"hello\"");
+    try std.testing.expectEqualStrings("ell", result.?.string);
+}
+
+test "string predicate: in string falsy" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "in \"xyz\" \"hello\"");
+    try std.testing.expect(result == null);
+}
+
+test "string predicate: in list returns needle" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "in 2 [1 2 3]");
+    try std.testing.expectEqual(@as(i32, 2), result.?.int);
+}
+
+test "string predicate: in list falsy" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "in 5 [1 2 3]");
+    try std.testing.expect(result == null);
+}
+
+// ── Math utility tests ──
+
+test "math: min" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "min 3 1 2");
+    try std.testing.expectEqual(@as(i32, 1), result.?.int);
+}
+
+test "math: min float promotion" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "min 3 1.5 2");
+    try std.testing.expectEqual(@as(f32, 1.5), result.?.float);
+}
+
+test "math: max" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "max 3 1 2");
+    try std.testing.expectEqual(@as(i32, 3), result.?.int);
+}
+
+test "math: clamp within range" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "clamp 5 0 10");
+    try std.testing.expectEqual(@as(i32, 5), result.?.int);
+}
+
+test "math: clamp above max" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "clamp 15 0 10");
+    try std.testing.expectEqual(@as(i32, 10), result.?.int);
+}
+
+test "math: clamp below min" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "clamp (- 0 5) 0 10");
+    try std.testing.expectEqual(@as(i32, 0), result.?.int);
+}
+
+test "math: abs positive" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "abs 5");
+    try std.testing.expectEqual(@as(i32, 5), result.?.int);
+}
+
+test "math: abs negative" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "abs (- 0 5)");
+    try std.testing.expectEqual(@as(i32, 5), result.?.int);
+}
+
+test "math: abs float" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "abs -3.5");
+    try std.testing.expectEqual(@as(f32, 3.5), result.?.float);
+}
+
+test "math: floor" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "floor 3.7");
+    try std.testing.expectEqual(@as(i32, 3), result.?.int);
+}
+
+test "math: floor int identity" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "floor 5");
+    try std.testing.expectEqual(@as(i32, 5), result.?.int);
+}
+
+test "math: ceil" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "ceil 3.2");
+    try std.testing.expectEqual(@as(i32, 4), result.?.int);
+}
+
+test "math: round" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "round 3.5");
+    try std.testing.expectEqual(@as(i32, 4), result.?.int);
+}
+
+test "math: round down" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "round 3.4");
+    try std.testing.expectEqual(@as(i32, 3), result.?.int);
+}
+
+// ── Dual string/list support tests ──
+
+test "string: at" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "at 0 \"hello\"");
+    try std.testing.expectEqualStrings("h", result.?.string);
+}
+
+test "string: at out of bounds" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "at 10 \"hello\"");
+    try std.testing.expect(result == null);
+}
+
+test "string: first" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "first \"hello\"");
+    try std.testing.expectEqualStrings("h", result.?.string);
+}
+
+test "string: first empty" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "first \"\"");
+    try std.testing.expect(result == null);
+}
+
+test "string: rest" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "rest \"hello\"");
+    try std.testing.expectEqualStrings("ello", result.?.string);
+}
+
+test "string: rest single char" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "rest \"h\"");
+    try std.testing.expectEqualStrings("", result.?.string);
+}
+
+test "string: reverse" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "reverse \"hello\"");
+    try std.testing.expectEqualStrings("olleh", result.?.string);
+}
+
+// ── Comment integration tests ──
+
+test "comment: inline comment in expression" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "+ 1 ## comment ## 2");
     try std.testing.expectEqual(@as(i32, 3), result.?.int);
 }

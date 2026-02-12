@@ -112,6 +112,7 @@ pub const MACRO_BRACKET = '|';
 pub const DEFERRED = '~';
 pub const DECIMAL_POINT = '.';
 pub const NEGATIVE_SIGN = '-';
+pub const COMMENT = '#';
 pub const BACKSLASH = '\\';
 pub const CARRIAGE_RETURN = '\r';
 pub const NEWLINE = '\n';

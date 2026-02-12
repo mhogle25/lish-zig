@@ -38,14 +38,44 @@ pub const Lexer = struct {
             };
         }
 
-        // Skip whitespace
-        while (self.idx < self.source.len and isWhitespace(self.source[self.idx])) {
-            switch (self.source[self.idx]) {
-                tok.CARRIAGE_RETURN => self.handleCarriageReturn(),
-                tok.NEWLINE => self.handleNewline(),
-                else => self.column += 1,
+        // Skip whitespace and comments
+        while (true) {
+            while (self.idx < self.source.len and isWhitespace(self.source[self.idx])) {
+                switch (self.source[self.idx]) {
+                    tok.CARRIAGE_RETURN => self.handleCarriageReturn(),
+                    tok.NEWLINE => self.handleNewline(),
+                    else => self.column += 1,
+                }
+                self.idx += 1;
             }
-            self.idx += 1;
+
+            // Check for ## comment
+            if (self.idx + 1 < self.source.len and
+                self.source[self.idx] == tok.COMMENT and
+                self.source[self.idx + 1] == tok.COMMENT)
+            {
+                self.idx += 2; // skip opening ##
+                self.column += 2;
+
+                // Skip until closing ## or newline/EOF
+                while (self.idx < self.source.len) {
+                    if (self.source[self.idx] == tok.NEWLINE) break;
+                    if (self.source[self.idx] == tok.CARRIAGE_RETURN) break;
+                    if (self.idx + 1 < self.source.len and
+                        self.source[self.idx] == tok.COMMENT and
+                        self.source[self.idx + 1] == tok.COMMENT)
+                    {
+                        self.idx += 2; // skip closing ##
+                        self.column += 2;
+                        break;
+                    }
+                    self.idx += 1;
+                    self.column += 1;
+                }
+                continue; // loop back to skip more whitespace/comments
+            }
+
+            break;
         }
 
         if (self.idx >= self.source.len) {
@@ -394,4 +424,41 @@ test "lex empty input" {
 test "lex whitespace only" {
     var lex = Lexer{ .source = "   \t\n  " };
     try std.testing.expectEqual(TokenType.eof, lex.nextToken().type);
+}
+
+test "lex comment: line comment produces no tokens" {
+    var lex = Lexer{ .source = "## line comment" };
+    try std.testing.expectEqual(TokenType.eof, lex.nextToken().type);
+}
+
+test "lex comment: inline comment" {
+    var lex = Lexer{ .source = "+ 1 ## inline ## 2" };
+
+    const t1 = lex.nextToken();
+    try std.testing.expectEqual(TokenType.identifier, t1.type);
+    try std.testing.expectEqualStrings("+", t1.lexeme);
+
+    const t2 = lex.nextToken();
+    try std.testing.expectEqual(TokenType.int, t2.type);
+    try std.testing.expectEqualStrings("1", t2.lexeme);
+
+    const t3 = lex.nextToken();
+    try std.testing.expectEqual(TokenType.int, t3.type);
+    try std.testing.expectEqualStrings("2", t3.lexeme);
+
+    try std.testing.expectEqual(TokenType.eof, lex.nextToken().type);
+}
+
+test "lex comment: ## inside string literal is not a comment" {
+    var lex = Lexer{ .source = "\"string with ## in it\"" };
+    const token = lex.nextToken();
+    try std.testing.expectEqual(TokenType.string_literal, token.type);
+    try std.testing.expectEqualStrings("string with ## in it", token.lexeme);
+}
+
+test "lex comment: single # in term is valid identifier" {
+    var lex = Lexer{ .source = "#hello" };
+    const token = lex.nextToken();
+    try std.testing.expectEqual(TokenType.identifier, token.type);
+    try std.testing.expectEqualStrings("#hello", token.lexeme);
 }

@@ -9,7 +9,7 @@ A Lisp-family expression language interpreter for Zig. Designed to be embedded i
 - **Existential truthiness** — no booleans; values either exist (`?Value`) or they don't (`null`)
 - **Arena allocation** — parse and execute within a single arena lifecycle
 - **Expression caching** — generic LRU cache avoids redundant parsing
-- **41 built-in operations** — arithmetic, comparison, logic, control flow, string, list, and higher-order functions
+- **55 built-in operations** — arithmetic, comparison, logic, control flow, string, list, higher-order, type, and math functions
 - **Session API** — backend-agnostic REPL core 
 - **Embeddable** — use as a Zig module with `zig fetch`
 
@@ -49,6 +49,12 @@ list 1 2 3
 proc (say hello) (say world)
 ```
 
+Comments with `##` (inline or to end of line):
+```
++ 1 ## this is a comment ## 2
+say hello ## rest of line is ignored
+```
+
 Macros (params accessed with `:`):
 ```
 |greet name| say (concat "hello " :name)
@@ -65,19 +71,22 @@ Macros (params accessed with `:`):
 
 ## Built-in Operations
 
-| Category     | Operations                                            |
-|--------------|-------------------------------------------------------|
-| Constants    | `some`, `none`                                        |
-| Arithmetic   | `+`, `-`, `*`, `/`, `%`, `^`                          |
-| Comparison   | `<`, `<=`, `>`, `>=`, `is`, `isnt`, `compare`         |
-| Logic        | `and`, `or`, `not`                                    |
-| Control Flow | `if`, `when`, `match`                                 |
-| String       | `concat`, `join`                                      |
-| Output       | `say`, `error`                                        |
-| List         | `list`, `flat`, `length`, `first`, `rest`, `at`, `reverse`, `range`, `until` |
-| Higher-Order | `map`, `foreach`, `apply`, `filter`, `reduce`         |
-| Sequencing   | `proc`                                                |
-| Utility      | `identity`                                            |
+| Category          | Operations                                            |
+|-------------------|-------------------------------------------------------|
+| Constants         | `some`, `none`                                        |
+| Arithmetic        | `+`, `-`, `*`, `/`, `%`, `^`                          |
+| Comparison        | `<`, `<=`, `>`, `>=`, `is`, `isnt`, `compare`         |
+| Logic             | `and`, `or`, `not`                                    |
+| Control Flow      | `if`, `when`, `match`                                 |
+| String            | `concat`, `join`                                      |
+| String Predicates | `prefix`, `suffix`, `in`                              |
+| Output            | `say`, `error`                                        |
+| List              | `list`, `flat`, `length`, `first`, `rest`, `at`, `reverse`, `range`, `until` |
+| Higher-Order      | `map`, `foreach`, `apply`, `filter`, `reduce`         |
+| Math              | `min`, `max`, `clamp`, `abs`, `floor`, `ceil`, `round` |
+| Type              | `type`, `int`, `float`, `string`                      |
+| Sequencing        | `proc`                                                |
+| Utility           | `identity`                                            |
 
 ## Usage
 
@@ -226,7 +235,7 @@ zig build run -- -m path/to/macros
 | `parser.zig`       | Recursive descent expression parser                  |
 | `validation.zig`   | AST to executable transformation with error checking |
 | `exec.zig`         | Runtime: Thunk, Expression, Scope, Env, Registry     |
-| `builtins.zig`     | 41 built-in operations                               |
+| `builtins.zig`     | 55 built-in operations                               |
 | `macro_parser.zig` | Macro definition parser and validator                |
 | `cache.zig`        | Generic LRU cache (`LruCache(V)`)                    |
 | `process.zig`      | Convenience API: processRaw, macro file loading      |

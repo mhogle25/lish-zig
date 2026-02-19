@@ -10,7 +10,9 @@ A Lisp-family expression language interpreter for Zig. Designed to be embedded i
 - **Arena allocation** — parse and execute within a single arena lifecycle
 - **Expression caching** — generic LRU cache avoids redundant parsing
 - **55 built-in operations** — arithmetic, comparison, logic, control flow, string, list, higher-order, type, and math functions
-- **Session API** — backend-agnostic REPL core 
+- **Session API** — backend-agnostic REPL core
+- **AST builder** — fluent Zig API for constructing lish expressions and macro definitions programmatically
+- **AST serializer** — convert any AST node back to lish source text
 - **Embeddable** — use as a Zig module with `zig fetch`
 
 ## Syntax Overview
@@ -71,22 +73,23 @@ Macros (params accessed with `:`):
 
 ## Built-in Operations
 
-| Category          | Operations                                            |
-|-------------------|-------------------------------------------------------|
-| Constants         | `some`, `none`                                        |
-| Arithmetic        | `+`, `-`, `*`, `/`, `%`, `^`                          |
-| Comparison        | `<`, `<=`, `>`, `>=`, `is`, `isnt`, `compare`         |
-| Logic             | `and`, `or`, `not`                                    |
-| Control Flow      | `if`, `when`, `match`                                 |
-| String            | `concat`, `join`                                      |
-| String Predicates | `prefix`, `suffix`, `in`                              |
-| Output            | `say`, `error`                                        |
-| List              | `list`, `flat`, `length`, `first`, `rest`, `at`, `reverse`, `range`, `until` |
-| Higher-Order      | `map`, `foreach`, `apply`, `filter`, `reduce`         |
-| Math              | `min`, `max`, `clamp`, `abs`, `floor`, `ceil`, `round` |
-| Type              | `type`, `int`, `float`, `string`                      |
-| Sequencing        | `proc`                                                |
-| Utility           | `identity`                                            |
+| Category          | Operations                                              |
+|-------------------|---------------------------------------------------------|
+| Constants         | `some`, `none`                                          |
+| Arithmetic        | `+`, `-`, `*`, `/`, `%`, `^`                            |
+| Comparison        | `<`, `<=`, `>`, `>=`, `is`, `isnt`, `compare`           |
+| Logic             | `and`, `or`, `not`                                      |
+| Control Flow      | `if`, `when`, `match`                                   |
+| String            | `concat`, `join`                                        |
+| String Predicates | `prefix`, `suffix`                                      |
+| Output            | `say`, `error`                                          |
+| List              | `list`, `flat`, `range`, `until`                        |
+| Collection        | `length`, `first`, `rest`, `at`, `reverse`, `in`        |
+| Higher-Order      | `map`, `foreach`, `apply`, `filter`, `reduce`           |
+| Math              | `min`, `max`, `clamp`, `abs`, `floor`, `ceil`, `round`  |
+| Type              | `type`, `int`, `float`, `string`                        |
+| Sequencing        | `proc`                                                  |
+| Utility           | `identity`                                              |
 
 ## Usage
 
@@ -194,6 +197,63 @@ Or pass macro directories at the CLI:
 zig build run -- -m macros/
 ```
 
+### Building AST Programmatically
+
+`AstBuilder` provides a fluent API for constructing lish expressions and macro definitions from Zig code, without parsing source text.
+
+```zig
+const b = lish.AstBuilder.init(allocator);
+
+// Leaf nodes
+try b.int(42)            // 42
+try b.float(3.14)        // 3.14
+try b.string("hello")    // hello
+try b.scope("x")         // :x  (scope reference)
+try b.call("none")       // $none  (zero-argument call)
+
+// Expressions — chain .arg(), finish with .build(.{})
+var eb = b.expr("+");
+const node = try eb.arg(try b.int(1)).arg(try b.int(2)).build(.{});
+// → + 1 2
+
+// Nested sub-expressions
+var inner = b.expr("+");
+const inner_node = try inner.arg(try b.int(1)).arg(try b.int(2)).build(.{});
+var outer = b.expr("+");
+const root = try outer.arg(inner_node).arg(try b.int(3)).build(.{});
+// → + (+ 1 2) 3
+
+// Macro definitions
+var concat_eb = b.expr("concat");
+const concat_node = try concat_eb
+    .arg(try b.string("hello "))
+    .arg(try b.scope("name"))
+    .build(.{});
+var say_eb = b.expr("say");
+const body = try say_eb.arg(concat_node).build(.{});
+
+var mb = b.macro("greet");
+const macro_def = try mb.param("name").body(body);
+// → |greet name| say (concat "hello " :name)
+```
+
+### Serializing AST to Source
+
+Any AST node or macro definition can be serialized back to lish source text:
+
+```zig
+// Expression node → source string
+try lish.serializeExpression(node, writer);
+
+// Single macro definition
+try lish.serializeMacro(macro_def, writer);
+
+// Slice of macro definitions (newline-separated, suitable for a .lishmacro file)
+try lish.serializeMacroModule(macros, writer);
+```
+
+Serialization always emits the canonical desugared form — `list` instead of `[...]`, `proc` instead of `{...}`. Comments are not preserved (they are discarded by the lexer during parsing).
+
 ### Custom Operations
 
 ```zig
@@ -239,7 +299,9 @@ zig build run -- -m path/to/macros
 | `macro_parser.zig` | Macro definition parser and validator                |
 | `cache.zig`        | Generic LRU cache (`LruCache(V)`)                    |
 | `process.zig`      | Convenience API: processRaw, macro file loading      |
-| `session.zig`      | Session struct (backend-agnostic REPL core)           |
+| `session.zig`      | Session struct (backend-agnostic REPL core)          |
+| `ast_builder.zig`  | Fluent builder for AST nodes and macro definitions   |
+| `serializer.zig`   | AST to lish source text serializer                   |
 | `main.zig`         | Terminal REPL entry point                            |
 
 ## License

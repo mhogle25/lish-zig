@@ -20,6 +20,8 @@ pub const macro_parser = @import("macro_parser.zig");
 pub const cache = @import("cache.zig");
 pub const process = @import("process.zig");
 pub const session = @import("session.zig");
+pub const serializer = @import("serializer.zig");
+pub const ast_builder = @import("ast_builder.zig");
 
 pub const Lexer = lexer.Lexer;
 pub const AstNode = ast.AstNode;
@@ -49,6 +51,16 @@ pub const Session = session.Session;
 pub const SessionConfig = session.SessionConfig;
 pub const fdWriter = session.fdWriter;
 
+pub const AstBuilder = ast_builder.AstBuilder;
+pub const ExprBuilder = ast_builder.ExprBuilder;
+pub const MacroBuilder = ast_builder.MacroBuilder;
+pub const BuildOptions = ast_builder.BuildOptions;
+
+pub const SerializeError = serializer.SerializeError;
+pub const serializeExpression = serializer.serializeExpression;
+pub const serializeMacro = serializer.serializeMacro;
+pub const serializeMacroModule = serializer.serializeMacroModule;
+
 test {
     _ = value;
     _ = token;
@@ -62,4 +74,6 @@ test {
     _ = cache;
     _ = process;
     _ = session;
+    _ = serializer;
+    _ = ast_builder;
 }

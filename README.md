@@ -211,26 +211,37 @@ try b.string("hello")    // hello
 try b.scope("x")         // :x  (scope reference)
 try b.call("none")       // $none  (zero-argument call)
 
-// Expressions — chain .arg(), finish with .build(.{})
+// Expressions — chain .arg(), finish with .build()
 var eb = b.expr("+");
-const node = try eb.arg(try b.int(1)).arg(try b.int(2)).build(.{});
+const node = try eb.arg(try b.int(1)).arg(try b.int(2)).build();
 // → + 1 2
 
 // Nested sub-expressions
 var inner = b.expr("+");
-const inner_node = try inner.arg(try b.int(1)).arg(try b.int(2)).build(.{});
+const inner_node = try inner.arg(try b.int(1)).arg(try b.int(2)).build();
 var outer = b.expr("+");
-const root = try outer.arg(inner_node).arg(try b.int(3)).build(.{});
+const root = try outer.arg(inner_node).arg(try b.int(3)).build();
 // → + (+ 1 2) 3
+
+// Sugar types — meta type locked at construction
+var lb = b.list();
+const list_node = try lb.arg(try b.int(1)).arg(try b.int(2)).build();  // .list_literal
+
+var bb = b.block();
+const block_node = try bb.arg(stmt1).arg(stmt2).build();                // .block_literal
+
+// Top-level metadata override (rare)
+var top_eb = b.expr("+");
+const top_node = try top_eb.arg(try b.int(1)).asTopLevel().build();     // .top_level
 
 // Macro definitions
 var concat_eb = b.expr("concat");
 const concat_node = try concat_eb
     .arg(try b.string("hello "))
     .arg(try b.scope("name"))
-    .build(.{});
+    .build();
 var say_eb = b.expr("say");
-const body = try say_eb.arg(concat_node).build(.{});
+const body = try say_eb.arg(concat_node).build();
 
 var mb = b.macro("greet");
 const macro_def = try mb.param("name").body(body);

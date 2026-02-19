@@ -46,21 +46,48 @@ pub const AstBuilder = struct {
             .{ .meta_type = .single_term });
     }
 
-    // ── Builder factories ──
+    // ── Expression builder factories ──
 
-    /// Start building an expression with the given operation name as its ID.
-    /// Call `.arg()` to add arguments, then `.build()` to finish.
+    /// Start building a standard expression. Chain `.arg()`, finish with `.build()`.
+    /// Use `.asTopLevel()` before `.build()` to set top-level metadata.
     pub fn expr(self: AstBuilder, id: []const u8) ExprBuilder {
         return .{
             .builder = self,
             .id = id,
             .args = .{},
+            .meta_type = .standard,
             .sticky_err = null,
         };
     }
 
+    /// Start building a list literal (`[...]` sugar). Chain `.arg()`, finish with `.build()`.
+    /// Meta type is locked to `.list_literal`.
+    pub fn list(self: AstBuilder) ExprBuilder {
+        return .{
+            .builder = self,
+            .id = "list",
+            .args = .{},
+            .meta_type = .list_literal,
+            .sticky_err = null,
+        };
+    }
+
+    /// Start building a block literal (`{...}` sugar). Chain `.arg()`, finish with `.build()`.
+    /// Meta type is locked to `.block_literal`.
+    pub fn block(self: AstBuilder) ExprBuilder {
+        return .{
+            .builder = self,
+            .id = "proc",
+            .args = .{},
+            .meta_type = .block_literal,
+            .sticky_err = null,
+        };
+    }
+
+    // ── Macro builder factory ──
+
     /// Start building a macro definition with the given name.
-    /// Call `.param()` / `.deferredParam()` to add parameters, then `.body()` to finish.
+    /// Chain `.param()` / `.deferredParam()`, finish with `.body()`.
     pub fn macro(self: AstBuilder, name: []const u8) MacroBuilder {
         return .{
             .builder = self,
@@ -71,16 +98,13 @@ pub const AstBuilder = struct {
     }
 };
 
-pub const BuildOptions = struct {
-    meta_type: AstExpression.MetaType = .standard,
-};
-
 /// Builds an expression node incrementally. Stores OOM errors and surfaces them
 /// at `.build()` time, allowing uninterrupted method chaining.
 pub const ExprBuilder = struct {
     builder: AstBuilder,
     id: []const u8,
     args: std.ArrayListUnmanaged(*const AstNode),
+    meta_type: AstExpression.MetaType,
     sticky_err: ?Allocator.Error,
 
     /// Append an argument node. Returns self for chaining.
@@ -92,13 +116,20 @@ pub const ExprBuilder = struct {
         return self;
     }
 
-    /// Finish building the expression. Defaults to `.standard` meta type.
-    pub fn build(self: *ExprBuilder, options: BuildOptions) Allocator.Error!*const AstNode {
+    /// Override the meta type to `.top_level`. Only meaningful on `b.expr()` builders.
+    /// Returns self for chaining before `.build()`.
+    pub fn asTopLevel(self: *ExprBuilder) *ExprBuilder {
+        self.meta_type = .top_level;
+        return self;
+    }
+
+    /// Finish building the expression using the stored meta type.
+    pub fn build(self: *ExprBuilder) Allocator.Error!*const AstNode {
         if (self.sticky_err) |err| return err;
         const id_node = try ast_mod.makeValueLiteral(self.builder.allocator, .{ .string = self.id });
         const args_slice = try self.args.toOwnedSlice(self.builder.allocator);
         return ast_mod.makeExpression(self.builder.allocator, id_node, args_slice, null, null,
-            .{ .meta_type = options.meta_type });
+            .{ .meta_type = self.meta_type });
     }
 };
 
@@ -189,7 +220,7 @@ test "builder: simple expression" {
     const b = AstBuilder.init(arena.allocator());
 
     var eb = b.expr("+");
-    const node = try eb.arg(try b.int(1)).arg(try b.int(2)).build(.{});
+    const node = try eb.arg(try b.int(1)).arg(try b.int(2)).build();
     try expectExpr(node, "+ 1 2");
 }
 
@@ -200,10 +231,10 @@ test "builder: nested expression" {
 
     // + (+ 1 2) 3
     var inner = b.expr("+");
-    const inner_node = try inner.arg(try b.int(1)).arg(try b.int(2)).build(.{});
+    const inner_node = try inner.arg(try b.int(1)).arg(try b.int(2)).build();
 
     var outer = b.expr("+");
-    const root = try outer.arg(inner_node).arg(try b.int(3)).build(.{});
+    const root = try outer.arg(inner_node).arg(try b.int(3)).build();
     try expectExpr(root, "+ (+ 1 2) 3");
 }
 
@@ -212,23 +243,65 @@ test "builder: scope thunk arg" {
     defer arena.deinit();
     const b = AstBuilder.init(arena.allocator());
 
-    // * :x 2
     var eb = b.expr("*");
-    const node = try eb.arg(try b.scope("x")).arg(try b.int(2)).build(.{});
+    const node = try eb.arg(try b.scope("x")).arg(try b.int(2)).build();
     try expectExpr(node, "* :x 2");
 }
 
-test "builder: meta_type override" {
+test "builder: asTopLevel" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const b = AstBuilder.init(arena.allocator());
 
     var eb = b.expr("+");
-    const node = try eb.arg(try b.int(1)).build(.{ .meta_type = .top_level });
+    const node = try eb.arg(try b.int(1)).asTopLevel().build();
     try std.testing.expectEqual(
         AstExpression.MetaType.top_level,
         node.expression.meta.meta_type,
     );
+}
+
+test "builder: list literal" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const b = AstBuilder.init(arena.allocator());
+
+    var lb = b.list();
+    const node = try lb.arg(try b.int(1)).arg(try b.int(2)).arg(try b.int(3)).build();
+    try std.testing.expectEqual(AstExpression.MetaType.list_literal, node.expression.meta.meta_type);
+    try expectExpr(node, "list 1 2 3");
+}
+
+test "builder: block literal" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const b = AstBuilder.init(arena.allocator());
+
+    var say1 = b.expr("say");
+    var say2 = b.expr("say");
+    var bb = b.block();
+    const node = try bb
+        .arg(try say1.arg(try b.string("hello")).build())
+        .arg(try say2.arg(try b.string("world")).build())
+        .build();
+    try std.testing.expectEqual(AstExpression.MetaType.block_literal, node.expression.meta.meta_type);
+    try expectExpr(node, "proc (say hello) (say world)");
+}
+
+test "builder: list vs expr list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const b = AstBuilder.init(arena.allocator());
+
+    // b.list() → .list_literal
+    var lb = b.list();
+    const list_node = try lb.arg(try b.int(1)).build();
+    try std.testing.expectEqual(AstExpression.MetaType.list_literal, list_node.expression.meta.meta_type);
+
+    // b.expr("list") → .standard
+    var eb = b.expr("list");
+    const expr_node = try eb.arg(try b.int(1)).build();
+    try std.testing.expectEqual(AstExpression.MetaType.standard, expr_node.expression.meta.meta_type);
 }
 
 test "builder: macro with value param" {
@@ -236,9 +309,8 @@ test "builder: macro with value param" {
     defer arena.deinit();
     const b = AstBuilder.init(arena.allocator());
 
-    // |double x| * :x 2
     var body_eb = b.expr("*");
-    const body_node = try body_eb.arg(try b.scope("x")).arg(try b.int(2)).build(.{});
+    const body_node = try body_eb.arg(try b.scope("x")).arg(try b.int(2)).build();
 
     var mb = b.macro("double");
     const macro_def = try mb.param("x").body(body_node);
@@ -250,12 +322,11 @@ test "builder: macro with deferred param" {
     defer arena.deinit();
     const b = AstBuilder.init(arena.allocator());
 
-    // |do-twice ~action| proc :action :action
     var body_eb = b.expr("proc");
     const body_node = try body_eb
         .arg(try b.scope("action"))
         .arg(try b.scope("action"))
-        .build(.{});
+        .build();
 
     var mb = b.macro("do-twice");
     const macro_def = try mb.deferredParam("action").body(body_node);
@@ -267,9 +338,8 @@ test "builder: macro with no params" {
     defer arena.deinit();
     const b = AstBuilder.init(arena.allocator());
 
-    // |greet| say hello
     var body_eb = b.expr("say");
-    const body_node = try body_eb.arg(try b.string("hello")).build(.{});
+    const body_node = try body_eb.arg(try b.string("hello")).build();
 
     var mb = b.macro("greet");
     const macro_def = try mb.body(body_node);
@@ -281,15 +351,14 @@ test "builder: complex macro" {
     defer arena.deinit();
     const b = AstBuilder.init(arena.allocator());
 
-    // |greet name| say (concat "hello " :name)
     var concat_eb = b.expr("concat");
     const concat_node = try concat_eb
         .arg(try b.string("hello "))
         .arg(try b.scope("name"))
-        .build(.{});
+        .build();
 
     var say_eb = b.expr("say");
-    const say_node = try say_eb.arg(concat_node).build(.{});
+    const say_node = try say_eb.arg(concat_node).build();
 
     var mb = b.macro("greet");
     const macro_def = try mb.param("name").body(say_node);

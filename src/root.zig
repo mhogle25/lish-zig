@@ -54,7 +54,6 @@ pub const fdWriter = session.fdWriter;
 pub const AstBuilder = ast_builder.AstBuilder;
 pub const ExprBuilder = ast_builder.ExprBuilder;
 pub const MacroBuilder = ast_builder.MacroBuilder;
-pub const BuildOptions = ast_builder.BuildOptions;
 
 pub const SerializeError = serializer.SerializeError;
 pub const serializeExpression = serializer.serializeExpression;

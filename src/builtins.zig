@@ -42,12 +42,19 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
     try registry.registerOperation(allocator, "if", &ifElseOp);
     try registry.registerOperation(allocator, "when", &whenOp);
     try registry.registerOperation(allocator, "match", &matchOp);
+    try registry.registerOperation(allocator, "assert", &assertOp);
 
     // String
     try registry.registerOperation(allocator, "concat", &concatOp);
     try registry.registerOperation(allocator, "join", &joinOp);
     try registry.registerOperation(allocator, "say", &sayOp);
     try registry.registerOperation(allocator, "error", &errorOp);
+    try registry.registerOperation(allocator, "split", &splitOp);
+    try registry.registerOperation(allocator, "trim", &trimOp);
+    try registry.registerOperation(allocator, "upper", &upperOp);
+    try registry.registerOperation(allocator, "lower", &lowerOp);
+    try registry.registerOperation(allocator, "replace", &replaceOp);
+    try registry.registerOperation(allocator, "format", &formatOp);
 
     // List
     try registry.registerOperation(allocator, "list", &listOp);
@@ -59,6 +66,13 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
     try registry.registerOperation(allocator, "reverse", &reverseOp);
     try registry.registerOperation(allocator, "range", &rangeOp);
     try registry.registerOperation(allocator, "until", &untilOp);
+    try registry.registerOperation(allocator, "last", &lastOp);
+    try registry.registerOperation(allocator, "take", &takeOp);
+    try registry.registerOperation(allocator, "drop", &dropOp);
+    try registry.registerOperation(allocator, "zip", &zipOp);
+    try registry.registerOperation(allocator, "flatten", &flattenOp);
+    try registry.registerOperation(allocator, "sort", &sortOp);
+    try registry.registerOperation(allocator, "sortby", &sortbyOp);
 
     // Higher-order
     try registry.registerOperation(allocator, "map", &mapOp);
@@ -66,6 +80,9 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
     try registry.registerOperation(allocator, "apply", &applyOp);
     try registry.registerOperation(allocator, "filter", &filterOp);
     try registry.registerOperation(allocator, "reduce", &reduceOp);
+    try registry.registerOperation(allocator, "any", &anyOp);
+    try registry.registerOperation(allocator, "all", &allOp);
+    try registry.registerOperation(allocator, "count", &countOp);
 
     // Utility
     try registry.registerOperation(allocator, "identity", &identityOp);
@@ -94,6 +111,9 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
     try registry.registerOperation(allocator, "floor", &floorOp);
     try registry.registerOperation(allocator, "ceil", &ceilOp);
     try registry.registerOperation(allocator, "round", &roundOp);
+    try registry.registerOperation(allocator, "even", &evenOp);
+    try registry.registerOperation(allocator, "odd", &oddOp);
+    try registry.registerOperation(allocator, "sign", &signOp);
 }
 
 // ── Constants ──
@@ -264,7 +284,7 @@ fn compareOp(args: Args) ExecError!?Value {
         return .{ .int = result };
     }
 
-    return args.env.fail("Cannot compare values of different types");
+    return null;
 }
 
 // ── Logic ──
@@ -360,6 +380,19 @@ fn matchOp(args: Args) ExecError!?Value {
     return null;
 }
 
+fn assertOp(args: Args) ExecError!?Value {
+    const count = args.count();
+    if (count < 1 or count > 2) return args.env.fail("'assert' expects 1 or 2 arguments");
+    const condition = try args.at(0).get();
+    if (condition != null) return condition;
+    if (count == 2) {
+        var msg_buf: [512]u8 = undefined;
+        const message = try args.at(1).resolveString(&msg_buf);
+        return args.env.failFmt("Assertion failed: {s}", .{message});
+    }
+    return args.env.fail("Assertion failed");
+}
+
 // ── String ──
 
 fn concatOp(args: Args) ExecError!?Value {
@@ -419,6 +452,121 @@ fn errorOp(args: Args) ExecError!?Value {
         writer.writeByte('\n') catch {};
     }
     return null;
+}
+
+fn splitOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    var sep_buf: [256]u8 = undefined;
+    const separator = try args.at(0).resolveString(&sep_buf);
+    const target = try args.at(1).resolve();
+    if (target != .string) return args.env.fail("'split' expects a string as second argument");
+    const string = target.string;
+
+    const alloc = args.env.allocator;
+    var parts = std.ArrayListUnmanaged(?Value){};
+
+    if (separator.len == 0) {
+        for (0..string.len) |i| {
+            const char = try alloc.dupe(u8, string[i .. i + 1]);
+            try parts.append(alloc, .{ .string = char });
+        }
+    } else {
+        var remaining = string;
+        while (std.mem.indexOf(u8, remaining, separator)) |idx| {
+            const part = try alloc.dupe(u8, remaining[0..idx]);
+            try parts.append(alloc, .{ .string = part });
+            remaining = remaining[idx + separator.len ..];
+        }
+        const last_part = try alloc.dupe(u8, remaining);
+        try parts.append(alloc, .{ .string = last_part });
+    }
+
+    return .{ .list = parts.items };
+}
+
+fn trimOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const value = try args.at(0).resolve();
+    if (value != .string) return args.env.fail("'trim' expects a string");
+    const trimmed = std.mem.trim(u8, value.string, " \t\n\r\x0b\x0c");
+    const owned = try args.env.allocator.dupe(u8, trimmed);
+    return .{ .string = owned };
+}
+
+fn upperOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const value = try args.at(0).resolve();
+    if (value != .string) return args.env.fail("'upper' expects a string");
+    const result = try args.env.allocator.dupe(u8, value.string);
+    for (result) |*char| {
+        char.* = std.ascii.toUpper(char.*);
+    }
+    return .{ .string = result };
+}
+
+fn lowerOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const value = try args.at(0).resolve();
+    if (value != .string) return args.env.fail("'lower' expects a string");
+    const result = try args.env.allocator.dupe(u8, value.string);
+    for (result) |*char| {
+        char.* = std.ascii.toLower(char.*);
+    }
+    return .{ .string = result };
+}
+
+fn replaceOp(args: Args) ExecError!?Value {
+    try args.expectCount(3);
+    const pattern_val = try args.at(0).resolve();
+    const replacement_val = try args.at(1).resolve();
+    const target_val = try args.at(2).resolve();
+    if (pattern_val != .string or replacement_val != .string or target_val != .string)
+        return args.env.fail("'replace' expects string arguments");
+
+    const pattern = pattern_val.string;
+    const replacement = replacement_val.string;
+    const target = target_val.string;
+    const alloc = args.env.allocator;
+
+    if (pattern.len == 0) return .{ .string = target };
+
+    var result = std.ArrayListUnmanaged(u8){};
+    var remaining = target;
+    while (std.mem.indexOf(u8, remaining, pattern)) |idx| {
+        try result.appendSlice(alloc, remaining[0..idx]);
+        try result.appendSlice(alloc, replacement);
+        remaining = remaining[idx + pattern.len ..];
+    }
+    try result.appendSlice(alloc, remaining);
+    return .{ .string = result.items };
+}
+
+fn formatOp(args: Args) ExecError!?Value {
+    try args.expectMinCount(1);
+    const template_val = try args.at(0).resolve();
+    if (template_val != .string) return args.env.fail("'format' expects a string template as first argument");
+
+    const template = template_val.string;
+    const alloc = args.env.allocator;
+    var result = std.ArrayListUnmanaged(u8){};
+
+    var remaining = template;
+    var arg_index: usize = 1;
+    while (std.mem.indexOf(u8, remaining, "{}")) |idx| {
+        try result.appendSlice(alloc, remaining[0..idx]);
+        if (arg_index < args.count()) {
+            const arg_val = try args.at(arg_index).get();
+            if (arg_val) |value| {
+                var buf: [256]u8 = undefined;
+                const str = value.getS(&buf);
+                try result.appendSlice(alloc, str);
+            }
+            arg_index += 1;
+        }
+        remaining = remaining[idx + 2 ..];
+    }
+    try result.appendSlice(alloc, remaining);
+    return .{ .string = result.items };
 }
 
 // ── List ──
@@ -589,6 +737,187 @@ fn untilOp(args: Args) ExecError!?Value {
     return .{ .list = items.items };
 }
 
+fn lastOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const value = try args.at(0).resolve();
+    return switch (value) {
+        .list => |items| if (items.len == 0) null else items[items.len - 1],
+        .string => |str| if (str.len == 0) null else .{ .string = str[str.len - 1 ..] },
+        else => args.env.fail("'last' expects a list or string"),
+    };
+}
+
+fn takeOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    const count_val = try args.at(0).resolve();
+    const take_n = count_val.getI() catch return args.env.fail("'take' expects an integer count");
+    if (take_n < 0) return args.env.fail("'take' count cannot be negative");
+    const value = try args.at(1).resolve();
+    const take_count: usize = @intCast(take_n);
+    return switch (value) {
+        .list => |items| .{ .list = items[0..@min(take_count, items.len)] },
+        .string => |str| .{ .string = str[0..@min(take_count, str.len)] },
+        else => args.env.fail("'take' expects a list or string"),
+    };
+}
+
+fn dropOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    const count_val = try args.at(0).resolve();
+    const drop_n = count_val.getI() catch return args.env.fail("'drop' expects an integer count");
+    if (drop_n < 0) return args.env.fail("'drop' count cannot be negative");
+    const value = try args.at(1).resolve();
+    const drop_count: usize = @intCast(drop_n);
+    return switch (value) {
+        .list => |items| .{ .list = if (drop_count >= items.len) &.{} else items[drop_count..] },
+        .string => |str| .{ .string = if (drop_count >= str.len) "" else str[drop_count..] },
+        else => args.env.fail("'drop' expects a list or string"),
+    };
+}
+
+fn zipOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    const left = try args.at(0).resolveList();
+    const right = try args.at(1).resolveList();
+
+    const alloc = args.env.allocator;
+    const len = @min(left.len, right.len);
+    const pairs = try alloc.alloc(?Value, len);
+    for (0..len) |i| {
+        const pair = try alloc.alloc(?Value, 2);
+        pair[0] = left[i];
+        pair[1] = right[i];
+        pairs[i] = .{ .list = pair };
+    }
+    return .{ .list = pairs };
+}
+
+fn flattenInto(maybe_value: ?Value, result: *std.ArrayListUnmanaged(?Value), alloc: Allocator) Allocator.Error!void {
+    const value = maybe_value orelse {
+        try result.append(alloc, null);
+        return;
+    };
+    if (value != .list) {
+        try result.append(alloc, value);
+        return;
+    }
+    for (value.list) |item| {
+        try flattenInto(item, result, alloc);
+    }
+}
+
+fn flattenOp(args: Args) ExecError!?Value {
+    try args.expectMinCount(1);
+    var result = std.ArrayListUnmanaged(?Value){};
+    for (0..args.count()) |i| {
+        const maybe_value = try args.at(i).get();
+        try flattenInto(maybe_value, &result, args.env.allocator);
+    }
+    return .{ .list = result.items };
+}
+
+fn naturalLessThan(_: void, left: ?Value, right: ?Value) bool {
+    if (left == null and right == null) return false;
+    if (left == null) return true;
+    if (right == null) return false;
+
+    const lv = left.?;
+    const rv = right.?;
+
+    if (lv.isNumber() and rv.isNumber()) {
+        const lf = lv.getF() catch unreachable;
+        const rf = rv.getF() catch unreachable;
+        return lf < rf;
+    }
+
+    if (lv == .string and rv == .string) {
+        return std.mem.order(u8, lv.string, rv.string) == .lt;
+    }
+
+    // Mixed types: numbers < strings < lists
+    const typeRank = struct {
+        fn rank(v: Value) u8 {
+            return switch (v) {
+                .int, .float => 0,
+                .string => 1,
+                .list => 2,
+            };
+        }
+    };
+    return typeRank.rank(lv) < typeRank.rank(rv);
+}
+
+fn sortOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const list = try args.at(0).resolveList();
+    const alloc = args.env.allocator;
+    const sorted = try alloc.dupe(?Value, list);
+    std.sort.pdq(?Value, sorted, {}, naturalLessThan);
+    return .{ .list = sorted };
+}
+
+const SortContext = struct {
+    env: *exec.Env,
+    scope: *const exec.Scope,
+    id_thunk: *const Thunk,
+    allocator: Allocator,
+    sticky_err: ?ExecError,
+};
+
+fn sortbyLessThan(ctx: *SortContext, left: ?Value, right: ?Value) bool {
+    if (ctx.sticky_err != null) return false;
+
+    const left_thunk = exec.makeValueLiteral(ctx.allocator, left) catch |err| {
+        ctx.sticky_err = err;
+        return false;
+    };
+    const right_thunk = exec.makeValueLiteral(ctx.allocator, right) catch |err| {
+        ctx.sticky_err = err;
+        return false;
+    };
+    const arg_thunks = ctx.allocator.alloc(*const Thunk, 2) catch |err| {
+        ctx.sticky_err = err;
+        return false;
+    };
+    arg_thunks[0] = left_thunk;
+    arg_thunks[1] = right_thunk;
+
+    const expression = Expression{ .id = ctx.id_thunk, .args = arg_thunks };
+    const result = ctx.env.processExpression(expression, ctx.scope) catch |err| {
+        ctx.sticky_err = err;
+        return false;
+    };
+
+    if (result) |value| {
+        if (value == .int) return value.int < 0;
+        if (value == .float) return value.float < 0;
+    }
+    return false;
+}
+
+fn sortbyOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    const id_value = try args.at(0).resolve();
+    const list = try args.at(1).resolveList();
+
+    const alloc = args.env.allocator;
+    const id_thunk = try exec.makeValueLiteral(alloc, id_value);
+    const sorted = try alloc.dupe(?Value, list);
+
+    var ctx = SortContext{
+        .env = args.env,
+        .scope = args.scope,
+        .id_thunk = id_thunk,
+        .allocator = alloc,
+        .sticky_err = null,
+    };
+
+    std.sort.pdq(?Value, sorted, &ctx, sortbyLessThan);
+
+    if (ctx.sticky_err) |err| return err;
+    return .{ .list = sorted };
+}
+
 // ── Higher-order ──
 
 fn mapOp(args: Args) ExecError!?Value {
@@ -685,6 +1014,64 @@ fn reduceOp(args: Args) ExecError!?Value {
         accumulator = try args.env.processExpression(expression, args.scope);
     }
     return accumulator;
+}
+
+fn anyOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    const id_value = try args.at(0).resolve();
+    const list = try args.at(1).resolveList();
+
+    const alloc = args.env.allocator;
+    const id_thunk = try exec.makeValueLiteral(alloc, id_value);
+
+    for (list) |item| {
+        const item_thunk = try exec.makeValueLiteral(alloc, item);
+        const arg_thunks = try alloc.alloc(*const Thunk, 1);
+        arg_thunks[0] = item_thunk;
+        const expression = Expression{ .id = id_thunk, .args = arg_thunks };
+        const result = try args.env.processExpression(expression, args.scope);
+        if (result != null) return val.some();
+    }
+    return null;
+}
+
+fn allOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    const id_value = try args.at(0).resolve();
+    const list = try args.at(1).resolveList();
+
+    const alloc = args.env.allocator;
+    const id_thunk = try exec.makeValueLiteral(alloc, id_value);
+
+    for (list) |item| {
+        const item_thunk = try exec.makeValueLiteral(alloc, item);
+        const arg_thunks = try alloc.alloc(*const Thunk, 1);
+        arg_thunks[0] = item_thunk;
+        const expression = Expression{ .id = id_thunk, .args = arg_thunks };
+        const result = try args.env.processExpression(expression, args.scope);
+        if (result == null) return null;
+    }
+    return val.some();
+}
+
+fn countOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    const id_value = try args.at(0).resolve();
+    const list = try args.at(1).resolveList();
+
+    const alloc = args.env.allocator;
+    const id_thunk = try exec.makeValueLiteral(alloc, id_value);
+    var tally: i64 = 0;
+
+    for (list) |item| {
+        const item_thunk = try exec.makeValueLiteral(alloc, item);
+        const arg_thunks = try alloc.alloc(*const Thunk, 1);
+        arg_thunks[0] = item_thunk;
+        const expression = Expression{ .id = id_thunk, .args = arg_thunks };
+        const result = try args.env.processExpression(expression, args.scope);
+        if (result != null) tally += 1;
+    }
+    return .{ .int = tally };
 }
 
 // ── Utility ──
@@ -920,6 +1307,34 @@ fn roundOp(args: Args) ExecError!?Value {
     };
 }
 
+fn evenOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const value = try args.at(0).resolve();
+    const n = value.getI() catch return args.env.fail("'even' expects an integer");
+    return val.toCondition(@mod(n, 2) == 0);
+}
+
+fn oddOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const value = try args.at(0).resolve();
+    const n = value.getI() catch return args.env.fail("'odd' expects an integer");
+    return val.toCondition(@mod(n, 2) != 0);
+}
+
+fn signOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const value = try args.at(0).resolve();
+    if (value == .int) {
+        const n = value.int;
+        return .{ .int = if (n < 0) -1 else if (n > 0) 1 else 0 };
+    }
+    if (value == .float) {
+        const f = value.float;
+        return .{ .int = if (f < 0) -1 else if (f > 0) 1 else 0 };
+    }
+    return args.env.fail("'sign' expects a number");
+}
+
 // ── Numeric helpers ──
 
 fn numericFold(
@@ -1077,6 +1492,13 @@ test "comparison: compare" {
     try std.testing.expectEqual(@as(i64, 1), greater.?.int);
     const equal = try evalWithBuiltins(arena.allocator(), "compare 5 5");
     try std.testing.expectEqual(@as(i64, 0), equal.?.int);
+}
+
+test "comparison: compare incompatible types returns none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "compare 1 \"hello\"");
+    try std.testing.expect(result == null);
 }
 
 test "logic: and short-circuits" {
@@ -1688,4 +2110,361 @@ test "comment: inline comment in expression" {
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "+ 1 ## comment ## 2");
     try std.testing.expectEqual(@as(i64, 3), result.?.int);
+}
+
+// ── assert tests ──
+
+test "control flow: assert truthy passes through" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "assert 42");
+    try std.testing.expectEqual(@as(i64, 42), result.?.int);
+}
+
+test "control flow: assert falsy errors" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = evalWithBuiltins(arena.allocator(), "assert $none");
+    try std.testing.expectError(error.RuntimeError, result);
+}
+
+test "control flow: assert falsy with message errors" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = evalWithBuiltins(arena.allocator(), "assert $none \"expected a value\"");
+    try std.testing.expectError(error.RuntimeError, result);
+}
+
+// ── split tests ──
+
+test "string: split basic" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "split \",\" \"a,b,c\"");
+    const items = result.?.list;
+    try std.testing.expectEqual(@as(usize, 3), items.len);
+    try std.testing.expectEqualStrings("a", items[0].?.string);
+    try std.testing.expectEqualStrings("b", items[1].?.string);
+    try std.testing.expectEqualStrings("c", items[2].?.string);
+}
+
+test "string: split no match" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "split \",\" \"hello\"");
+    const items = result.?.list;
+    try std.testing.expectEqual(@as(usize, 1), items.len);
+    try std.testing.expectEqualStrings("hello", items[0].?.string);
+}
+
+test "string: split empty separator" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "split \"\" \"abc\"");
+    const items = result.?.list;
+    try std.testing.expectEqual(@as(usize, 3), items.len);
+    try std.testing.expectEqualStrings("a", items[0].?.string);
+    try std.testing.expectEqualStrings("b", items[1].?.string);
+    try std.testing.expectEqualStrings("c", items[2].?.string);
+}
+
+// ── trim tests ──
+
+test "string: trim whitespace" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "trim \"  hello  \"");
+    try std.testing.expectEqualStrings("hello", result.?.string);
+}
+
+test "string: trim no whitespace" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "trim \"hello\"");
+    try std.testing.expectEqualStrings("hello", result.?.string);
+}
+
+// ── upper/lower tests ──
+
+test "string: upper" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "upper \"hello\"");
+    try std.testing.expectEqualStrings("HELLO", result.?.string);
+}
+
+test "string: lower" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "lower \"HELLO\"");
+    try std.testing.expectEqualStrings("hello", result.?.string);
+}
+
+// ── replace tests ──
+
+test "string: replace" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "replace \"o\" \"0\" \"hello world\"");
+    try std.testing.expectEqualStrings("hell0 w0rld", result.?.string);
+}
+
+test "string: replace no match" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "replace \"x\" \"y\" \"hello\"");
+    try std.testing.expectEqualStrings("hello", result.?.string);
+}
+
+// ── format tests ──
+
+test "string: format basic" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "format \"hello, {}!\" \"world\"");
+    try std.testing.expectEqualStrings("hello, world!", result.?.string);
+}
+
+test "string: format multiple args" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "format \"{} + {} = {}\" 1 2 3");
+    try std.testing.expectEqualStrings("1 + 2 = 3", result.?.string);
+}
+
+test "string: format missing arg leaves placeholder empty" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "format \"a{}b\"");
+    try std.testing.expectEqualStrings("ab", result.?.string);
+}
+
+// ── last tests ──
+
+test "collection: last list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "last [10 20 30]");
+    try std.testing.expectEqual(@as(i64, 30), result.?.int);
+}
+
+test "collection: last empty list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "last []");
+    try std.testing.expect(result == null);
+}
+
+test "collection: last string" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "last \"hello\"");
+    try std.testing.expectEqualStrings("o", result.?.string);
+}
+
+// ── take tests ──
+
+test "collection: take" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (take 2 [10 20 30])");
+    try std.testing.expectEqual(@as(i64, 2), result.?.int);
+}
+
+test "collection: take more than length" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (take 10 [1 2 3])");
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
+}
+
+// ── drop tests ──
+
+test "collection: drop" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "first (drop 2 [10 20 30])");
+    try std.testing.expectEqual(@as(i64, 30), result.?.int);
+}
+
+test "collection: drop more than length" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (drop 10 [1 2 3])");
+    try std.testing.expectEqual(@as(i64, 0), result.?.int);
+}
+
+// ── zip tests ──
+
+test "collection: zip equal length" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (zip [1 2 3] [4 5 6])");
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
+}
+
+test "collection: zip truncates to shorter" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (zip [1 2] [4 5 6 7])");
+    try std.testing.expectEqual(@as(i64, 2), result.?.int);
+}
+
+test "collection: zip pair contents" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "at 0 (at 0 (zip [10 20] [30 40]))");
+    try std.testing.expectEqual(@as(i64, 10), result.?.int);
+}
+
+// ── flatten tests ──
+
+test "collection: flatten deep" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (flatten [[1 2] [3 [4 5]]])");
+    try std.testing.expectEqual(@as(i64, 5), result.?.int);
+}
+
+test "collection: flatten variadic" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (flatten [1 2] [3 4])");
+    try std.testing.expectEqual(@as(i64, 4), result.?.int);
+}
+
+test "collection: flatten vs flat" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // flat is shallow — inner list [4 5] stays as a list element
+    const flat_result = try evalWithBuiltins(arena.allocator(), "length (flat [1 2] [3 [4 5]])");
+    try std.testing.expectEqual(@as(i64, 4), flat_result.?.int);
+    // flatten is deep — recurses into [4 5]
+    const flatten_result = try evalWithBuiltins(arena.allocator(), "length (flatten [1 2] [3 [4 5]])");
+    try std.testing.expectEqual(@as(i64, 5), flatten_result.?.int);
+}
+
+// ── sort tests ──
+
+test "collection: sort integers" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "first (sort [3 1 2])");
+    try std.testing.expectEqual(@as(i64, 1), result.?.int);
+}
+
+test "collection: sort strings" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "first (sort [\"banana\" \"apple\" \"cherry\"])");
+    try std.testing.expectEqualStrings("apple", result.?.string);
+}
+
+test "collection: sortby with compare" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "first (sortby \"compare\" [3 1 2])");
+    try std.testing.expectEqual(@as(i64, 1), result.?.int);
+}
+
+// ── any/all/count tests ──
+
+test "higher-order: any truthy" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "any \"even\" [1 3 4]");
+    try std.testing.expect(result != null);
+}
+
+test "higher-order: any falsy" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "any \"even\" [1 3 5]");
+    try std.testing.expect(result == null);
+}
+
+test "higher-order: all truthy" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "all \"even\" [2 4 6]");
+    try std.testing.expect(result != null);
+}
+
+test "higher-order: all falsy" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "all \"even\" [2 3 6]");
+    try std.testing.expect(result == null);
+}
+
+test "higher-order: count" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "count \"even\" [1 2 3 4 5 6]");
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
+}
+
+// ── even/odd/sign tests ──
+
+test "math: even true" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "even 4");
+    try std.testing.expect(result != null);
+}
+
+test "math: even false" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "even 3");
+    try std.testing.expect(result == null);
+}
+
+test "math: even negative" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "even (- 0 4)");
+    try std.testing.expect(result != null);
+}
+
+test "math: odd true" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "odd 3");
+    try std.testing.expect(result != null);
+}
+
+test "math: odd false" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "odd 4");
+    try std.testing.expect(result == null);
+}
+
+test "math: sign positive" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "sign 42");
+    try std.testing.expectEqual(@as(i64, 1), result.?.int);
+}
+
+test "math: sign negative" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "sign (- 0 5)");
+    try std.testing.expectEqual(@as(i64, -1), result.?.int);
+}
+
+test "math: sign zero" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "sign 0");
+    try std.testing.expectEqual(@as(i64, 0), result.?.int);
+}
+
+test "math: sign float" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "sign -3.5");
+    try std.testing.expectEqual(@as(i64, -1), result.?.int);
 }

@@ -552,7 +552,7 @@ fn formatOp(args: Args) ExecError!?Value {
 
     var remaining = template;
     var arg_index: usize = 1;
-    while (std.mem.indexOf(u8, remaining, "{}")) |idx| {
+    while (std.mem.indexOf(u8, remaining, "<>")) |idx| {
         try result.appendSlice(alloc, remaining[0..idx]);
         if (arg_index < args.count()) {
             const arg_val = try args.at(arg_index).get();
@@ -2221,21 +2221,21 @@ test "string: replace no match" {
 test "string: format basic" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const result = try evalWithBuiltins(arena.allocator(), "format \"hello, {}!\" \"world\"");
+    const result = try evalWithBuiltins(arena.allocator(), "format \"hello, <>!\" \"world\"");
     try std.testing.expectEqualStrings("hello, world!", result.?.string);
 }
 
 test "string: format multiple args" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const result = try evalWithBuiltins(arena.allocator(), "format \"{} + {} = {}\" 1 2 3");
+    const result = try evalWithBuiltins(arena.allocator(), "format \"<> + <> = <>\" 1 2 3");
     try std.testing.expectEqualStrings("1 + 2 = 3", result.?.string);
 }
 
 test "string: format missing arg leaves placeholder empty" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const result = try evalWithBuiltins(arena.allocator(), "format \"a{}b\"");
+    const result = try evalWithBuiltins(arena.allocator(), "format \"a<>b\"");
     try std.testing.expectEqualStrings("ab", result.?.string);
 }
 

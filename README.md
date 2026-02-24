@@ -9,7 +9,7 @@ A Lisp-family expression language interpreter for Zig. Designed to be embedded i
 - **Existential truthiness** — no booleans; values either exist (`?Value`) or they don't (`null`)
 - **Arena allocation** — parse and execute within a single arena lifecycle
 - **Expression caching** — generic LRU cache avoids redundant parsing
-- **55 built-in operations** — arithmetic, comparison, logic, control flow, string, list, higher-order, type, and math functions
+- **75 built-in operations** — arithmetic, comparison, logic, control flow, string, list, higher-order, type, and math functions
 - **Session API** — backend-agnostic REPL core
 - **AST builder** — fluent Zig API for constructing lish expressions and macro definitions programmatically
 - **AST serializer** — convert any AST node back to lish source text
@@ -73,23 +73,23 @@ Macros (params accessed with `:`):
 
 ## Built-in Operations
 
-| Category          | Operations                                              |
-|-------------------|---------------------------------------------------------|
-| Constants         | `some`, `none`                                          |
-| Arithmetic        | `+`, `-`, `*`, `/`, `%`, `^`                            |
-| Comparison        | `<`, `<=`, `>`, `>=`, `is`, `isnt`, `compare`           |
-| Logic             | `and`, `or`, `not`                                      |
-| Control Flow      | `if`, `when`, `match`                                   |
-| String            | `concat`, `join`                                        |
-| String Predicates | `prefix`, `suffix`                                      |
-| Output            | `say`, `error`                                          |
-| List              | `list`, `flat`, `range`, `until`                        |
-| Collection        | `length`, `first`, `rest`, `at`, `reverse`, `in`        |
-| Higher-Order      | `map`, `foreach`, `apply`, `filter`, `reduce`           |
-| Math              | `min`, `max`, `clamp`, `abs`, `floor`, `ceil`, `round`  |
-| Type              | `type`, `int`, `float`, `string`                        |
-| Sequencing        | `proc`                                                  |
-| Utility           | `identity`                                              |
+| Category          | Operations                                                                    |
+|-------------------|-------------------------------------------------------------------------------|
+| Constants         | `some`, `none`                                                                |
+| Arithmetic        | `+`, `-`, `*`, `/`, `%`, `^`                                                  |
+| Comparison        | `<`, `<=`, `>`, `>=`, `is`, `isnt`, `compare`                                 |
+| Logic             | `and`, `or`, `not`                                                            |
+| Control Flow      | `if`, `when`, `match`, `assert`                                               |
+| String            | `concat`, `join`, `split`, `trim`, `upper`, `lower`, `replace`, `format`      |
+| String Predicates | `prefix`, `suffix`, `in`                                                      |
+| Output            | `say`, `error`                                                                |
+| List              | `list`, `flat`, `flatten`, `range`, `until`, `sort`, `sortby`                 |
+| Collection        | `length`, `first`, `last`, `rest`, `at`, `reverse`, `take`, `drop`, `zip`     |
+| Higher-Order      | `map`, `foreach`, `apply`, `filter`, `reduce`, `any`, `all`, `count`          |
+| Math              | `min`, `max`, `clamp`, `abs`, `floor`, `ceil`, `round`, `even`, `odd`, `sign` |
+| Type              | `type`, `int`, `float`, `string`                                              |
+| Sequencing        | `proc`                                                                        |
+| Utility           | `identity`                                                                    |
 
 ## Usage
 

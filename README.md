@@ -130,7 +130,8 @@ pub fn main() !void {
         .allocator = allocator,
     };
 
-    // Process an expression
+    // Process an expression (use processRawCached with an ExpressionCache to
+    // avoid re-parsing repeated inputs)
     const result = try lish.processRaw(&env, "+ 1 2", null);
     switch (result) {
         .ok => |maybe_value| {
@@ -156,6 +157,10 @@ const lish = @import("lish");
 
 var session = try lish.Session.init(allocator, .{
     .fragments = &.{&lish.builtins.registerAll},
+    // Load all .lishmacro files from these directories at init time
+    .macro_paths = &.{"macros/"},
+    // LRU cache capacity for parsed expressions (default: 256)
+    .expression_cache_capacity = 512,
     .stdout = lish.session.fdWriter(std.posix.STDOUT_FILENO),
     .stderr = lish.session.fdWriter(std.posix.STDERR_FILENO),
 });
@@ -290,9 +295,19 @@ zig build
 # Launch the terminal REPL
 zig build run
 
-# Pass arguments to the REPL (e.g. macro directories)
+# Pass macro directories to the REPL (-m/--macros may be repeated, max 16)
 zig build run -- -m path/to/macros
+zig build run -- --macros macros/math --macros macros/utils
 ```
+
+### REPL Commands
+
+| Command       | Action              |
+|---------------|---------------------|
+| `exit`, `quit`| Exit the REPL       |
+| `clear`       | Clear the screen    |
+
+The line editor supports history navigation (↑/↓), cursor movement (←/→, Home, End), and standard readline-style shortcuts (Ctrl+A/E/K/U/W/L).
 
 ## Architecture
 
@@ -306,13 +321,14 @@ zig build run -- -m path/to/macros
 | `parser.zig`       | Recursive descent expression parser                  |
 | `validation.zig`   | AST to executable transformation with error checking |
 | `exec.zig`         | Runtime: Thunk, Expression, Scope, Env, Registry     |
-| `builtins.zig`     | 55 built-in operations                               |
+| `builtins.zig`     | 75 built-in operations                               |
 | `macro_parser.zig` | Macro definition parser and validator                |
 | `cache.zig`        | Generic LRU cache (`LruCache(V)`)                    |
 | `process.zig`      | Convenience API: processRaw, macro file loading      |
 | `session.zig`      | Session struct (backend-agnostic REPL core)          |
 | `ast_builder.zig`  | Fluent builder for AST nodes and macro definitions   |
 | `serializer.zig`   | AST to lish source text serializer                   |
+| `line_editor.zig`  | Terminal line editor: raw mode, history, keybindings |
 | `main.zig`         | Terminal REPL entry point                            |
 
 ## License

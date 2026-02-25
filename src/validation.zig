@@ -79,7 +79,12 @@ pub fn validateStep(allocator: Allocator, node: *const AstNode, errors: *Validat
     return switch (node.*) {
         .value_literal => |value| {
             const thunk = try allocator.create(Thunk);
-            thunk.* = .{ .value_literal = value };
+            // Deep-copy string values so the Thunk is independent of the source allocator.
+            const owned_value = switch (value) {
+                .string => |s| @as(@TypeOf(value), .{ .string = try allocator.dupe(u8, s) }),
+                else => value,
+            };
+            thunk.* = .{ .value_literal = owned_value };
             return thunk;
         },
         .scope_thunk => |id_node| {
@@ -317,7 +322,7 @@ test "validate end-to-end with execution" {
 
     // Register an "echo" operation that returns its argument
     var registry = exec_mod.Registry{};
-    try registry.registerOperation(alloc, "echo", &testEchoOp);
+    try registry.registerOperation(alloc, "echo", exec_mod.Operation.fromFn(testEchoOp));
 
     var env = exec_mod.Env{ .registry = &registry, .allocator = alloc };
     const scope = exec_mod.Scope.EMPTY;

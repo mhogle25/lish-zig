@@ -8,112 +8,113 @@ const ExecError = exec.ExecError;
 const Expression = exec.Expression;
 const Thunk = exec.Thunk;
 const Registry = exec.Registry;
+const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
 // ── Registration ──
 
 pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     // Constants
-    try registry.registerOperation(allocator, "some", &someOp);
-    try registry.registerOperation(allocator, "none", &noneOp);
+    try registry.registerOperation(allocator, "some", Operation.fromFn(someOp));
+    try registry.registerOperation(allocator, "none", Operation.fromFn(noneOp));
 
     // Arithmetic
-    try registry.registerOperation(allocator, "+", &addOp);
-    try registry.registerOperation(allocator, "-", &subtractOp);
-    try registry.registerOperation(allocator, "*", &multiplyOp);
-    try registry.registerOperation(allocator, "/", &divideOp);
-    try registry.registerOperation(allocator, "%", &moduloOp);
-    try registry.registerOperation(allocator, "^", &powerOp);
+    try registry.registerOperation(allocator, "+", Operation.fromFn(addOp));
+    try registry.registerOperation(allocator, "-", Operation.fromFn(subtractOp));
+    try registry.registerOperation(allocator, "*", Operation.fromFn(multiplyOp));
+    try registry.registerOperation(allocator, "/", Operation.fromFn(divideOp));
+    try registry.registerOperation(allocator, "%", Operation.fromFn(moduloOp));
+    try registry.registerOperation(allocator, "^", Operation.fromFn(powerOp));
 
     // Comparison
-    try registry.registerOperation(allocator, "<", &lessThanOp);
-    try registry.registerOperation(allocator, "<=", &lessThanOrEqualOp);
-    try registry.registerOperation(allocator, ">", &greaterThanOp);
-    try registry.registerOperation(allocator, ">=", &greaterThanOrEqualOp);
-    try registry.registerOperation(allocator, "is", &isOp);
-    try registry.registerOperation(allocator, "isnt", &isntOp);
-    try registry.registerOperation(allocator, "compare", &compareOp);
+    try registry.registerOperation(allocator, "<", Operation.fromFn(lessThanOp));
+    try registry.registerOperation(allocator, "<=", Operation.fromFn(lessThanOrEqualOp));
+    try registry.registerOperation(allocator, ">", Operation.fromFn(greaterThanOp));
+    try registry.registerOperation(allocator, ">=", Operation.fromFn(greaterThanOrEqualOp));
+    try registry.registerOperation(allocator, "is", Operation.fromFn(isOp));
+    try registry.registerOperation(allocator, "isnt", Operation.fromFn(isntOp));
+    try registry.registerOperation(allocator, "compare", Operation.fromFn(compareOp));
 
     // Logic
-    try registry.registerOperation(allocator, "and", &andOp);
-    try registry.registerOperation(allocator, "or", &orOp);
-    try registry.registerOperation(allocator, "not", &notOp);
+    try registry.registerOperation(allocator, "and", Operation.fromFn(andOp));
+    try registry.registerOperation(allocator, "or", Operation.fromFn(orOp));
+    try registry.registerOperation(allocator, "not", Operation.fromFn(notOp));
     // Control flow
-    try registry.registerOperation(allocator, "if", &ifElseOp);
-    try registry.registerOperation(allocator, "when", &whenOp);
-    try registry.registerOperation(allocator, "match", &matchOp);
-    try registry.registerOperation(allocator, "assert", &assertOp);
+    try registry.registerOperation(allocator, "if", Operation.fromFn(ifElseOp));
+    try registry.registerOperation(allocator, "when", Operation.fromFn(whenOp));
+    try registry.registerOperation(allocator, "match", Operation.fromFn(matchOp));
+    try registry.registerOperation(allocator, "assert", Operation.fromFn(assertOp));
 
     // String
-    try registry.registerOperation(allocator, "concat", &concatOp);
-    try registry.registerOperation(allocator, "join", &joinOp);
-    try registry.registerOperation(allocator, "say", &sayOp);
-    try registry.registerOperation(allocator, "error", &errorOp);
-    try registry.registerOperation(allocator, "split", &splitOp);
-    try registry.registerOperation(allocator, "trim", &trimOp);
-    try registry.registerOperation(allocator, "upper", &upperOp);
-    try registry.registerOperation(allocator, "lower", &lowerOp);
-    try registry.registerOperation(allocator, "replace", &replaceOp);
-    try registry.registerOperation(allocator, "format", &formatOp);
+    try registry.registerOperation(allocator, "concat", Operation.fromFn(concatOp));
+    try registry.registerOperation(allocator, "join", Operation.fromFn(joinOp));
+    try registry.registerOperation(allocator, "say", Operation.fromFn(sayOp));
+    try registry.registerOperation(allocator, "error", Operation.fromFn(errorOp));
+    try registry.registerOperation(allocator, "split", Operation.fromFn(splitOp));
+    try registry.registerOperation(allocator, "trim", Operation.fromFn(trimOp));
+    try registry.registerOperation(allocator, "upper", Operation.fromFn(upperOp));
+    try registry.registerOperation(allocator, "lower", Operation.fromFn(lowerOp));
+    try registry.registerOperation(allocator, "replace", Operation.fromFn(replaceOp));
+    try registry.registerOperation(allocator, "format", Operation.fromFn(formatOp));
 
     // List
-    try registry.registerOperation(allocator, "list", &listOp);
-    try registry.registerOperation(allocator, "flat", &flatOp);
-    try registry.registerOperation(allocator, "length", &lengthOp);
-    try registry.registerOperation(allocator, "first", &firstOp);
-    try registry.registerOperation(allocator, "rest", &restOp);
-    try registry.registerOperation(allocator, "at", &atOp);
-    try registry.registerOperation(allocator, "reverse", &reverseOp);
-    try registry.registerOperation(allocator, "range", &rangeOp);
-    try registry.registerOperation(allocator, "until", &untilOp);
-    try registry.registerOperation(allocator, "last", &lastOp);
-    try registry.registerOperation(allocator, "take", &takeOp);
-    try registry.registerOperation(allocator, "drop", &dropOp);
-    try registry.registerOperation(allocator, "zip", &zipOp);
-    try registry.registerOperation(allocator, "flatten", &flattenOp);
-    try registry.registerOperation(allocator, "sort", &sortOp);
-    try registry.registerOperation(allocator, "sortby", &sortbyOp);
+    try registry.registerOperation(allocator, "list", Operation.fromFn(listOp));
+    try registry.registerOperation(allocator, "flat", Operation.fromFn(flatOp));
+    try registry.registerOperation(allocator, "length", Operation.fromFn(lengthOp));
+    try registry.registerOperation(allocator, "first", Operation.fromFn(firstOp));
+    try registry.registerOperation(allocator, "rest", Operation.fromFn(restOp));
+    try registry.registerOperation(allocator, "at", Operation.fromFn(atOp));
+    try registry.registerOperation(allocator, "reverse", Operation.fromFn(reverseOp));
+    try registry.registerOperation(allocator, "range", Operation.fromFn(rangeOp));
+    try registry.registerOperation(allocator, "until", Operation.fromFn(untilOp));
+    try registry.registerOperation(allocator, "last", Operation.fromFn(lastOp));
+    try registry.registerOperation(allocator, "take", Operation.fromFn(takeOp));
+    try registry.registerOperation(allocator, "drop", Operation.fromFn(dropOp));
+    try registry.registerOperation(allocator, "zip", Operation.fromFn(zipOp));
+    try registry.registerOperation(allocator, "flatten", Operation.fromFn(flattenOp));
+    try registry.registerOperation(allocator, "sort", Operation.fromFn(sortOp));
+    try registry.registerOperation(allocator, "sortby", Operation.fromFn(sortbyOp));
 
     // Higher-order
-    try registry.registerOperation(allocator, "map", &mapOp);
-    try registry.registerOperation(allocator, "foreach", &foreachOp);
-    try registry.registerOperation(allocator, "apply", &applyOp);
-    try registry.registerOperation(allocator, "filter", &filterOp);
-    try registry.registerOperation(allocator, "reduce", &reduceOp);
-    try registry.registerOperation(allocator, "any", &anyOp);
-    try registry.registerOperation(allocator, "all", &allOp);
-    try registry.registerOperation(allocator, "count", &countOp);
+    try registry.registerOperation(allocator, "map", Operation.fromFn(mapOp));
+    try registry.registerOperation(allocator, "foreach", Operation.fromFn(foreachOp));
+    try registry.registerOperation(allocator, "apply", Operation.fromFn(applyOp));
+    try registry.registerOperation(allocator, "filter", Operation.fromFn(filterOp));
+    try registry.registerOperation(allocator, "reduce", Operation.fromFn(reduceOp));
+    try registry.registerOperation(allocator, "any", Operation.fromFn(anyOp));
+    try registry.registerOperation(allocator, "all", Operation.fromFn(allOp));
+    try registry.registerOperation(allocator, "count", Operation.fromFn(countOp));
 
     // Utility
-    try registry.registerOperation(allocator, "identity", &identityOp);
+    try registry.registerOperation(allocator, "identity", Operation.fromFn(identityOp));
 
     // Sequencing
-    try registry.registerOperation(allocator, "proc", &procOp);
+    try registry.registerOperation(allocator, "proc", Operation.fromFn(procOp));
 
     // Type conversion
-    try registry.registerOperation(allocator, "int", &intOp);
-    try registry.registerOperation(allocator, "float", &floatOp);
-    try registry.registerOperation(allocator, "string", &stringOp);
+    try registry.registerOperation(allocator, "int", Operation.fromFn(intOp));
+    try registry.registerOperation(allocator, "float", Operation.fromFn(floatOp));
+    try registry.registerOperation(allocator, "string", Operation.fromFn(stringOp));
 
     // Type inspection
-    try registry.registerOperation(allocator, "type", &typeOp);
+    try registry.registerOperation(allocator, "type", Operation.fromFn(typeOp));
 
     // String predicates
-    try registry.registerOperation(allocator, "prefix", &prefixOp);
-    try registry.registerOperation(allocator, "suffix", &suffixOp);
-    try registry.registerOperation(allocator, "in", &inOp);
+    try registry.registerOperation(allocator, "prefix", Operation.fromFn(prefixOp));
+    try registry.registerOperation(allocator, "suffix", Operation.fromFn(suffixOp));
+    try registry.registerOperation(allocator, "in", Operation.fromFn(inOp));
 
     // Math utilities
-    try registry.registerOperation(allocator, "min", &minOp);
-    try registry.registerOperation(allocator, "max", &maxOp);
-    try registry.registerOperation(allocator, "clamp", &clampOp);
-    try registry.registerOperation(allocator, "abs", &absOp);
-    try registry.registerOperation(allocator, "floor", &floorOp);
-    try registry.registerOperation(allocator, "ceil", &ceilOp);
-    try registry.registerOperation(allocator, "round", &roundOp);
-    try registry.registerOperation(allocator, "even", &evenOp);
-    try registry.registerOperation(allocator, "odd", &oddOp);
-    try registry.registerOperation(allocator, "sign", &signOp);
+    try registry.registerOperation(allocator, "min", Operation.fromFn(minOp));
+    try registry.registerOperation(allocator, "max", Operation.fromFn(maxOp));
+    try registry.registerOperation(allocator, "clamp", Operation.fromFn(clampOp));
+    try registry.registerOperation(allocator, "abs", Operation.fromFn(absOp));
+    try registry.registerOperation(allocator, "floor", Operation.fromFn(floorOp));
+    try registry.registerOperation(allocator, "ceil", Operation.fromFn(ceilOp));
+    try registry.registerOperation(allocator, "round", Operation.fromFn(roundOp));
+    try registry.registerOperation(allocator, "even", Operation.fromFn(evenOp));
+    try registry.registerOperation(allocator, "odd", Operation.fromFn(oddOp));
+    try registry.registerOperation(allocator, "sign", Operation.fromFn(signOp));
 }
 
 // ── Constants ──

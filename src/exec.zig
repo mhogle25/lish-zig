@@ -62,6 +62,27 @@ pub const Scope = struct {
         return self.entries.get(key);
     }
 
+    /// Bind an arbitrary thunk to a name with an explicit evaluation scope.
+    /// setValue and setExpression are convenience wrappers around this.
+    pub fn setEntry(self: *Scope, allocator: Allocator, key: []const u8, thunk: *const Thunk, thunk_scope: *const Scope) Allocator.Error!void {
+        try self.entries.put(allocator, key, .{ .thunk = thunk, .scope = thunk_scope });
+    }
+
+    /// Bind a static value to a name. The value is returned as-is on every access.
+    pub fn setValue(self: *Scope, allocator: Allocator, key: []const u8, value: ?Value) Allocator.Error!void {
+        const thunk = try allocator.create(Thunk);
+        thunk.* = .{ .value_literal = value };
+        try self.setEntry(allocator, key, thunk, &Scope.EMPTY);
+    }
+
+    /// Bind a lazily-evaluated expression to a name. The expression is
+    /// re-evaluated in this scope each time the name is referenced.
+    pub fn setExpression(self: *Scope, allocator: Allocator, key: []const u8, expr: Expression) Allocator.Error!void {
+        const thunk = try allocator.create(Thunk);
+        thunk.* = .{ .expression = expr };
+        try self.setEntry(allocator, key, thunk, self);
+    }
+
     pub const EMPTY: Scope = .{};
 };
 
@@ -175,9 +196,46 @@ pub const Args = struct {
     }
 };
 
-// ── Operation — Native function pointer ──
+// ── Operation — Callable with optional bound context ──
 
-pub const Operation = *const fn (Args) ExecError!?Value;
+pub const Operation = struct {
+    context: ?*anyopaque,
+    callFn: *const fn (?*anyopaque, Args) ExecError!?Value,
+
+    pub fn call(self: Operation, args: Args) ExecError!?Value {
+        return self.callFn(self.context, args);
+    }
+
+    /// Wrap a stateless function as an Operation.
+    pub fn fromFn(comptime func: fn (Args) ExecError!?Value) Operation {
+        return .{
+            .context = null,
+            .callFn = struct {
+                fn call(_: ?*anyopaque, args: Args) ExecError!?Value {
+                    return func(args);
+                }
+            }.call,
+        };
+    }
+
+    /// Wrap a context-bound function as an Operation.
+    /// The cast from anyopaque to *Context is generated once here at comptime.
+    pub fn fromBoundFn(
+        comptime Context: type,
+        comptime func: fn (*Context, Args) ExecError!?Value,
+        context: *Context,
+    ) Operation {
+        return .{
+            .context = context,
+            .callFn = struct {
+                fn call(ctx: ?*anyopaque, args: Args) ExecError!?Value {
+                    const typed: *Context = @ptrCast(@alignCast(ctx.?));
+                    return func(typed, args);
+                }
+            }.call,
+        };
+    }
+};
 
 // ── Macro — User-defined function ──
 
@@ -215,17 +273,17 @@ pub const Macro = struct {
         macro_scope.* = .{};
 
         for (self.parameters, arg_thunks) |param, arg_thunk| {
-            const entry: ScopeEntry = switch (param.param_type) {
-                .value => blk: {
-                    // Eagerly evaluate the argument in the caller's scope
+            switch (param.param_type) {
+                .value => {
+                    // Eagerly evaluate the argument in the caller's scope, then bind as a static value.
                     const evaluated = try arg_thunk.proc(env, caller_scope);
-                    const literal = try env.allocator.create(Thunk);
-                    literal.* = .{ .value_literal = evaluated };
-                    break :blk .{ .thunk = literal, .scope = caller_scope };
+                    try macro_scope.setValue(env.allocator, param.id, evaluated);
                 },
-                .deferred => .{ .thunk = arg_thunk, .scope = caller_scope },
-            };
-            try macro_scope.entries.put(env.allocator, param.id, entry);
+                .deferred => {
+                    // Bind the unevaluated thunk with the caller's scope so it re-evaluates there.
+                    try macro_scope.setEntry(env.allocator, param.id, arg_thunk, caller_scope);
+                },
+            }
         }
 
         return env.processExpression(self.body, macro_scope);
@@ -282,7 +340,7 @@ pub const Env = struct {
         // 3. Try operation first, then macro
         if (self.registry.getOperation(id_string)) |operation| {
             const args = try self.packageArgs(expression.args, scope);
-            return operation(args);
+            return operation.call(args);
         }
 
         if (self.registry.getMacro(id_string)) |macro| {
@@ -410,7 +468,7 @@ test "expression evaluates operation" {
     const alloc = arena.allocator();
 
     var registry = Registry{};
-    try registry.registerOperation(alloc, "double", &testDoubleOp);
+    try registry.registerOperation(alloc, "double", Operation.fromFn(testDoubleOp));
 
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
@@ -450,7 +508,7 @@ test "nested expression evaluation" {
     const alloc = arena.allocator();
 
     var registry = Registry{};
-    try registry.registerOperation(alloc, "add", &testAddOp);
+    try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp));
 
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
@@ -481,7 +539,7 @@ test "macro with value parameters" {
     const alloc = arena.allocator();
 
     var registry = Registry{};
-    try registry.registerOperation(alloc, "add", &testAddOp);
+    try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp));
 
     // Define macro: |add-one x| add :x 1
     const params = [_]MacroParameter{
@@ -522,7 +580,7 @@ test "macro with deferred parameter" {
     const alloc = arena.allocator();
 
     var registry = Registry{};
-    try registry.registerOperation(alloc, "identity", &testIdentityOp);
+    try registry.registerOperation(alloc, "identity", Operation.fromFn(testIdentityOp));
 
     // Define macro: |run-deferred ~thunk| identity :thunk
     // The deferred parameter means the thunk is not evaluated until :thunk is referenced
@@ -623,7 +681,7 @@ test "scope entry closure captures scope" {
     const alloc = arena.allocator();
 
     var registry = Registry{};
-    try registry.registerOperation(alloc, "add", &testAddOp);
+    try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp));
 
     var env = Env{ .registry = &registry, .allocator = alloc };
 

@@ -270,15 +270,57 @@ try lish.serializeMacroModule(macros, writer);
 
 Serialization always emits the canonical desugared form — `list` instead of `[...]`, `proc` instead of `{...}`. Comments are not preserved (they are discarded by the lexer during parsing).
 
+### Populating a Scope
+
+`Scope` lets you pass host state into lish expressions. Variables bound in a scope are accessible via `:varname` in any expression evaluated against that scope.
+
+```zig
+var scope = lish.Scope{};
+
+// Bind a static value — accessed instantly, no re-evaluation
+try scope.setValue(allocator, "playerName", .{ .string = "Aiden" });
+
+// Bind a lazily-evaluated expression — re-evaluated each time :varName is accessed
+const expr: lish.exec.Expression = ...; // built or validated externally
+try scope.setExpression(allocator, "greeting", expr);
+
+// Low-level: bind any Thunk with an explicit entry scope
+try scope.setEntry(allocator, "key", thunk_ptr, entry_scope_ptr);
+```
+
+In lish expressions, reference scope entries with `:name`:
+```
+concat "Hello, " :playerName
+```
+
 ### Custom Operations
 
 ```zig
+// Stateless operation (no context)
 fn myOperation(args: lish.Args) lish.exec.ExecError!?lish.Value {
     const value = try args.at(0).resolve();
     return value; // echo back the first argument
 }
 
-try registry.registerOperation(allocator, "my-op", &myOperation);
+try registry.registerOperation(allocator, "my-op", lish.Operation.fromFn(myOperation));
+
+// Bound operation (has access to a context struct)
+const MySystem = struct {
+    count: usize = 0,
+
+    fn countOp(self: *MySystem, args: lish.Args) lish.exec.ExecError!?lish.Value {
+        _ = args;
+        self.count += 1;
+        return null;
+    }
+};
+
+var system = MySystem{};
+try registry.registerOperation(
+    allocator,
+    "count",
+    lish.Operation.fromBoundFn(MySystem, MySystem.countOp, &system),
+);
 ```
 
 ## Building

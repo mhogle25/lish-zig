@@ -149,7 +149,6 @@ pub fn isReservedChar(char: u8) bool {
 }
 
 /// Standard escape sequences for string literals.
-/// Matches ParseUtils.EscSymToChar from BFO.Common.
 pub fn escSymToChar(symbol: u8) ?u8 {
     return switch (symbol) {
         'r' => CARRIAGE_RETURN,
@@ -162,6 +161,8 @@ pub fn escSymToChar(symbol: u8) ?u8 {
         'a' => BELL,
         'e' => ESCAPE_CHAR,
         BACKSLASH => BACKSLASH,
+        QUOTE_DOUBLE => QUOTE_DOUBLE,
+        QUOTE_SINGLE => QUOTE_SINGLE,
         else => null,
     };
 }
@@ -200,6 +201,8 @@ test "escape sequences" {
     try std.testing.expectEqual(@as(u8, BELL), escSymToChar('a').?);
     try std.testing.expectEqual(@as(u8, ESCAPE_CHAR), escSymToChar('e').?);
     try std.testing.expectEqual(@as(u8, '\\'), escSymToChar('\\').?);
+    try std.testing.expectEqual(@as(u8, '"'), escSymToChar('"').?);
+    try std.testing.expectEqual(@as(u8, '\''), escSymToChar('\'').?);
     try std.testing.expect(escSymToChar('x') == null);
     // Identifier escapes include reserved chars
     try std.testing.expectEqual(@as(u8, '$'), idenEscSymToChar('$').?);

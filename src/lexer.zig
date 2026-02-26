@@ -393,6 +393,22 @@ test "lex string with escapes" {
     try std.testing.expectEqual(@as(usize, 0), t.invalid_escape_count);
 }
 
+test "lex string with escaped quotes" {
+    var lex = Lexer{ .source = "\"say \\\"hi\\\"\"" };
+    const t = lex.nextToken();
+    try std.testing.expectEqual(TokenType.string_literal, t.type);
+    try std.testing.expectEqualStrings("say \\\"hi\\\"", t.lexeme);
+    try std.testing.expectEqual(@as(usize, 0), t.invalid_escape_count);
+}
+
+test "lex single-quoted string with escaped single quote" {
+    var lex = Lexer{ .source = "'it\\'s alive'" };
+    const t = lex.nextToken();
+    try std.testing.expectEqual(TokenType.string_literal, t.type);
+    try std.testing.expectEqualStrings("it\\'s alive", t.lexeme);
+    try std.testing.expectEqual(@as(usize, 0), t.invalid_escape_count);
+}
+
 test "lex string with invalid escape" {
     var lex = Lexer{ .source = "\"hello\\xworld\"" };
     const t = lex.nextToken();

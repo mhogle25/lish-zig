@@ -62,6 +62,12 @@ pub const LineEditor = struct {
     escape_state: EscapeState = .ground,
     csi_param: u16 = 0,
 
+    /// When true, typing (, [, or { inserts the matching closing bracket
+    /// and positions the cursor between the pair.
+    autopair_insert: bool = true,
+    /// When true, pressing backspace between a matched pair deletes both brackets.
+    autopair_delete: bool = true,
+
     stdout: std.io.AnyWriter,
     allocator: Allocator,
 
@@ -274,15 +280,15 @@ pub const LineEditor = struct {
                 return .continue_reading;
             },
             '(' => {
-                self.insertPair('(', ')');
+                if (self.autopair_insert) self.insertPair('(', ')') else self.insertCharacter('(');
                 return .continue_reading;
             },
             '[' => {
-                self.insertPair('[', ']');
+                if (self.autopair_insert) self.insertPair('[', ']') else self.insertCharacter('[');
                 return .continue_reading;
             },
             '{' => {
-                self.insertPair('{', '}');
+                if (self.autopair_insert) self.insertPair('{', '}') else self.insertCharacter('{');
                 return .continue_reading;
             },
             else => {
@@ -417,6 +423,25 @@ pub const LineEditor = struct {
     fn deleteBackward(self: *LineEditor) void {
         if (self.cursor_position == 0) return;
 
+        // Autopair deletion: if cursor is between a matched pair, delete both.
+        if (self.autopair_delete and self.cursor_position < self.line_length) {
+            const prev = self.line_buffer[self.cursor_position - 1];
+            const next = self.line_buffer[self.cursor_position];
+            if (isMatchedPair(prev, next)) {
+                if (self.cursor_position + 1 < self.line_length) {
+                    std.mem.copyForwards(
+                        u8,
+                        self.line_buffer[self.cursor_position - 1 .. self.line_length - 2],
+                        self.line_buffer[self.cursor_position + 1 .. self.line_length],
+                    );
+                }
+                self.cursor_position -= 1;
+                self.line_length -= 2;
+                self.refreshLine();
+                return;
+            }
+        }
+
         if (self.cursor_position < self.line_length) {
             std.mem.copyForwards(
                 u8,
@@ -428,6 +453,12 @@ pub const LineEditor = struct {
         self.cursor_position -= 1;
         self.line_length -= 1;
         self.refreshLine();
+    }
+
+    fn isMatchedPair(open: u8, close: u8) bool {
+        return (open == '(' and close == ')') or
+            (open == '[' and close == ']') or
+            (open == '{' and close == '}');
     }
 
     fn deleteForward(self: *LineEditor) void {

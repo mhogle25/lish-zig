@@ -13,7 +13,15 @@ const Allocator = std.mem.Allocator;
 
 // ── Registration ──
 
+/// Register all built-in operations including output ops (say, error).
 pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!void {
+    try registerCore(registry, allocator);
+    try registerOutput(registry, allocator);
+}
+
+/// Register all pure built-in operations. Safe for any context, including
+/// config loading, since none of these produce visible side effects.
+pub fn registerCore(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     // Constants
     try registry.registerOperation(allocator, "some", Operation.fromFn(someOp));
     try registry.registerOperation(allocator, "none", Operation.fromFn(noneOp));
@@ -39,6 +47,7 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
     try registry.registerOperation(allocator, "and", Operation.fromFn(andOp));
     try registry.registerOperation(allocator, "or", Operation.fromFn(orOp));
     try registry.registerOperation(allocator, "not", Operation.fromFn(notOp));
+
     // Control flow
     try registry.registerOperation(allocator, "if", Operation.fromFn(ifElseOp));
     try registry.registerOperation(allocator, "when", Operation.fromFn(whenOp));
@@ -48,8 +57,6 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
     // String
     try registry.registerOperation(allocator, "concat", Operation.fromFn(concatOp));
     try registry.registerOperation(allocator, "join", Operation.fromFn(joinOp));
-    try registry.registerOperation(allocator, "say", Operation.fromFn(sayOp));
-    try registry.registerOperation(allocator, "error", Operation.fromFn(errorOp));
     try registry.registerOperation(allocator, "split", Operation.fromFn(splitOp));
     try registry.registerOperation(allocator, "trim", Operation.fromFn(trimOp));
     try registry.registerOperation(allocator, "upper", Operation.fromFn(upperOp));
@@ -57,23 +64,30 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
     try registry.registerOperation(allocator, "replace", Operation.fromFn(replaceOp));
     try registry.registerOperation(allocator, "format", Operation.fromFn(formatOp));
 
+    // String predicates
+    try registry.registerOperation(allocator, "prefix", Operation.fromFn(prefixOp));
+    try registry.registerOperation(allocator, "suffix", Operation.fromFn(suffixOp));
+    try registry.registerOperation(allocator, "in", Operation.fromFn(inOp));
+
     // List
     try registry.registerOperation(allocator, "list", Operation.fromFn(listOp));
     try registry.registerOperation(allocator, "flat", Operation.fromFn(flatOp));
+    try registry.registerOperation(allocator, "flatten", Operation.fromFn(flattenOp));
+    try registry.registerOperation(allocator, "range", Operation.fromFn(rangeOp));
+    try registry.registerOperation(allocator, "until", Operation.fromFn(untilOp));
+    try registry.registerOperation(allocator, "sort", Operation.fromFn(sortOp));
+    try registry.registerOperation(allocator, "sortby", Operation.fromFn(sortbyOp));
+
+    // Collection
     try registry.registerOperation(allocator, "length", Operation.fromFn(lengthOp));
     try registry.registerOperation(allocator, "first", Operation.fromFn(firstOp));
+    try registry.registerOperation(allocator, "last", Operation.fromFn(lastOp));
     try registry.registerOperation(allocator, "rest", Operation.fromFn(restOp));
     try registry.registerOperation(allocator, "at", Operation.fromFn(atOp));
     try registry.registerOperation(allocator, "reverse", Operation.fromFn(reverseOp));
-    try registry.registerOperation(allocator, "range", Operation.fromFn(rangeOp));
-    try registry.registerOperation(allocator, "until", Operation.fromFn(untilOp));
-    try registry.registerOperation(allocator, "last", Operation.fromFn(lastOp));
     try registry.registerOperation(allocator, "take", Operation.fromFn(takeOp));
     try registry.registerOperation(allocator, "drop", Operation.fromFn(dropOp));
     try registry.registerOperation(allocator, "zip", Operation.fromFn(zipOp));
-    try registry.registerOperation(allocator, "flatten", Operation.fromFn(flattenOp));
-    try registry.registerOperation(allocator, "sort", Operation.fromFn(sortOp));
-    try registry.registerOperation(allocator, "sortby", Operation.fromFn(sortbyOp));
 
     // Higher-order
     try registry.registerOperation(allocator, "map", Operation.fromFn(mapOp));
@@ -85,26 +99,7 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
     try registry.registerOperation(allocator, "all", Operation.fromFn(allOp));
     try registry.registerOperation(allocator, "count", Operation.fromFn(countOp));
 
-    // Utility
-    try registry.registerOperation(allocator, "identity", Operation.fromFn(identityOp));
-
-    // Sequencing
-    try registry.registerOperation(allocator, "proc", Operation.fromFn(procOp));
-
-    // Type conversion
-    try registry.registerOperation(allocator, "int", Operation.fromFn(intOp));
-    try registry.registerOperation(allocator, "float", Operation.fromFn(floatOp));
-    try registry.registerOperation(allocator, "string", Operation.fromFn(stringOp));
-
-    // Type inspection
-    try registry.registerOperation(allocator, "type", Operation.fromFn(typeOp));
-
-    // String predicates
-    try registry.registerOperation(allocator, "prefix", Operation.fromFn(prefixOp));
-    try registry.registerOperation(allocator, "suffix", Operation.fromFn(suffixOp));
-    try registry.registerOperation(allocator, "in", Operation.fromFn(inOp));
-
-    // Math utilities
+    // Math
     try registry.registerOperation(allocator, "min", Operation.fromFn(minOp));
     try registry.registerOperation(allocator, "max", Operation.fromFn(maxOp));
     try registry.registerOperation(allocator, "clamp", Operation.fromFn(clampOp));
@@ -115,6 +110,25 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
     try registry.registerOperation(allocator, "even", Operation.fromFn(evenOp));
     try registry.registerOperation(allocator, "odd", Operation.fromFn(oddOp));
     try registry.registerOperation(allocator, "sign", Operation.fromFn(signOp));
+
+    // Type
+    try registry.registerOperation(allocator, "type", Operation.fromFn(typeOp));
+    try registry.registerOperation(allocator, "int", Operation.fromFn(intOp));
+    try registry.registerOperation(allocator, "float", Operation.fromFn(floatOp));
+    try registry.registerOperation(allocator, "string", Operation.fromFn(stringOp));
+
+    // Sequencing
+    try registry.registerOperation(allocator, "proc", Operation.fromFn(procOp));
+
+    // Utility
+    try registry.registerOperation(allocator, "identity", Operation.fromFn(identityOp));
+}
+
+/// Register output operations (say, error). These write to stdout/stderr and
+/// are excluded from registerCore to keep config loading side-effect-free.
+pub fn registerOutput(registry: *Registry, allocator: Allocator) Allocator.Error!void {
+    try registry.registerOperation(allocator, "say", Operation.fromFn(sayOp));
+    try registry.registerOperation(allocator, "error", Operation.fromFn(errorOp));
 }
 
 // ── Constants ──

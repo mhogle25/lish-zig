@@ -368,6 +368,26 @@ zig build run -- --macros macros/math --macros macros/utils
 
 The line editor supports history navigation (↑/↓), cursor movement (←/→, Home, End), and standard readline-style shortcuts (Ctrl+A/E/K/U/W/L).
 
+### REPL Configuration
+
+The REPL reads `$XDG_CONFIG_HOME/lish/config` on startup, falling back to `~/.config/lish/config`. The file is a lish script evaluated with the full set of core built-ins available. If the file does not exist all settings use their defaults.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `autopair-insert` | `$some` | Typing `(`, `[`, or `{` inserts the matching closing bracket with the cursor positioned between the pair. |
+| `autopair-delete` | `$some` | Pressing backspace between a matched pair deletes both brackets. |
+
+To disable a setting, call it with `$none`. Any truthy value (or no argument) enables it:
+
+```
+## ~/.config/lish/config
+
+autopair-insert $none
+autopair-delete $none
+```
+
+Note: `say` and `error` are not available in the config context — they are excluded to prevent accidental terminal output on every REPL startup.
+
 ## Architecture
 
 | File               | Purpose                                              |

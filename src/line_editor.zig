@@ -273,6 +273,18 @@ pub const LineEditor = struct {
                 self.deleteBackward();
                 return .continue_reading;
             },
+            '(' => {
+                self.insertPair('(', ')');
+                return .continue_reading;
+            },
+            '[' => {
+                self.insertPair('[', ']');
+                return .continue_reading;
+            },
+            '{' => {
+                self.insertPair('{', '}');
+                return .continue_reading;
+            },
             else => {
                 if (byte >= 0x20 and byte < 0x7f) {
                     self.insertCharacter(byte);
@@ -373,6 +385,16 @@ pub const LineEditor = struct {
     }
 
     // -- Line editing operations --
+
+    fn insertPair(self: *LineEditor, open: u8, close: u8) void {
+        if (self.line_length + 2 > BUFFER_SIZE) {
+            self.insertCharacter(open);
+            return;
+        }
+        self.insertCharacter(open);
+        self.insertCharacter(close);
+        self.moveCursorLeft();
+    }
 
     fn insertCharacter(self: *LineEditor, byte: u8) void {
         if (self.line_length >= BUFFER_SIZE) return;

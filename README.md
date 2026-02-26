@@ -376,16 +376,18 @@ The REPL reads `$XDG_CONFIG_HOME/lish/config` on startup, falling back to `~/.co
 |---------|---------|-------------|
 | `autopair-insert` | `$some` | Typing `(`, `[`, or `{` inserts the matching closing bracket with the cursor positioned between the pair. |
 | `autopair-delete` | `$some` | Pressing backspace between a matched pair deletes both brackets. |
+| `macros` | — | Load all `.lishmacro` files from the given directory. May be called multiple times to add multiple directories. |
 
 The config file is evaluated as a single lish expression. Use `proc` to sequence multiple settings:
 
 ```
 proc
-    (autopair-insert $none)
-    (autopair-delete $none)
+    (autopair-insert $off)
+    (autopair-delete $off)
+    (macros '~/.config/lish/macros')
 ```
 
-To disable a setting, call it with `$none`. Any truthy value (or no argument) enables it. An empty file or a file containing only comments is a no-op.
+The config context includes two convenience macros, `$on` and `$off`, for toggling boolean settings. Calling a boolean setting with no argument also enables it. `macros` takes exactly one path argument. An empty file or a file containing only comments is a no-op.
 
 Note: `say` and `error` are not available in the config context — they are excluded to prevent accidental terminal output on every REPL startup.
 

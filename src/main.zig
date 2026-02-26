@@ -9,6 +9,17 @@ const Allocator = std.mem.Allocator;
 const ReplConfig = struct {
     autopair_insert: bool = true,
     autopair_delete: bool = true,
+    macro_dirs: std.ArrayListUnmanaged([]const u8) = .{},
+    allocator: Allocator,
+
+    fn init(allocator: Allocator) ReplConfig {
+        return .{ .allocator = allocator };
+    }
+
+    fn deinit(self: *ReplConfig) void {
+        for (self.macro_dirs.items) |path| self.allocator.free(path);
+        self.macro_dirs.deinit(self.allocator);
+    }
 };
 
 fn autopairInsertOp(config: *ReplConfig, args: lish.Args) lish.exec.ExecError!?lish.Value {
@@ -26,6 +37,17 @@ fn autopairDeleteOp(config: *ReplConfig, args: lish.Args) lish.exec.ExecError!?l
         1 => config.autopair_delete = (try args.at(0).get()) != null,
         else => return args.env.fail("autopair-delete takes 0 or 1 argument"),
     }
+    return null;
+}
+
+fn macrosOp(config: *ReplConfig, args: lish.Args) lish.exec.ExecError!?lish.Value {
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = try (try args.single()).resolveString(&path_buf);
+    const owned = config.allocator.dupe(u8, path) catch return error.OutOfMemory;
+    config.macro_dirs.append(config.allocator, owned) catch {
+        config.allocator.free(owned);
+        return error.OutOfMemory;
+    };
     return null;
 }
 
@@ -51,6 +73,13 @@ fn loadConfig(config: *ReplConfig, allocator: Allocator) void {
     lish.builtins.registerCore(&registry, allocator) catch return;
     registry.registerOperation(allocator, "autopair-insert", lish.Operation.fromBoundFn(ReplConfig, autopairInsertOp, config)) catch return;
     registry.registerOperation(allocator, "autopair-delete", lish.Operation.fromBoundFn(ReplConfig, autopairDeleteOp, config)) catch return;
+    registry.registerOperation(allocator, "macros", lish.Operation.fromBoundFn(ReplConfig, macrosOp, config)) catch return;
+
+    const config_macros =
+        \\|on| $some
+        \\|off| $none
+    ;
+    _ = lish.loadMacroModule(allocator, &registry, config_macros) catch return;
 
     const trimmed = std.mem.trim(u8, source, " \t\r\n");
     if (trimmed.len == 0) return;
@@ -89,12 +118,18 @@ pub fn main() !void {
         }
     }
 
-    var repl_config = ReplConfig{};
+    var repl_config = ReplConfig.init(allocator);
+    defer repl_config.deinit();
     loadConfig(&repl_config, allocator);
+
+    var all_macro_dirs = std.ArrayListUnmanaged([]const u8){};
+    defer all_macro_dirs.deinit(allocator);
+    try all_macro_dirs.appendSlice(allocator, repl_config.macro_dirs.items);
+    try all_macro_dirs.appendSlice(allocator, macro_dir_storage[0..macro_dir_count]);
 
     var session = try lish.Session.init(allocator, .{
         .fragments = &.{&lish.builtins.registerAll},
-        .macro_paths = macro_dir_storage[0..macro_dir_count],
+        .macro_paths = all_macro_dirs.items,
         .stdout = stdout,
         .stderr = stderr,
     });

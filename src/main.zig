@@ -52,14 +52,11 @@ fn loadConfig(config: *ReplConfig, allocator: Allocator) void {
     registry.registerOperation(allocator, "autopair-insert", lish.Operation.fromBoundFn(ReplConfig, autopairInsertOp, config)) catch return;
     registry.registerOperation(allocator, "autopair-delete", lish.Operation.fromBoundFn(ReplConfig, autopairDeleteOp, config)) catch return;
 
-    var env = lish.Env{ .registry = &registry, .allocator = allocator };
+    const trimmed = std.mem.trim(u8, source, " \t\r\n");
+    if (trimmed.len == 0) return;
 
-    var lines = std.mem.splitScalar(u8, source, '\n');
-    while (lines.next()) |line| {
-        const trimmed = std.mem.trim(u8, line, " \t\r");
-        if (trimmed.len == 0) continue;
-        _ = lish.processRaw(&env, trimmed, null) catch {};
-    }
+    var env = lish.Env{ .registry = &registry, .allocator = allocator };
+    _ = lish.processRaw(&env, trimmed, null) catch {};
 }
 
 // ── Entry point ──

@@ -377,14 +377,15 @@ The REPL reads `$XDG_CONFIG_HOME/lish/config` on startup, falling back to `~/.co
 | `autopair-insert` | `$some` | Typing `(`, `[`, or `{` inserts the matching closing bracket with the cursor positioned between the pair. |
 | `autopair-delete` | `$some` | Pressing backspace between a matched pair deletes both brackets. |
 
-To disable a setting, call it with `$none`. Any truthy value (or no argument) enables it:
+The config file is evaluated as a single lish expression. Use `proc` to sequence multiple settings:
 
 ```
-## ~/.config/lish/config
-
-autopair-insert $none
-autopair-delete $none
+proc
+    (autopair-insert $none)
+    (autopair-delete $none)
 ```
+
+To disable a setting, call it with `$none`. Any truthy value (or no argument) enables it. An empty file or a file containing only comments is a no-op.
 
 Note: `say` and `error` are not available in the config context — they are excluded to prevent accidental terminal output on every REPL startup.
 

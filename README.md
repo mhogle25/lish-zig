@@ -2,6 +2,18 @@
 
 A Lisp-family expression language interpreter for Zig. Designed to be embedded in other Zig projects as a scripting/configuration DSL or a shell-like utility.
 
+## Not quite Lisp
+
+lish borrows Lisp's prefix notation and parenthesized sub-expressions, but diverges significantly in several areas. If you're coming from Scheme, Common Lisp, or Clojure, expect these differences:
+
+- **No parentheses at the top level.** `+ 1 2` is a complete expression. Parens only appear when nesting: `+ 1 (* 2 3)`.
+- **No symbols.** Bare words are strings, not a distinct symbol type. The `'expr` quote operator does not exist — `'...'` is simply a string literal that allows whitespace.
+- **No booleans.** There are no `true`/`false`, `t`/`nil` values. Truthiness is existential: any non-null value is truthy, `null` is falsy.
+- **Call-by-name, not call-by-value.** Arguments are not evaluated before the call. They are re-evaluated each time the callee accesses them. This applies uniformly to all operations, not just special forms.
+- **No cons cells.** Lists are flat arrays. There is no `car`, `cdr`, or dotted pair notation.
+- **No first-class functions.** There is no `lambda` and no closures. Macros are named parameter-substitution patterns evaluated at call time, not compile-time code transformers.
+- **No runtime variable binding.** There is no `let`, `define`, or `setq`. The scope is provided by the host at runtime and is read-only from within lish.
+
 ## Features
 
 - **Deferred evaluation** — arguments are evaluated on demand, not ahead of time

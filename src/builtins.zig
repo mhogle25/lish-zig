@@ -119,9 +119,6 @@ pub fn registerCore(registry: *Registry, allocator: Allocator) Allocator.Error!v
 
     // Sequencing
     try registry.registerOperation(allocator, "proc", Operation.fromFn(procOp));
-
-    // Utility
-    try registry.registerOperation(allocator, "identity", Operation.fromFn(identityOp));
 }
 
 /// Register output operations (say, error). These write to stdout/stderr and
@@ -1089,13 +1086,6 @@ fn countOp(args: Args) ExecError!?Value {
     return .{ .int = tally };
 }
 
-// ── Utility ──
-
-fn identityOp(args: Args) ExecError!?Value {
-    try args.expectCount(1);
-    return args.at(0).get();
-}
-
 // ── Sequencing ──
 
 fn procOp(args: Args) ExecError!?Value {
@@ -1774,20 +1764,6 @@ test "higher-order: reduce with multiply" {
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "reduce \"*\" 1 [2 3 4]");
     try std.testing.expectEqual(@as(i64, 24), result.?.int);
-}
-
-test "utility: identity" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try evalWithBuiltins(arena.allocator(), "identity 42");
-    try std.testing.expectEqual(@as(i64, 42), result.?.int);
-}
-
-test "utility: identity with none" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try evalWithBuiltins(arena.allocator(), "identity $none");
-    try std.testing.expect(result == null);
 }
 
 test "block literal as proc" {

@@ -106,7 +106,8 @@ Macros (params accessed with `:`):
 | Math              | `min`, `max`, `clamp`, `abs`, `floor`, `ceil`, `round`, `even`, `odd`, `sign` |
 | Type              | `type`, `int`, `float`, `string`                                              |
 | Sequencing        | `proc`                                                                        |
-| Utility           | `identity`                                                                    |
+
+`proc` takes its name from three overlapping meanings: **procedure** (execute a sequence of steps), **procure** (retrieve a value), and **process** (transform a sequence). With one argument it returns that argument's value; with multiple arguments it evaluates each in order and returns the last.
 
 ## Usage
 

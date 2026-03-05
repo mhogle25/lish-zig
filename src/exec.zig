@@ -580,15 +580,15 @@ test "macro with deferred parameter" {
     const alloc = arena.allocator();
 
     var registry = Registry{};
-    try registry.registerOperation(alloc, "identity", Operation.fromFn(testIdentityOp));
+    try registry.registerOperation(alloc, "passthrough", Operation.fromFn(testPassthroughOp));
 
-    // Define macro: |run-deferred ~thunk| identity :thunk
+    // Define macro: |run-deferred ~thunk| passthrough :thunk
     // The deferred parameter means the thunk is not evaluated until :thunk is referenced
     const params = [_]MacroParameter{
         .{ .id = "thunk", .param_type = .deferred },
     };
 
-    const identity_id = try makeValueLiteral(alloc, .{ .string = "identity" });
+    const identity_id = try makeValueLiteral(alloc, .{ .string = "passthrough" });
     const thunk_id = try makeValueLiteral(alloc, .{ .string = "thunk" });
     const thunk_ref = try makeScopeThunk(alloc, thunk_id);
 
@@ -615,7 +615,7 @@ test "macro with deferred parameter" {
     try std.testing.expectEqual(@as(i64, 42), result.?.int);
 }
 
-fn testIdentityOp(args: Args) ExecError!?Value {
+fn testPassthroughOp(args: Args) ExecError!?Value {
     return args.at(0).get();
 }
 
@@ -629,7 +629,7 @@ test "macro arity mismatch" {
         .{ .id = "x", .param_type = .value },
         .{ .id = "y", .param_type = .value },
     };
-    const dummy_id = try makeValueLiteral(alloc, .{ .string = "identity" });
+    const dummy_id = try makeValueLiteral(alloc, .{ .string = "proc" });
     const macro = try alloc.create(Macro);
     macro.* = .{
         .id = "needs-two",

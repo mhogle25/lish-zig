@@ -333,9 +333,13 @@ pub const Env = struct {
         const id_value = try expression.id.proc(self, scope) orelse
             return self.fail("Expression ID resolved to none");
 
-        // 2. Convert to string for registry lookup
-        var id_buf: [256]u8 = undefined;
-        const id_string = id_value.getS(&id_buf);
+        // 2. Require a string for registry lookup
+        const id_string = switch (id_value) {
+            .string => |s| s,
+            .int => |n| return self.failFmt("Expected operation name, got int: {d}", .{n}),
+            .float => |n| return self.failFmt("Expected operation name, got float: {d}", .{n}),
+            .list => return self.fail("Expected operation name, got list"),
+        };
 
         // 3. Try operation first, then macro
         if (self.registry.getOperation(id_string)) |operation| {
@@ -484,6 +488,58 @@ test "expression evaluates operation" {
 fn testDoubleOp(args: Args) ExecError!?Value {
     const arg_value = try args.at(0).resolveInt();
     return .{ .int = arg_value * 2 };
+}
+
+test "expression fails when op id is int" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var registry = Registry{};
+    var env = Env{ .registry = &registry, .allocator = alloc };
+    const scope = Scope.EMPTY;
+
+    const id = try makeValueLiteral(alloc, .{ .int = 42 });
+    const expr_thunk = try makeExpression(alloc, id, &.{});
+
+    const result = expr_thunk.proc(&env, &scope);
+    try std.testing.expectError(error.RuntimeError, result);
+    try std.testing.expectEqualStrings("Expected operation name, got int: 42", env.runtime_error.?);
+}
+
+test "expression fails when op id is float" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var registry = Registry{};
+    var env = Env{ .registry = &registry, .allocator = alloc };
+    const scope = Scope.EMPTY;
+
+    const id = try makeValueLiteral(alloc, .{ .float = 3.14 });
+    const expr_thunk = try makeExpression(alloc, id, &.{});
+
+    const result = expr_thunk.proc(&env, &scope);
+    try std.testing.expectError(error.RuntimeError, result);
+    try std.testing.expectEqualStrings("Expected operation name, got float: 3.14", env.runtime_error.?);
+}
+
+test "expression fails when op id is list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var registry = Registry{};
+    var env = Env{ .registry = &registry, .allocator = alloc };
+    const scope = Scope.EMPTY;
+
+    const items = [_]?Value{.{ .int = 1 }};
+    const id = try makeValueLiteral(alloc, .{ .list = &items });
+    const expr_thunk = try makeExpression(alloc, id, &.{});
+
+    const result = expr_thunk.proc(&env, &scope);
+    try std.testing.expectError(error.RuntimeError, result);
+    try std.testing.expectEqualStrings("Expected operation name, got list", env.runtime_error.?);
 }
 
 test "expression fails for unknown operation" {

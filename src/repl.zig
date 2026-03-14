@@ -120,20 +120,23 @@ pub fn runRepl(
                 switch (result) {
                     .ok => |maybe_value| {
                         if (maybe_value) |value| {
-                            var format_buf: [1024]u8 = undefined;
-                            const formatted = value.getS(&format_buf);
-                            stdout.print("{s}\n", .{formatted}) catch {};
-                        } else {
-                            stdout.print("none\n", .{}) catch {};
+                            switch (value) {
+                                .string => |str| stdout.print("\x1b[2m=> \"{s}\"\x1b[0m\n", .{str}) catch {},
+                                else => {
+                                    var format_buf: [1024]u8 = undefined;
+                                    const formatted = value.getS(&format_buf);
+                                    stdout.print("\x1b[2m=> {s}\x1b[0m\n", .{formatted}) catch {};
+                                },
+                            }
                         }
                     },
                     .validation_err => |errors| {
                         for (errors) |validation_error| {
-                            stderr.print("Validation error: {s}\n", .{validation_error.message}) catch {};
+                            stderr.print("\x1b[31mValidation error: {s}\x1b[0m\n", .{validation_error.message}) catch {};
                         }
                     },
                     .runtime_err => |message| {
-                        stderr.print("Runtime error: {s}\n", .{message}) catch {};
+                        stderr.print("\x1b[31mRuntime error: {s}\x1b[0m\n", .{message}) catch {};
                     },
                 }
             },

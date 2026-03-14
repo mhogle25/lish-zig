@@ -18,6 +18,7 @@ const EscapeState = enum {
     escape,
     csi,
     csi_param,
+    csi_subparam,
 };
 
 const EscapeAction = enum {
@@ -26,6 +27,8 @@ const EscapeAction = enum {
     move_down,
     move_right,
     move_left,
+    move_word_right,
+    move_word_left,
     home,
     end,
     delete_forward,
@@ -61,7 +64,8 @@ pub const LineEditor = struct {
     saved_line_length: usize = 0,
 
     escape_state: EscapeState = .ground,
-    csi_param: u16 = 0,
+    csi_param:    u16 = 0,
+    csi_subparam: u16 = 0,
 
     /// When true, typing (, [, or { inserts the matching closing bracket
     /// and positions the cursor between the pair.
@@ -337,8 +341,10 @@ pub const LineEditor = struct {
                     self.escape_state = .csi;
                     return .none;
                 }
-                // Not a CSI sequence — go back to ground
                 self.escape_state = .ground;
+                // ESC b / ESC f — Alt+Left / Alt+Right (readline/emacs style)
+                if (byte == 'b') return .move_word_left;
+                if (byte == 'f') return .move_word_right;
                 return .none;
             },
             .csi => {
@@ -384,9 +390,37 @@ pub const LineEditor = struct {
                         self.csi_param = self.csi_param *| 10 +| (byte - '0');
                         return .none;
                     },
+                    ';' => {
+                        self.csi_subparam = 0;
+                        self.escape_state = .csi_subparam;
+                        return .none;
+                    },
                     '~' => {
                         self.escape_state = .ground;
                         if (self.csi_param == 3) return .delete_forward;
+                        return .none;
+                    },
+                    else => {
+                        self.escape_state = .ground;
+                        return .none;
+                    },
+                }
+            },
+            // ESC [ 1 ; 3 C / ESC [ 1 ; 3 D — Alt+Right / Alt+Left (xterm style)
+            .csi_subparam => {
+                switch (byte) {
+                    '0'...'9' => {
+                        self.csi_subparam = self.csi_subparam *| 10 +| (byte - '0');
+                        return .none;
+                    },
+                    'C' => {
+                        self.escape_state = .ground;
+                        if (self.csi_param == 1 and self.csi_subparam == 3) return .move_word_right;
+                        return .none;
+                    },
+                    'D' => {
+                        self.escape_state = .ground;
+                        if (self.csi_param == 1 and self.csi_subparam == 3) return .move_word_left;
                         return .none;
                     },
                     else => {
@@ -400,14 +434,16 @@ pub const LineEditor = struct {
 
     fn handleEscapeAction(self: *LineEditor, action: EscapeAction) void {
         switch (action) {
-            .none => {},
-            .move_up => self.historyUp(),
-            .move_down => self.historyDown(),
-            .move_right => self.moveCursorRight(),
-            .move_left => self.moveCursorLeft(),
-            .home => self.moveCursorToBeginning(),
-            .end => self.moveCursorToEnd(),
-            .delete_forward => self.deleteForward(),
+            .none            => {},
+            .move_up         => self.historyUp(),
+            .move_down       => self.historyDown(),
+            .move_right      => self.moveCursorRight(),
+            .move_left       => self.moveCursorLeft(),
+            .move_word_right => self.moveCursorWordRight(),
+            .move_word_left  => self.moveCursorWordLeft(),
+            .home            => self.moveCursorToBeginning(),
+            .end             => self.moveCursorToEnd(),
+            .delete_forward  => self.deleteForward(),
         }
     }
 
@@ -538,6 +574,24 @@ pub const LineEditor = struct {
     fn moveCursorToEnd(self: *LineEditor) void {
         if (self.cursor_position == self.line_length) return;
         self.cursor_position = self.line_length;
+        self.refreshLine();
+    }
+
+    fn moveCursorWordRight(self: *LineEditor) void {
+        if (self.cursor_position >= self.line_length) return;
+        var pos = self.cursor_position;
+        while (pos < self.line_length and self.line_buffer[pos] != ' ') pos += 1;
+        while (pos < self.line_length and self.line_buffer[pos] == ' ') pos += 1;
+        self.cursor_position = pos;
+        self.refreshLine();
+    }
+
+    fn moveCursorWordLeft(self: *LineEditor) void {
+        if (self.cursor_position == 0) return;
+        var pos = self.cursor_position;
+        while (pos > 0 and self.line_buffer[pos - 1] == ' ') pos -= 1;
+        while (pos > 0 and self.line_buffer[pos - 1] != ' ') pos -= 1;
+        self.cursor_position = pos;
         self.refreshLine();
     }
 
@@ -779,6 +833,45 @@ test "escape parser: unknown CSI param sequence" {
     try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
 }
 
+test "escape parser: Alt+Left and Alt+Right (ESC b / ESC f)" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    // ESC b — Alt+Left
+    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
+    try std.testing.expectEqual(EscapeAction.move_word_left, editor.processEscape('b'));
+    try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
+
+    // ESC f — Alt+Right
+    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
+    try std.testing.expectEqual(EscapeAction.move_word_right, editor.processEscape('f'));
+    try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
+}
+
+test "escape parser: Alt+Left and Alt+Right (xterm ESC [ 1 ; 3 D/C)" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    // ESC [ 1 ; 3 D — Alt+Left
+    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
+    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('['));
+    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('1'));
+    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(';'));
+    try std.testing.expectEqual(EscapeState.csi_subparam, editor.escape_state);
+    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('3'));
+    try std.testing.expectEqual(EscapeAction.move_word_left, editor.processEscape('D'));
+    try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
+
+    // ESC [ 1 ; 3 C — Alt+Right
+    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
+    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('['));
+    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('1'));
+    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(';'));
+    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('3'));
+    try std.testing.expectEqual(EscapeAction.move_word_right, editor.processEscape('C'));
+    try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
+}
+
 test "escape parser: incomplete escape resets on non-bracket" {
     var editor = LineEditor.testInit();
     defer editor.deinit();
@@ -891,6 +984,47 @@ test "line buffer: cursor movement" {
 
     editor.moveCursorToEnd();
     try std.testing.expectEqual(@as(usize, 5), editor.cursor_position);
+}
+
+test "line buffer: move cursor word right" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    editor.testInsertString("hello world foo");
+    editor.cursor_position = 0;
+
+    editor.moveCursorWordRight();
+    try std.testing.expectEqual(@as(usize, 6), editor.cursor_position); // past "hello "
+
+    editor.moveCursorWordRight();
+    try std.testing.expectEqual(@as(usize, 12), editor.cursor_position); // past "world "
+
+    editor.moveCursorWordRight();
+    try std.testing.expectEqual(@as(usize, 15), editor.cursor_position); // end
+
+    // At end does nothing
+    editor.moveCursorWordRight();
+    try std.testing.expectEqual(@as(usize, 15), editor.cursor_position);
+}
+
+test "line buffer: move cursor word left" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    editor.testInsertString("hello world foo");
+
+    editor.moveCursorWordLeft();
+    try std.testing.expectEqual(@as(usize, 12), editor.cursor_position); // before "foo"
+
+    editor.moveCursorWordLeft();
+    try std.testing.expectEqual(@as(usize, 6), editor.cursor_position); // before "world"
+
+    editor.moveCursorWordLeft();
+    try std.testing.expectEqual(@as(usize, 0), editor.cursor_position); // before "hello"
+
+    // At beginning does nothing
+    editor.moveCursorWordLeft();
+    try std.testing.expectEqual(@as(usize, 0), editor.cursor_position);
 }
 
 test "line buffer: kill line" {

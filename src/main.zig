@@ -40,11 +40,14 @@ pub fn main() !void {
     try all_macro_dirs.appendSlice(allocator, repl_config.macro_dirs.items);
     try all_macro_dirs.appendSlice(allocator, macro_dir_storage[0..macro_dir_count]);
 
+    const session_stdout = repl_mod.NewlineWriter{ .inner = stdout };
+    const session_stderr = repl_mod.AnsiErrorWriter{ .inner = stderr };
+
     var session = try lish.Session.init(allocator, .{
         .fragments = &.{&lish.builtins.registerAll},
         .macro_paths = all_macro_dirs.items,
-        .stdout = stdout,
-        .stderr = stderr,
+        .stdout = session_stdout.any(),
+        .stderr = session_stderr.any(),
     });
     defer session.deinit();
 

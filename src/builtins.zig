@@ -451,7 +451,6 @@ fn sayOp(args: Args) ExecError!?Value {
         var buf: [256]u8 = undefined;
         const str = try args.at(i).resolveString(&buf);
         writer.writeAll(str) catch {};
-        writer.writeByte('\n') catch {};
     }
     return null;
 }
@@ -463,7 +462,6 @@ fn errorOp(args: Args) ExecError!?Value {
         var buf: [256]u8 = undefined;
         const str = try args.at(i).resolveString(&buf);
         writer.writeAll(str) catch {};
-        writer.writeByte('\n') catch {};
     }
     return null;
 }

@@ -12,6 +12,41 @@ const LineEditor = line_editor_mod.LineEditor;
 const op_autopair_insert = "autopair-insert";
 const op_autopair_delete = "autopair-delete";
 
+/// Wraps a writer to append a newline after each write. Used for session stdout
+/// so ops like `say` can write raw strings without caring about newlines.
+pub const NewlineWriter = struct {
+    inner: std.io.AnyWriter,
+
+    fn writeFn(context: *const anyopaque, bytes: []const u8) anyerror!usize {
+        const self: *const NewlineWriter = @ptrCast(@alignCast(context));
+        try self.inner.writeAll(bytes);
+        try self.inner.writeByte('\n');
+        return bytes.len;
+    }
+
+    pub fn any(self: *const NewlineWriter) std.io.AnyWriter {
+        return .{ .context = self, .writeFn = writeFn };
+    }
+};
+
+/// Wraps a writer to wrap each write in ANSI red and append a newline.
+/// Used for session stderr so ops like `error` get colored output in the REPL.
+pub const AnsiErrorWriter = struct {
+    inner: std.io.AnyWriter,
+
+    fn writeFn(context: *const anyopaque, bytes: []const u8) anyerror!usize {
+        const self: *const AnsiErrorWriter = @ptrCast(@alignCast(context));
+        try self.inner.writeAll("\x1b[31m");
+        try self.inner.writeAll(bytes);
+        try self.inner.writeAll("\x1b[0m\n");
+        return bytes.len;
+    }
+
+    pub fn any(self: *const AnsiErrorWriter) std.io.AnyWriter {
+        return .{ .context = self, .writeFn = writeFn };
+    }
+};
+
 pub const ReplConfig = struct {
     autopair_insert: bool = true,
     autopair_delete: bool = true,

@@ -1,5 +1,9 @@
 const std = @import("std");
-const lish = @import("lish");
+const exec_mod = @import("exec.zig");
+const value_mod = @import("value.zig");
+const builtins_mod = @import("builtins.zig");
+const process_mod = @import("process.zig");
+const session_mod = @import("session.zig");
 const line_editor_mod = @import("line_editor.zig");
 
 const Allocator = std.mem.Allocator;
@@ -24,7 +28,7 @@ pub const ReplConfig = struct {
     }
 };
 
-fn autopairInsertOp(config: *ReplConfig, args: lish.Args) lish.exec.ExecError!?lish.Value {
+fn autopairInsertOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?value_mod.Value {
     switch (args.count()) {
         0 => config.autopair_insert = true,
         1 => config.autopair_insert = (try args.at(0).get()) != null,
@@ -33,7 +37,7 @@ fn autopairInsertOp(config: *ReplConfig, args: lish.Args) lish.exec.ExecError!?l
     return null;
 }
 
-fn autopairDeleteOp(config: *ReplConfig, args: lish.Args) lish.exec.ExecError!?lish.Value {
+fn autopairDeleteOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?value_mod.Value {
     switch (args.count()) {
         0 => config.autopair_delete = true,
         1 => config.autopair_delete = (try args.at(0).get()) != null,
@@ -42,7 +46,7 @@ fn autopairDeleteOp(config: *ReplConfig, args: lish.Args) lish.exec.ExecError!?l
     return null;
 }
 
-fn macrosOp(config: *ReplConfig, args: lish.Args) lish.exec.ExecError!?lish.Value {
+fn macrosOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?value_mod.Value {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = try (try args.single()).resolveString(&path_buf);
     const owned = config.allocator.dupe(u8, path) catch return error.OutOfMemory;
@@ -70,28 +74,28 @@ pub fn loadConfig(config: *ReplConfig, allocator: Allocator) void {
     const source = std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024) catch return;
     defer allocator.free(source);
 
-    var registry = lish.Registry{};
+    var registry = exec_mod.Registry{};
     defer registry.deinit(allocator);
-    lish.builtins.registerCore(&registry, allocator) catch return;
-    registry.registerOperation(allocator, op_autopair_insert, lish.Operation.fromBoundFn(ReplConfig, autopairInsertOp, config)) catch return;
-    registry.registerOperation(allocator, op_autopair_delete, lish.Operation.fromBoundFn(ReplConfig, autopairDeleteOp, config)) catch return;
-    registry.registerOperation(allocator, "macros", lish.Operation.fromBoundFn(ReplConfig, macrosOp, config)) catch return;
+    builtins_mod.registerCore(&registry, allocator) catch return;
+    registry.registerOperation(allocator, op_autopair_insert, exec_mod.Operation.fromBoundFn(ReplConfig, autopairInsertOp, config)) catch return;
+    registry.registerOperation(allocator, op_autopair_delete, exec_mod.Operation.fromBoundFn(ReplConfig, autopairDeleteOp, config)) catch return;
+    registry.registerOperation(allocator, "macros", exec_mod.Operation.fromBoundFn(ReplConfig, macrosOp, config)) catch return;
 
     const config_macros =
         \\|on| $some
         \\|off| $none
     ;
-    _ = lish.loadMacroModule(allocator, &registry, config_macros) catch return;
+    _ = process_mod.loadMacroModule(allocator, &registry, config_macros) catch return;
 
     const trimmed = std.mem.trim(u8, source, " \t\r\n");
     if (trimmed.len == 0) return;
 
-    var env = lish.Env{ .registry = &registry, .allocator = allocator };
-    _ = lish.processRaw(&env, trimmed, null) catch {};
+    var env = exec_mod.Env{ .registry = &registry, .allocator = allocator };
+    _ = process_mod.processRaw(&env, trimmed, null) catch {};
 }
 
 pub fn runRepl(
-    session: *lish.Session,
+    session: *session_mod.Session,
     editor: *LineEditor,
     stdout: std.io.AnyWriter,
     stderr: std.io.AnyWriter,

@@ -1,5 +1,6 @@
 const std = @import("std");
 const posix = std.posix;
+const tok = @import("token.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -279,16 +280,36 @@ pub const LineEditor = struct {
                 self.deleteBackward();
                 return .continue_reading;
             },
-            '(' => {
-                if (self.autopair_insert) self.insertPair('(', ')') else self.insertCharacter('(');
+            tok.EXPRESSION_OPEN => {
+                if (self.autopair_insert) self.insertPair(tok.EXPRESSION_OPEN, tok.EXPRESSION_CLOSE) else self.insertCharacter(tok.EXPRESSION_OPEN);
                 return .continue_reading;
             },
-            '[' => {
-                if (self.autopair_insert) self.insertPair('[', ']') else self.insertCharacter('[');
+            tok.EXPRESSION_CLOSE => {
+                if (self.autopair_insert) self.insertClose(tok.EXPRESSION_CLOSE) else self.insertCharacter(tok.EXPRESSION_CLOSE);
                 return .continue_reading;
             },
-            '{' => {
-                if (self.autopair_insert) self.insertPair('{', '}') else self.insertCharacter('{');
+            tok.LIST_OPEN => {
+                if (self.autopair_insert) self.insertPair(tok.LIST_OPEN, tok.LIST_CLOSE) else self.insertCharacter(tok.LIST_OPEN);
+                return .continue_reading;
+            },
+            tok.LIST_CLOSE => {
+                if (self.autopair_insert) self.insertClose(tok.LIST_CLOSE) else self.insertCharacter(tok.LIST_CLOSE);
+                return .continue_reading;
+            },
+            tok.BLOCK_OPEN => {
+                if (self.autopair_insert) self.insertPair(tok.BLOCK_OPEN, tok.BLOCK_CLOSE) else self.insertCharacter(tok.BLOCK_OPEN);
+                return .continue_reading;
+            },
+            tok.BLOCK_CLOSE => {
+                if (self.autopair_insert) self.insertClose(tok.BLOCK_CLOSE) else self.insertCharacter(tok.BLOCK_CLOSE);
+                return .continue_reading;
+            },
+            tok.QUOTE_DOUBLE => {
+                if (self.autopair_insert) self.insertQuote(tok.QUOTE_DOUBLE) else self.insertCharacter(tok.QUOTE_DOUBLE);
+                return .continue_reading;
+            },
+            tok.QUOTE_SINGLE => {
+                if (self.autopair_insert) self.insertQuote(tok.QUOTE_SINGLE) else self.insertCharacter(tok.QUOTE_SINGLE);
                 return .continue_reading;
             },
             else => {
@@ -392,6 +413,24 @@ pub const LineEditor = struct {
 
     // -- Line editing operations --
 
+    fn insertQuote(self: *LineEditor, quote: u8) void {
+        // If the character at the cursor is already the same quote, skip over it
+        if (self.cursor_position < self.line_length and self.line_buffer[self.cursor_position] == quote) {
+            self.moveCursorRight();
+            return;
+        }
+        self.insertPair(quote, quote);
+    }
+
+    fn insertClose(self: *LineEditor, close: u8) void {
+        // If the character at the cursor is already the closing bracket, skip over it
+        if (self.cursor_position < self.line_length and self.line_buffer[self.cursor_position] == close) {
+            self.moveCursorRight();
+            return;
+        }
+        self.insertCharacter(close);
+    }
+
     fn insertPair(self: *LineEditor, open: u8, close: u8) void {
         if (self.line_length + 2 > BUFFER_SIZE) {
             self.insertCharacter(open);
@@ -456,9 +495,11 @@ pub const LineEditor = struct {
     }
 
     fn isMatchedPair(open: u8, close: u8) bool {
-        return (open == '(' and close == ')') or
-            (open == '[' and close == ']') or
-            (open == '{' and close == '}');
+        return (open == tok.EXPRESSION_OPEN and close == tok.EXPRESSION_CLOSE) or
+            (open == tok.LIST_OPEN and close == tok.LIST_CLOSE) or
+            (open == tok.BLOCK_OPEN and close == tok.BLOCK_CLOSE) or
+            (open == tok.QUOTE_DOUBLE and close == tok.QUOTE_DOUBLE) or
+            (open == tok.QUOTE_SINGLE and close == tok.QUOTE_SINGLE);
     }
 
     fn deleteForward(self: *LineEditor) void {

@@ -1,7 +1,7 @@
 const std = @import("std");
 const lish = @import("lish");
-const line_editor_mod = @import("line_editor.zig");
-const repl_mod = @import("repl.zig");
+const line_editor_mod = lish.line_editor;
+const repl_mod = lish.repl;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

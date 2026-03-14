@@ -21,7 +21,7 @@ pub fn serializeExpression(node: *const AstNode, writer: anytype) !void {
 /// Serialize a single macro definition to lish source.
 /// Emits: |name param1 ~deferred2| body
 pub fn serializeMacro(macro: AstMacro, writer: anytype) !void {
-    try writer.writeByte('|');
+    try writer.writeByte(tok.MACRO_BRACKET);
     switch (macro.id) {
         .valid => |name| try writer.writeAll(name),
         .err => return SerializeError.InvalidNode,
@@ -30,7 +30,7 @@ pub fn serializeMacro(macro: AstMacro, writer: anytype) !void {
         switch (param) {
             .valid => |param_data| {
                 try writer.writeByte(' ');
-                if (param_data.param_type == .deferred) try writer.writeByte('~');
+                if (param_data.param_type == .deferred) try writer.writeByte(tok.DEFERRED);
                 try writer.writeAll(param_data.id);
             },
             .err => return SerializeError.InvalidNode,
@@ -43,7 +43,7 @@ pub fn serializeMacro(macro: AstMacro, writer: anytype) !void {
 /// Serialize a slice of macro definitions as a .lishmacro module, one per line.
 pub fn serializeMacroModule(macros: []const AstMacro, writer: anytype) !void {
     for (macros, 0..) |macro, idx| {
-        if (idx > 0) try writer.writeByte('\n');
+        if (idx > 0) try writer.writeByte(tok.NEWLINE);
         try serializeMacro(macro, writer);
     }
 }
@@ -54,7 +54,7 @@ fn serializeNode(node: *const AstNode, writer: anytype, nested: bool) anyerror!v
     switch (node.*) {
         .value_literal => |v| try serializeValue(v, writer, nested),
         .scope_thunk => |id_node| {
-            try writer.writeByte(':');
+            try writer.writeByte(tok.SCOPE_THUNK);
             // The id_node is almost always a value_literal.string — emit it bare.
             // Fall back to full node serialization for unusual cases.
             switch (id_node.*) {
@@ -73,20 +73,20 @@ fn serializeNode(node: *const AstNode, writer: anytype, nested: bool) anyerror!v
 fn serializeExprNode(expr: AstExpression, writer: anytype, nested: bool) anyerror!void {
     // $term — single-term expression, no parens regardless of nesting
     if (expr.meta.meta_type == .single_term) {
-        try writer.writeByte('$');
+        try writer.writeByte(tok.EXPRESSION_SINGLE);
         try serializeNode(expr.id, writer, false);
         return;
     }
 
     // All other expression types (standard, top_level, list_literal, block_literal)
     // are serialized in desugared form. Parens are added when nested.
-    if (nested) try writer.writeByte('(');
+    if (nested) try writer.writeByte(tok.EXPRESSION_OPEN);
     try serializeNode(expr.id, writer, true);
     for (expr.args) |arg| {
         try writer.writeByte(' ');
         try serializeNode(arg, writer, true);
     }
-    if (nested) try writer.writeByte(')');
+    if (nested) try writer.writeByte(tok.EXPRESSION_CLOSE);
 }
 
 fn serializeValue(v: Value, writer: anytype, nested: bool) anyerror!void {
@@ -97,7 +97,7 @@ fn serializeValue(v: Value, writer: anytype, nested: bool) anyerror!void {
         .list => |items| {
             // Desugared form: list item1 item2 ...
             // Parens needed when nested so the parser can delimit it.
-            if (nested) try writer.writeByte('(');
+            if (nested) try writer.writeByte(tok.EXPRESSION_OPEN);
             try writer.writeAll("list");
             for (items) |maybe_item| {
                 try writer.writeByte(' ');
@@ -107,7 +107,7 @@ fn serializeValue(v: Value, writer: anytype, nested: bool) anyerror!void {
                     try writer.writeAll("$none");
                 }
             }
-            if (nested) try writer.writeByte(')');
+            if (nested) try writer.writeByte(tok.EXPRESSION_CLOSE);
         },
     }
 }
@@ -117,24 +117,24 @@ fn serializeString(str: []const u8, writer: anytype) anyerror!void {
         try writer.writeAll(str);
         return;
     }
-    try writer.writeByte('"');
+    try writer.writeByte(tok.QUOTE_DOUBLE);
     for (str) |char| {
         switch (char) {
-            '"' => try writer.writeAll("\\\""),
-            '\\' => try writer.writeAll("\\\\"),
-            '\n' => try writer.writeAll("\\n"),
-            '\r' => try writer.writeAll("\\r"),
-            '\t' => try writer.writeAll("\\t"),
-            0x08 => try writer.writeAll("\\b"),
-            0x0C => try writer.writeAll("\\f"),
-            0x0B => try writer.writeAll("\\v"),
-            0x00 => try writer.writeAll("\\0"),
-            0x07 => try writer.writeAll("\\a"),
-            0x1B => try writer.writeAll("\\e"),
+            tok.QUOTE_DOUBLE => try writer.writeAll("\\\""),
+            tok.BACKSLASH => try writer.writeAll("\\\\"),
+            tok.NEWLINE => try writer.writeAll("\\n"),
+            tok.CARRIAGE_RETURN => try writer.writeAll("\\r"),
+            tok.TAB => try writer.writeAll("\\t"),
+            tok.BACKSPACE => try writer.writeAll("\\b"),
+            tok.FORM_FEED => try writer.writeAll("\\f"),
+            tok.VERTICAL_TAB => try writer.writeAll("\\v"),
+            tok.NULL_CHARACTER => try writer.writeAll("\\0"),
+            tok.BELL => try writer.writeAll("\\a"),
+            tok.ESCAPE_CHAR => try writer.writeAll("\\e"),
             else => try writer.writeByte(char),
         }
     }
-    try writer.writeByte('"');
+    try writer.writeByte(tok.QUOTE_DOUBLE);
 }
 
 fn needsQuoting(str: []const u8) bool {

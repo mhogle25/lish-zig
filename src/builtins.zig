@@ -255,13 +255,15 @@ fn cmpGeFloat(left: f64, right: f64) bool {
 }
 
 fn isOp(args: Args) ExecError!?Value {
-    try args.expectCount(2);
-    const left = try args.at(0).get();
-    const right = try args.at(1).get();
-
-    if (left == null and right == null) return val.some();
-    if (left == null or right == null) return null;
-    return val.toCondition(left.?.eql(right.?));
+    try args.expectMinCount(2);
+    const values = try args.getAll();
+    const first = values[0];
+    for (values[1..]) |other| {
+        if (first == null and other == null) continue;
+        if (first == null or other == null) return null;
+        if (!first.?.eql(other.?)) return null;
+    }
+    return first orelse val.some();
 }
 
 fn isntOp(args: Args) ExecError!?Value {

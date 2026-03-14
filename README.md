@@ -379,7 +379,7 @@ zig build run -- --macros macros/math --macros macros/utils
 | `exit`, `quit`| Exit the REPL       |
 | `clear`       | Clear the screen    |
 
-The line editor supports history navigation (↑/↓), cursor movement (←/→, Home, End), and standard readline-style shortcuts (Ctrl+A/E/K/U/W/L).
+The line editor supports history navigation (↑/↓), cursor movement (←/→, Home, End), word movement (Alt+←/→), and standard readline-style shortcuts (Ctrl+A/E/K/U/W/L).
 
 ### REPL Configuration
 
@@ -387,7 +387,7 @@ The REPL reads `$XDG_CONFIG_HOME/lish/config` on startup, falling back to `~/.co
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `autopair-insert` | `$some` | Typing `(`, `[`, or `{` inserts the matching closing bracket with the cursor positioned between the pair. |
+| `autopair-insert` | `$some` | Typing `(`, `[`, `{`, `"`, or `'` inserts the matching closing delimiter with the cursor positioned between the pair. |
 | `autopair-delete` | `$some` | Pressing backspace between a matched pair deletes both brackets. |
 | `macros` | — | Load all `.lishmacro` files from the given directory. May be called multiple times to add multiple directories. |
 

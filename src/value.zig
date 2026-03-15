@@ -43,7 +43,7 @@ pub const Value = union(enum) {
                         const rendered = inner_val.getS(&inner_buf);
                         writer.writer().writeAll(rendered) catch return "?";
                     } else {
-                        writer.writer().writeAll("none") catch return "?";
+                        writer.writer().writeAll(NONE_ID) catch return "?";
                     }
                 }
                 writer.writer().writeAll(" ]") catch return "?";
@@ -98,7 +98,7 @@ pub const Value = union(enum) {
                     if (item) |inner_val| {
                         try inner_val.format("", .{}, writer);
                     } else {
-                        try writer.writeAll("none");
+                        try writer.writeAll(NONE_ID);
                     }
                 }
                 try writer.writeAll(" ]");
@@ -106,6 +106,9 @@ pub const Value = union(enum) {
         }
     }
 };
+
+/// The string identifier for the null/absent value in lish.
+pub const NONE_ID = "none";
 
 /// Truthy/falsy convention: "some" is truthy, null is falsy.
 pub const SOME: Value = .{ .string = "some" };

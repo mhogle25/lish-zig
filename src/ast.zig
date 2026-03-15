@@ -60,6 +60,10 @@ pub const AstBracketError = struct {
     token_end: usize,
 };
 
+/// Known operation IDs used as implicit expression IDs for syntactic sugar.
+pub const LIST_ID = "list";
+pub const BLOCK_ID = "proc";
+
 // ── AST construction helpers ──
 
 pub fn makeValueLiteral(allocator: Allocator, v: Value) Allocator.Error!*AstNode {

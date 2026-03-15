@@ -98,13 +98,14 @@ fn serializeValue(v: Value, writer: anytype, nested: bool) anyerror!void {
             // Desugared form: list item1 item2 ...
             // Parens needed when nested so the parser can delimit it.
             if (nested) try writer.writeByte(tok.EXPRESSION_OPEN);
-            try writer.writeAll("list");
+            try writer.writeAll(ast_mod.LIST_ID);
             for (items) |maybe_item| {
                 try writer.writeByte(' ');
                 if (maybe_item) |item| {
                     try serializeValue(item, writer, true);
                 } else {
-                    try writer.writeAll("$none");
+                    try writer.writeByte(tok.EXPRESSION_SINGLE);
+                    try writer.writeAll(val_mod.NONE_ID);
                 }
             }
             if (nested) try writer.writeByte(tok.EXPRESSION_CLOSE);
@@ -337,7 +338,7 @@ test "serialize: single term" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
-    const id = try ast_mod.makeValueLiteral(alloc, .{ .string = "none" });
+    const id = try ast_mod.makeValueLiteral(alloc, .{ .string = val_mod.NONE_ID });
     const node = try ast_mod.makeExpression(alloc, id, &.{}, null, null, .{ .meta_type = .single_term });
     try expectSerialized(node, "$none");
 }

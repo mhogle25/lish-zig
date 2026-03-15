@@ -15,10 +15,6 @@ const Value = val.Value;
 
 const NO_PENDING_CLOSURE: i32 = -1;
 
-/// Known operation IDs used as implicit expression IDs for syntactic sugar.
-pub const LIST_ID = "list";
-pub const BLOCK_ID = "proc";
-
 /// Result from parsing via an existing lexer (used by macro parser).
 pub const ParserResult = struct {
     node: *AstNode,
@@ -156,7 +152,7 @@ pub const Parser = struct {
 
         const closure = try self.handleClosure(nested_count);
         const args = try self.popNodes(closure.expr_count);
-        const id = try ast.makeValueLiteral(self.allocator, .{ .string = LIST_ID });
+        const id = try ast.makeValueLiteral(self.allocator, .{ .string = ast.LIST_ID });
 
         return ast.makeExpression(self.allocator, id, args, closure.open_err, closure.close_err, .{ .meta_type = .list_literal });
     }
@@ -167,7 +163,7 @@ pub const Parser = struct {
 
         const closure = try self.handleClosure(nested_count);
         const args = try self.popNodes(closure.expr_count);
-        const id = try ast.makeValueLiteral(self.allocator, .{ .string = BLOCK_ID });
+        const id = try ast.makeValueLiteral(self.allocator, .{ .string = ast.BLOCK_ID });
 
         return ast.makeExpression(self.allocator, id, args, closure.open_err, closure.close_err, .{ .meta_type = .block_literal });
     }
@@ -744,7 +740,7 @@ test "parse list literal" {
     try std.testing.expectEqualStrings("say", top.id.value_literal.string);
 
     const list_expr = top.args[0].expression;
-    try std.testing.expectEqualStrings(LIST_ID, list_expr.id.value_literal.string);
+    try std.testing.expectEqualStrings(ast.LIST_ID, list_expr.id.value_literal.string);
     try std.testing.expectEqual(@as(usize, 3), list_expr.args.len);
 }
 
@@ -758,7 +754,7 @@ test "parse block literal" {
     const top = node.expression;
 
     const block_expr = top.args[0].expression;
-    try std.testing.expectEqualStrings(BLOCK_ID, block_expr.id.value_literal.string);
+    try std.testing.expectEqualStrings(ast.BLOCK_ID, block_expr.id.value_literal.string);
     try std.testing.expectEqual(@as(usize, 2), block_expr.args.len);
 }
 

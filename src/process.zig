@@ -192,7 +192,10 @@ pub fn loadMacroDir(
 
         const result = try loadMacroFile(allocator, registry, full_path);
         switch (result) {
-            .ok => |count| loaded_count += count,
+            .ok => |count| {
+                allocator.free(full_path);
+                loaded_count += count;
+            },
             .io_error => |err| {
                 try file_errors.append(allocator, .{ .path = full_path, .io_error = err });
             },

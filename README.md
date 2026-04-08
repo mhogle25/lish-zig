@@ -151,7 +151,7 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     // Set up a registry with built-in operations
-    var registry = lish.Registry{};
+    var registry = lish.Registry.init(allocator);
     try lish.builtins.registerAll(&registry, allocator);
 
     // Create an execution environment
@@ -209,10 +209,11 @@ const macro_source =
     \\|greet name| say (concat "Hello, " :name)
 ;
 
-const load_result = try lish.loadMacroModule(allocator, &registry, macro_source);
+const load_result = try lish.loadMacroModule(&registry, macro_source);
 switch (load_result) {
     .ok => |count| std.debug.print("Loaded {d} macros\n", .{count}),
-    .validation_err => |errors| { /* handle errors */ },
+    .io_error  => |err| { /* handle io error */ },
+    .validation_err => |errors| { /* handle parse/validation errors */ },
 }
 ```
 
@@ -226,10 +227,11 @@ _ = try session.loadMacroFile("macros/math.lishmacro");
 _ = try session.loadMacroDir("macros/");
 ```
 
-Or pass macro directories at the CLI:
+Or pass macro files or directories at the CLI:
 
 ```sh
 zig build run -- -m macros/
+zig build run -- -m macros/math.lishmacro
 ```
 
 ### Building AST Programmatically
@@ -367,8 +369,9 @@ zig build
 # Launch the terminal REPL
 zig build run
 
-# Pass macro directories to the REPL (-m/--macros may be repeated, max 16)
-zig build run -- -m path/to/macros
+# Pass macro files or directories to the REPL (-m/--macros may be repeated, max 16)
+zig build run -- -m path/to/macros/
+zig build run -- -m macros/math.lishmacro
 zig build run -- --macros macros/math --macros macros/utils
 ```
 
@@ -389,7 +392,7 @@ The REPL reads `$XDG_CONFIG_HOME/lish/config` on startup, falling back to `~/.co
 |---------|---------|-------------|
 | `autopair-insert` | `$some` | Typing `(`, `[`, `{`, `"`, or `'` inserts the matching closing delimiter with the cursor positioned between the pair. |
 | `autopair-delete` | `$some` | Pressing backspace between a matched pair deletes both brackets. |
-| `macros` | — | Load all `.lishmacro` files from the given directory. May be called multiple times to add multiple directories. |
+| `macros` | — | Load `.lishmacro` macros from the given path. Accepts a single `.lishmacro` file or a directory (all `.lishmacro` files in the directory are loaded). May be called multiple times. |
 
 The config file is evaluated as a single lish expression. Use `proc` to sequence multiple settings:
 

@@ -1,1 +1,2 @@
 | bythree x | * :x 3
+| prob outof ~expr | if (is (? 0 :outof) 0) :expr

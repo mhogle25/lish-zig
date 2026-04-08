@@ -20,6 +20,7 @@ pub const macro_parser = @import("macro_parser.zig");
 pub const cache = @import("cache.zig");
 pub const process = @import("process.zig");
 pub const session = @import("session.zig");
+pub const random = @import("random.zig");
 pub const serializer = @import("serializer.zig");
 pub const ast_builder = @import("ast_builder.zig");
 pub const line_editor = @import("line_editor.zig");
@@ -75,6 +76,7 @@ test {
     _ = cache;
     _ = process;
     _ = session;
+    _ = random;
     _ = serializer;
     _ = ast_builder;
     _ = line_editor;

@@ -44,7 +44,7 @@ pub fn main() !void {
     const session_stderr = repl_mod.AnsiErrorWriter{ .inner = stderr };
 
     var session = try lish.Session.init(allocator, .{
-        .fragments = &.{&lish.builtins.registerAll},
+        .fragments = &.{ &lish.builtins.registerAll, &lish.random.registerAll },
         .macro_paths = all_macro_dirs.items,
         .stdout = session_stdout.any(),
         .stderr = session_stderr.any(),

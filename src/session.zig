@@ -54,7 +54,7 @@ pub const Session = struct {
     session_allocator: Allocator,
 
     pub fn init(allocator: Allocator, config: SessionConfig) !Session {
-        var registry = Registry{};
+        var registry = Registry.init(allocator);
         try process_mod.loadFragments(&registry, allocator, config.fragments);
 
         var expression_cache = try ExpressionCache.init(allocator, config.expression_cache_capacity);
@@ -75,9 +75,16 @@ pub const Session = struct {
             .session_allocator = allocator,
         };
 
-        // Load macro files from configured paths
+        // Load macros from configured paths — each may be a file or directory.
         for (config.macro_paths) |macro_path| {
-            _ = try process_mod.loadMacroDir(allocator, &session.registry, macro_path);
+            var maybe_dir = std.fs.cwd().openDir(macro_path, .{}) catch null;
+            if (maybe_dir) |*dir| {
+                dir.close();
+                const result = try process_mod.loadMacroDir(allocator, &session.registry, macro_path);
+                result.deinit(allocator);
+            } else {
+                _ = try process_mod.loadMacroFile(allocator, &session.registry, macro_path);
+            }
         }
 
         return session;

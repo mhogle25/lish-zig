@@ -1402,7 +1402,7 @@ fn evalWithBuiltins(alloc: Allocator, source: []const u8) ExecError!?Value {
     const parser = @import("parser.zig");
     const validation = @import("validation.zig");
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     registerAll(&registry, alloc) catch return error.OutOfMemory;
 
     var env = makeTestEnv(alloc, &registry);

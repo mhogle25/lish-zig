@@ -321,7 +321,7 @@ test "validate end-to-end with execution" {
     const alloc = arena.allocator();
 
     // Register an "echo" operation that returns its argument
-    var registry = exec_mod.Registry{};
+    var registry = exec_mod.Registry.init(alloc);
     try registry.registerOperation(alloc, "echo", exec_mod.Operation.fromFn(testEchoOp));
 
     var env = exec_mod.Env{ .registry = &registry, .allocator = alloc };

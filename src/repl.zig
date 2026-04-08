@@ -109,7 +109,7 @@ pub fn loadConfig(config: *ReplConfig, allocator: Allocator) void {
     const source = std.fs.cwd().readFileAlloc(allocator, path, 64 * 1024) catch return;
     defer allocator.free(source);
 
-    var registry = exec_mod.Registry{};
+    var registry = exec_mod.Registry.init(allocator);
     defer registry.deinit(allocator);
     builtins_mod.registerCore(&registry, allocator) catch return;
     registry.registerOperation(allocator, op_autopair_insert, exec_mod.Operation.fromBoundFn(ReplConfig, autopairInsertOp, config)) catch return;
@@ -120,7 +120,7 @@ pub fn loadConfig(config: *ReplConfig, allocator: Allocator) void {
         \\|on| $some
         \\|off| $none
     ;
-    _ = process_mod.loadMacroModule(allocator, &registry, config_macros) catch return;
+    _ = process_mod.loadMacroModule(&registry, config_macros) catch return;
 
     const trimmed = std.mem.trim(u8, source, " \t\r\n");
     if (trimmed.len == 0) return;

@@ -487,10 +487,10 @@ test "validate and execute macro" {
     };
 
     // Set up registry with builtins + the macro
-    var registry = exec.Registry{};
+    var registry = exec.Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
     for (macros) |*macro| {
-        try registry.registerMacro(alloc, macro.id, macro);
+        try registry.registerMacro(macro.id, macro);
     }
 
     // Parse and validate an expression that calls the macro
@@ -522,10 +522,10 @@ test "end-to-end: macro with deferred parameter" {
         .err => return error.TestUnexpectedResult,
     };
 
-    var registry = exec.Registry{};
+    var registry = exec.Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
     for (macros) |*macro| {
-        try registry.registerMacro(alloc, macro.id, macro);
+        try registry.registerMacro(macro.id, macro);
     }
 
     // do-twice 42 → evaluates 42 twice, returns last = 42
@@ -556,10 +556,10 @@ test "end-to-end: multiple macros in module" {
         .err => return error.TestUnexpectedResult,
     };
 
-    var registry = exec.Registry{};
+    var registry = exec.Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
     for (macros) |*macro| {
-        try registry.registerMacro(alloc, macro.id, macro);
+        try registry.registerMacro(macro.id, macro);
     }
 
     // quadruple 3 → double(double(3)) → double(6) → 12

@@ -295,6 +295,19 @@ pub const Macro = struct {
 pub const Registry = struct {
     operations: std.StringHashMapUnmanaged(Operation) = .{},
     macros: std.StringHashMapUnmanaged(*const Macro) = .{},
+    macro_arena: std.heap.ArenaAllocator,
+
+    pub fn init(allocator: Allocator) Registry {
+        return .{
+            .operations    = .{},
+            .macros        = .{},
+            .macro_arena   = std.heap.ArenaAllocator.init(allocator),
+        };
+    }
+
+    pub fn macroAllocator(self: *Registry) Allocator {
+        return self.macro_arena.allocator();
+    }
 
     pub fn getOperation(self: *const Registry, id: []const u8) ?Operation {
         return self.operations.get(id);
@@ -308,13 +321,13 @@ pub const Registry = struct {
         try self.operations.put(allocator, id, operation);
     }
 
-    pub fn registerMacro(self: *Registry, allocator: Allocator, id: []const u8, macro: *const Macro) Allocator.Error!void {
-        try self.macros.put(allocator, id, macro);
+    pub fn registerMacro(self: *Registry, id: []const u8, macro: *const Macro) Allocator.Error!void {
+        try self.macros.put(self.macroAllocator(), id, macro);
     }
 
     pub fn deinit(self: *Registry, allocator: Allocator) void {
         self.operations.deinit(allocator);
-        self.macros.deinit(allocator);
+        self.macro_arena.deinit();
     }
 };
 
@@ -403,7 +416,7 @@ test "value literal thunk returns stored value" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
@@ -417,7 +430,7 @@ test "value literal none thunk returns null" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
@@ -431,7 +444,7 @@ test "scope thunk resolves entry from scope" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
 
     // Create a scope with "x" bound to 99
@@ -454,7 +467,7 @@ test "scope thunk fails for missing entry" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
@@ -471,7 +484,7 @@ test "expression evaluates operation" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     try registry.registerOperation(alloc, "double", Operation.fromFn(testDoubleOp));
 
     var env = Env{ .registry = &registry, .allocator = alloc };
@@ -495,7 +508,7 @@ test "expression fails when op id is int" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
@@ -512,7 +525,7 @@ test "expression fails when op id is float" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
@@ -529,7 +542,7 @@ test "expression fails when op id is list" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
@@ -547,7 +560,7 @@ test "expression fails for unknown operation" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
@@ -563,7 +576,7 @@ test "nested expression evaluation" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp));
 
     var env = Env{ .registry = &registry, .allocator = alloc };
@@ -594,7 +607,7 @@ test "macro with value parameters" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp));
 
     // Define macro: |add-one x| add :x 1
@@ -616,7 +629,7 @@ test "macro with value parameters" {
             .args = try alloc.dupe(*const Thunk, &.{ x_ref, one }),
         },
     };
-    try registry.registerMacro(alloc, "add-one", macro);
+    try registry.registerMacro("add-one", macro);
 
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
@@ -635,7 +648,7 @@ test "macro with deferred parameter" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     try registry.registerOperation(alloc, "passthrough", Operation.fromFn(testPassthroughOp));
 
     // Define macro: |run-deferred ~thunk| passthrough :thunk
@@ -657,7 +670,7 @@ test "macro with deferred parameter" {
             .args = try alloc.dupe(*const Thunk, &.{thunk_ref}),
         },
     };
-    try registry.registerMacro(alloc, "run-deferred", macro);
+    try registry.registerMacro("run-deferred", macro);
 
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
@@ -680,7 +693,7 @@ test "macro arity mismatch" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     const params = [_]MacroParameter{
         .{ .id = "x", .param_type = .value },
         .{ .id = "y", .param_type = .value },
@@ -692,7 +705,7 @@ test "macro arity mismatch" {
         .parameters = &params,
         .body = .{ .id = dummy_id, .args = &.{} },
     };
-    try registry.registerMacro(alloc, "needs-two", macro);
+    try registry.registerMacro("needs-two", macro);
 
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
@@ -711,7 +724,7 @@ test "args validation" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
@@ -736,7 +749,7 @@ test "scope entry closure captures scope" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp));
 
     var env = Env{ .registry = &registry, .allocator = alloc };

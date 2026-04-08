@@ -30,7 +30,9 @@ pub const ProcessResult = union(enum) {
 /// Result of loading a macro module from source.
 pub const MacroLoadResult = union(enum) {
     ok: usize,
+    io_error: anyerror,
     validation_err: []const ValidationError,
+
 };
 
 /// Result of loading a directory of macro files.
@@ -40,8 +42,16 @@ pub const MacroDirResult = struct {
 
     pub const FileError = struct {
         path: []const u8,
-        errors: []const ValidationError,
+        io_error: ?anyerror = null,
+        errors: []const ValidationError = &.{},
     };
+
+    pub fn deinit(self: MacroDirResult, allocator: Allocator) void {
+        for (self.file_errors) |file_error| {
+            allocator.free(file_error.path);
+        }
+        if (self.file_errors.len > 0) allocator.free(@constCast(self.file_errors));
+    }
 };
 
 /// A function that registers operations into a Registry.
@@ -104,21 +114,22 @@ fn executeExpression(env: *Env, expression: Expression, scope: ?*const Scope) (A
 /// Parse a macro module source string, validate it, and register all macros
 /// into the provided registry.
 pub fn loadMacroModule(
-    allocator: Allocator,
     registry: *Registry,
     source: []const u8,
 ) Allocator.Error!MacroLoadResult {
+    const alloc = registry.macroAllocator();
+
     // 1. Parse macro module
-    const module = try macro_parser_mod.parseMacroModule(allocator, source);
+    const module = try macro_parser_mod.parseMacroModule(alloc, source);
 
     // 2. Validate
-    const validation_result = try macro_parser_mod.validateMacroModule(allocator, module);
+    const validation_result = try macro_parser_mod.validateMacroModule(alloc, module);
 
     switch (validation_result) {
         .ok => |macros| {
             // 3. Register all macros
             for (macros) |*macro| {
-                try registry.registerMacro(allocator, macro.id, macro);
+                try registry.registerMacro(macro.id, macro);
             }
             return .{ .ok = macros.len };
         },
@@ -142,25 +153,18 @@ pub fn loadMacroFile(
     allocator: Allocator,
     registry: *Registry,
     file_path: []const u8,
-) !MacroLoadResult {
+) Allocator.Error!MacroLoadResult {
     const file = std.fs.cwd().openFile(file_path, .{}) catch |err| {
-        return loadMacroFileError(allocator, file_path, err);
+        return .{ .io_error = err };
     };
     defer file.close();
 
     const source = file.readToEndAlloc(allocator, 1024 * 1024) catch |err| {
-        return loadMacroFileError(allocator, file_path, err);
+        return .{ .io_error = err };
     };
+    defer allocator.free(source);
 
-    return loadMacroModule(allocator, registry, source);
-}
-
-fn loadMacroFileError(allocator: Allocator, file_path: []const u8, err: anytype) Allocator.Error!MacroLoadResult {
-    const message = std.fmt.allocPrint(allocator, "Failed to load '{s}': {}", .{ file_path, err }) catch
-        return .{ .validation_err = &.{} };
-    const errors = try allocator.alloc(ValidationError, 1);
-    errors[0] = .{ .message = message };
-    return .{ .validation_err = errors };
+    return loadMacroModule(registry, source);
 }
 
 /// Scan a directory for .lishmacro files and load each one.
@@ -170,12 +174,8 @@ pub fn loadMacroDir(
     dir_path: []const u8,
 ) !MacroDirResult {
     var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch |err| {
-        const message = std.fmt.allocPrint(allocator, "Failed to open directory '{s}': {}", .{ dir_path, err }) catch
-            return .{ .loaded_count = 0, .file_errors = &.{} };
-        const errors = try allocator.alloc(ValidationError, 1);
-        errors[0] = .{ .message = message };
         const file_errors = try allocator.alloc(MacroDirResult.FileError, 1);
-        file_errors[0] = .{ .path = dir_path, .errors = errors };
+        file_errors[0] = .{ .path = try allocator.dupe(u8, dir_path), .io_error = err };
         return .{ .loaded_count = 0, .file_errors = file_errors };
     };
     defer dir.close();
@@ -193,6 +193,9 @@ pub fn loadMacroDir(
         const result = try loadMacroFile(allocator, registry, full_path);
         switch (result) {
             .ok => |count| loaded_count += count,
+            .io_error => |err| {
+                try file_errors.append(allocator, .{ .path = full_path, .io_error = err });
+            },
             .validation_err => |errors| {
                 try file_errors.append(allocator, .{ .path = full_path, .errors = errors });
             },
@@ -214,7 +217,7 @@ test "processRaw: simple expression" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
 
@@ -233,7 +236,7 @@ test "processRaw: nested expressions" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
 
@@ -253,7 +256,7 @@ test "processRaw: returns none for none operation" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
 
@@ -272,7 +275,7 @@ test "processRaw: validation error for empty input" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
 
     const result = try processRaw(&env, "", null);
@@ -290,7 +293,7 @@ test "processRaw: runtime error for unknown operation" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
 
     const result = try processRaw(&env, "nonexistent 1 2", null);
@@ -308,7 +311,7 @@ test "processRaw: with scope" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
 
@@ -334,14 +337,14 @@ test "loadMacroModule: load and execute macros" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
 
     // Load a macro module
-    const load_result = try loadMacroModule(alloc, &registry, "| double x | * :x 2");
+    const load_result = try loadMacroModule(&registry,"| double x | * :x 2");
     switch (load_result) {
         .ok => |count| try std.testing.expectEqual(@as(usize, 1), count),
-        .validation_err => return error.TestUnexpectedResult,
+        .io_error, .validation_err => return error.TestUnexpectedResult,
     }
 
     // Execute using the loaded macro
@@ -361,17 +364,16 @@ test "loadMacroModule: multiple macros" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
 
     const load_result = try loadMacroModule(
-        alloc,
         &registry,
         "| double x | * :x 2 | quadruple x | double (double :x)",
     );
     switch (load_result) {
         .ok => |count| try std.testing.expectEqual(@as(usize, 2), count),
-        .validation_err => return error.TestUnexpectedResult,
+        .io_error, .validation_err => return error.TestUnexpectedResult,
     }
 
     var env = Env{ .registry = &registry, .allocator = alloc };
@@ -390,12 +392,12 @@ test "loadMacroModule: validation errors" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
 
     // Duplicate macro IDs should produce validation errors
-    const load_result = try loadMacroModule(alloc, &registry, "| foo x | + :x 1 | foo y | + :y 2");
+    const load_result = try loadMacroModule(&registry,"| foo x | + :x 1 | foo y | + :y 2");
     switch (load_result) {
-        .ok => return error.TestUnexpectedResult,
+        .ok, .io_error => return error.TestUnexpectedResult,
         .validation_err => |errors| {
             try std.testing.expect(errors.len > 0);
         },
@@ -407,7 +409,7 @@ test "loadFragments: load multiple registry fragments" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     try loadFragments(&registry, alloc, &.{&builtins.registerAll});
 
     var env = Env{ .registry = &registry, .allocator = alloc };
@@ -427,10 +429,9 @@ test "processRaw: full pipeline with macros and scope" {
     const alloc = arena.allocator();
 
     // Set up registry with builtins + macros
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
     const load_result = try loadMacroModule(
-        alloc,
         &registry,
         "| add-to-x x amount | + :x :amount",
     );
@@ -459,7 +460,7 @@ test "processRawCached: cache hit skips parsing" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
 
@@ -489,7 +490,7 @@ test "processRawCached: different expressions get separate cache entries" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
 
@@ -517,7 +518,7 @@ test "processRawCached: validation errors are not cached" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var registry = Registry{};
+    var registry = Registry.init(alloc);
     var env = Env{ .registry = &registry, .allocator = alloc };
 
     var expression_cache = try ExpressionCache.init(std.testing.allocator, 16);

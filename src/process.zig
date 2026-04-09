@@ -323,7 +323,7 @@ test "processRaw: with scope" {
     const empty_scope = try alloc.create(Scope);
     empty_scope.* = Scope.EMPTY;
     var scope = Scope{};
-    try scope.entries.put(alloc, "x", .{ .thunk = value_thunk, .scope = empty_scope });
+    try scope.setEntry(alloc, "x", value_thunk, empty_scope);
 
     const result = try processRaw(&env, "+ :x 5", &scope);
     switch (result) {
@@ -445,7 +445,7 @@ test "processRaw: full pipeline with macros and scope" {
     const empty_scope = try alloc.create(Scope);
     empty_scope.* = Scope.EMPTY;
     var scope = Scope{};
-    try scope.entries.put(alloc, "x", .{ .thunk = value_thunk, .scope = empty_scope });
+    try scope.setEntry(alloc, "x", value_thunk, empty_scope);
 
     var env = Env{ .registry = &registry, .allocator = alloc };
     const result = try processRaw(&env, "add-to-x :x 50", &scope);

@@ -77,6 +77,8 @@ pub fn registerCore(registry: *Registry, allocator: Allocator) Allocator.Error!v
     try registry.registerOperation(allocator, "until", Operation.fromFn(untilOp));
     try registry.registerOperation(allocator, "sort", Operation.fromFn(sortOp));
     try registry.registerOperation(allocator, "sortby", Operation.fromFn(sortbyOp));
+    try registry.registerOperation(allocator, "fill", Operation.fromFn(fillOp));
+    try registry.registerOperation(allocator, "fillby", Operation.fromFn(fillbyOp));
 
     // Collection
     try registry.registerOperation(allocator, "length", Operation.fromFn(lengthOp));
@@ -869,32 +871,20 @@ fn sortOp(args: Args) ExecError!?Value {
 }
 
 const SortContext = struct {
-    env: *exec.Env,
-    scope: *const exec.Scope,
-    id_thunk: *const Thunk,
-    allocator: Allocator,
+    env:        *exec.Env,
+    scope:      *const exec.Scope,
+    id_thunk:   *const Thunk,
     sticky_err: ?ExecError,
 };
 
 fn sortbyLessThan(ctx: *SortContext, left: ?Value, right: ?Value) bool {
     if (ctx.sticky_err != null) return false;
 
-    const left_thunk = exec.makeValueLiteral(ctx.allocator, left) catch |err| {
-        ctx.sticky_err = err;
-        return false;
-    };
-    const right_thunk = exec.makeValueLiteral(ctx.allocator, right) catch |err| {
-        ctx.sticky_err = err;
-        return false;
-    };
-    const arg_thunks = ctx.allocator.alloc(*const Thunk, 2) catch |err| {
-        ctx.sticky_err = err;
-        return false;
-    };
-    arg_thunks[0] = left_thunk;
-    arg_thunks[1] = right_thunk;
+    var left_thunk  = Thunk{ .value_literal = left };
+    var right_thunk = Thunk{ .value_literal = right };
+    const arg_buf   = [2]*const Thunk{ &left_thunk, &right_thunk };
 
-    const expression = Expression{ .id = ctx.id_thunk, .args = arg_thunks };
+    const expression = Expression{ .id = ctx.id_thunk, .args = &arg_buf };
     const result = ctx.env.processExpression(expression, ctx.scope) catch |err| {
         ctx.sticky_err = err;
         return false;
@@ -912,15 +902,13 @@ fn sortbyOp(args: Args) ExecError!?Value {
     const id_value = try args.at(0).resolve();
     const list = try args.at(1).resolveList();
 
-    const alloc = args.env.allocator;
-    const id_thunk = try exec.makeValueLiteral(alloc, id_value);
-    const sorted = try alloc.dupe(?Value, list);
+    var id_thunk = Thunk{ .value_literal = id_value };
+    const sorted = try args.env.allocator.dupe(?Value, list);
 
     var ctx = SortContext{
-        .env = args.env,
-        .scope = args.scope,
-        .id_thunk = id_thunk,
-        .allocator = alloc,
+        .env        = args.env,
+        .scope      = args.scope,
+        .id_thunk   = &id_thunk,
         .sticky_err = null,
     };
 
@@ -930,6 +918,35 @@ fn sortbyOp(args: Args) ExecError!?Value {
     return .{ .list = sorted };
 }
 
+fn fillOp(args: Args) ExecError!?Value {
+    const count = args.count();
+    if (count < 1 or count > 2) return args.env.fail("'fill' expects 1 or 2 arguments");
+
+    const n_value = try args.at(0).resolve();
+    const n = n_value.getI() catch return args.env.fail("'fill' expects an integer count");
+    if (n < 0) return args.env.fail("'fill' count cannot be negative");
+
+    const fill_value: ?Value = if (count == 2) try args.at(1).get() else .{ .int = 0 };
+
+    const alloc = args.env.allocator;
+    const items = try alloc.alloc(?Value, @intCast(n));
+    for (items) |*slot| slot.* = fill_value;
+    return .{ .list = items };
+}
+
+fn fillbyOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+
+    const n_value = try args.at(0).resolve();
+    const n = n_value.getI() catch return args.env.fail("'fillby' expects an integer count");
+    if (n < 0) return args.env.fail("'fillby' count cannot be negative");
+
+    const alloc = args.env.allocator;
+    const items = try alloc.alloc(?Value, @intCast(n));
+    for (items) |*slot| slot.* = try args.at(1).get();
+    return .{ .list = items };
+}
+
 // ── Higher-order ──
 
 fn mapOp(args: Args) ExecError!?Value {
@@ -937,15 +954,14 @@ fn mapOp(args: Args) ExecError!?Value {
     const id_value = try args.at(0).resolve();
     const list = try args.at(1).resolveList();
 
-    const alloc = args.env.allocator;
-    const id_thunk = try exec.makeValueLiteral(alloc, id_value);
-    const results = try alloc.alloc(?Value, list.len);
+    var id_thunk   = Thunk{ .value_literal = id_value };
+    var item_thunk = Thunk{ .value_literal = null };
+    const arg_buf  = [1]*const Thunk{ &item_thunk };
+    const expression = Expression{ .id = &id_thunk, .args = &arg_buf };
 
+    const results = try args.env.allocator.alloc(?Value, list.len);
     for (list, 0..) |item, i| {
-        const item_thunk = try exec.makeValueLiteral(alloc, item);
-        const arg_thunks = try alloc.alloc(*const Thunk, 1);
-        arg_thunks[0] = item_thunk;
-        const expression = Expression{ .id = id_thunk, .args = arg_thunks };
+        item_thunk = .{ .value_literal = item };
         results[i] = try args.env.processExpression(expression, args.scope);
     }
     return .{ .list = results };
@@ -956,14 +972,13 @@ fn foreachOp(args: Args) ExecError!?Value {
     const id_value = try args.at(0).resolve();
     const list = try args.at(1).resolveList();
 
-    const alloc = args.env.allocator;
-    const id_thunk = try exec.makeValueLiteral(alloc, id_value);
+    var id_thunk   = Thunk{ .value_literal = id_value };
+    var item_thunk = Thunk{ .value_literal = null };
+    const arg_buf  = [1]*const Thunk{ &item_thunk };
+    const expression = Expression{ .id = &id_thunk, .args = &arg_buf };
 
     for (list) |item| {
-        const item_thunk = try exec.makeValueLiteral(alloc, item);
-        const arg_thunks = try alloc.alloc(*const Thunk, 1);
-        arg_thunks[0] = item_thunk;
-        const expression = Expression{ .id = id_thunk, .args = arg_thunks };
+        item_thunk = .{ .value_literal = item };
         _ = try args.env.processExpression(expression, args.scope);
     }
     return null;
@@ -974,14 +989,15 @@ fn applyOp(args: Args) ExecError!?Value {
     const id_value = try args.at(0).resolve();
     const list = try args.at(1).resolveList();
 
+    // Variable-length arg list: must heap-allocate the thunk slice.
     const alloc = args.env.allocator;
-    const id_thunk = try exec.makeValueLiteral(alloc, id_value);
+    var id_thunk = Thunk{ .value_literal = id_value };
     const thunks = try alloc.alloc(*const Thunk, list.len);
     for (list, 0..) |item, i| {
         thunks[i] = try exec.makeValueLiteral(alloc, item);
     }
 
-    const expression = Expression{ .id = id_thunk, .args = thunks };
+    const expression = Expression{ .id = &id_thunk, .args = thunks };
     return args.env.processExpression(expression, args.scope);
 }
 
@@ -990,19 +1006,16 @@ fn filterOp(args: Args) ExecError!?Value {
     const id_value = try args.at(0).resolve();
     const list = try args.at(1).resolveList();
 
-    const alloc = args.env.allocator;
-    const id_thunk = try exec.makeValueLiteral(alloc, id_value);
-    var results = std.ArrayListUnmanaged(?Value){};
+    var id_thunk   = Thunk{ .value_literal = id_value };
+    var item_thunk = Thunk{ .value_literal = null };
+    const arg_buf  = [1]*const Thunk{ &item_thunk };
+    const expression = Expression{ .id = &id_thunk, .args = &arg_buf };
 
+    var results = std.ArrayListUnmanaged(?Value){};
     for (list) |item| {
-        const item_thunk = try exec.makeValueLiteral(alloc, item);
-        const arg_thunks = try alloc.alloc(*const Thunk, 1);
-        arg_thunks[0] = item_thunk;
-        const expression = Expression{ .id = id_thunk, .args = arg_thunks };
+        item_thunk = .{ .value_literal = item };
         const result = try args.env.processExpression(expression, args.scope);
-        if (result != null) {
-            try results.append(alloc, item);
-        }
+        if (result != null) try results.append(args.env.allocator, item);
     }
     return .{ .list = results.items };
 }
@@ -1013,16 +1026,15 @@ fn reduceOp(args: Args) ExecError!?Value {
     var accumulator = try args.at(1).get();
     const list = try args.at(2).resolveList();
 
-    const alloc = args.env.allocator;
-    const id_thunk = try exec.makeValueLiteral(alloc, id_value);
+    var id_thunk  = Thunk{ .value_literal = id_value };
+    var acc_thunk = Thunk{ .value_literal = null };
+    var item_thunk = Thunk{ .value_literal = null };
+    const arg_buf  = [2]*const Thunk{ &acc_thunk, &item_thunk };
+    const expression = Expression{ .id = &id_thunk, .args = &arg_buf };
 
     for (list) |item| {
-        const acc_thunk = try exec.makeValueLiteral(alloc, accumulator);
-        const item_thunk = try exec.makeValueLiteral(alloc, item);
-        const arg_thunks = try alloc.alloc(*const Thunk, 2);
-        arg_thunks[0] = acc_thunk;
-        arg_thunks[1] = item_thunk;
-        const expression = Expression{ .id = id_thunk, .args = arg_thunks };
+        acc_thunk  = .{ .value_literal = accumulator };
+        item_thunk = .{ .value_literal = item };
         accumulator = try args.env.processExpression(expression, args.scope);
     }
     return accumulator;
@@ -1033,14 +1045,13 @@ fn anyOp(args: Args) ExecError!?Value {
     const id_value = try args.at(0).resolve();
     const list = try args.at(1).resolveList();
 
-    const alloc = args.env.allocator;
-    const id_thunk = try exec.makeValueLiteral(alloc, id_value);
+    var id_thunk   = Thunk{ .value_literal = id_value };
+    var item_thunk = Thunk{ .value_literal = null };
+    const arg_buf  = [1]*const Thunk{ &item_thunk };
+    const expression = Expression{ .id = &id_thunk, .args = &arg_buf };
 
     for (list) |item| {
-        const item_thunk = try exec.makeValueLiteral(alloc, item);
-        const arg_thunks = try alloc.alloc(*const Thunk, 1);
-        arg_thunks[0] = item_thunk;
-        const expression = Expression{ .id = id_thunk, .args = arg_thunks };
+        item_thunk = .{ .value_literal = item };
         const result = try args.env.processExpression(expression, args.scope);
         if (result != null) return val.some();
     }
@@ -1052,14 +1063,13 @@ fn allOp(args: Args) ExecError!?Value {
     const id_value = try args.at(0).resolve();
     const list = try args.at(1).resolveList();
 
-    const alloc = args.env.allocator;
-    const id_thunk = try exec.makeValueLiteral(alloc, id_value);
+    var id_thunk   = Thunk{ .value_literal = id_value };
+    var item_thunk = Thunk{ .value_literal = null };
+    const arg_buf  = [1]*const Thunk{ &item_thunk };
+    const expression = Expression{ .id = &id_thunk, .args = &arg_buf };
 
     for (list) |item| {
-        const item_thunk = try exec.makeValueLiteral(alloc, item);
-        const arg_thunks = try alloc.alloc(*const Thunk, 1);
-        arg_thunks[0] = item_thunk;
-        const expression = Expression{ .id = id_thunk, .args = arg_thunks };
+        item_thunk = .{ .value_literal = item };
         const result = try args.env.processExpression(expression, args.scope);
         if (result == null) return null;
     }
@@ -1071,15 +1081,14 @@ fn countOp(args: Args) ExecError!?Value {
     const id_value = try args.at(0).resolve();
     const list = try args.at(1).resolveList();
 
-    const alloc = args.env.allocator;
-    const id_thunk = try exec.makeValueLiteral(alloc, id_value);
-    var tally: i64 = 0;
+    var id_thunk   = Thunk{ .value_literal = id_value };
+    var item_thunk = Thunk{ .value_literal = null };
+    const arg_buf  = [1]*const Thunk{ &item_thunk };
+    const expression = Expression{ .id = &id_thunk, .args = &arg_buf };
 
+    var tally: i64 = 0;
     for (list) |item| {
-        const item_thunk = try exec.makeValueLiteral(alloc, item);
-        const arg_thunks = try alloc.alloc(*const Thunk, 1);
-        arg_thunks[0] = item_thunk;
-        const expression = Expression{ .id = id_thunk, .args = arg_thunks };
+        item_thunk = .{ .value_literal = item };
         const result = try args.env.processExpression(expression, args.scope);
         if (result != null) tally += 1;
     }
@@ -2356,6 +2365,40 @@ test "collection: sortby with compare" {
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "first (sortby \"compare\" [3 1 2])");
     try std.testing.expectEqual(@as(i64, 1), result.?.int);
+}
+
+// ── fill/fillby tests ──
+
+test "list: fill default zeros" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "fill 3");
+    const items = result.?.list;
+    try std.testing.expectEqual(@as(usize, 3), items.len);
+    for (items) |item| try std.testing.expectEqual(@as(i64, 0), item.?.int);
+}
+
+test "list: fill with value" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "fill 4 7");
+    const items = result.?.list;
+    try std.testing.expectEqual(@as(usize, 4), items.len);
+    for (items) |item| try std.testing.expectEqual(@as(i64, 7), item.?.int);
+}
+
+test "list: fill zero count" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "fill 0");
+    try std.testing.expectEqual(@as(usize, 0), result.?.list.len);
+}
+
+test "list: fillby length" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "fillby 5 42");
+    try std.testing.expectEqual(@as(usize, 5), result.?.list.len);
 }
 
 // ── any/all/count tests ──

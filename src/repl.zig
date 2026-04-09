@@ -162,9 +162,9 @@ pub fn runRepl(
                             switch (value) {
                                 .string => |str| stdout.print("\x1b[2m=> \"{s}\"\x1b[0m\n", .{str}) catch {},
                                 else => {
-                                    var format_buf: [1024]u8 = undefined;
-                                    const formatted = value.getS(&format_buf);
-                                    stdout.print("\x1b[2m=> {s}\x1b[0m\n", .{formatted}) catch {};
+                                    stdout.writeAll("\x1b[2m=> ") catch {};
+                                    value.writeTo(stdout) catch {};
+                                    stdout.writeAll("\x1b[0m\n") catch {};
                                 },
                             }
                         }

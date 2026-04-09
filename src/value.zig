@@ -33,23 +33,32 @@ pub const Value = union(enum) {
             .string => |str| str,
             .int => |int_val| std.fmt.bufPrint(buf, "{d}", .{int_val}) catch "?",
             .float => |float_val| std.fmt.bufPrint(buf, "{d}", .{float_val}) catch "?",
-            .list => |items| {
-                var writer = std.io.fixedBufferStream(buf);
-                writer.writer().writeAll("[ ") catch return "?";
-                for (items, 0..) |item, i| {
-                    if (i > 0) writer.writer().writeAll(", ") catch return "?";
-                    if (item) |inner_val| {
-                        var inner_buf: [64]u8 = undefined;
-                        const rendered = inner_val.getS(&inner_buf);
-                        writer.writer().writeAll(rendered) catch return "?";
-                    } else {
-                        writer.writer().writeAll(NONE_ID) catch return "?";
-                    }
-                }
-                writer.writer().writeAll(" ]") catch return "?";
-                return writer.getWritten();
+            .list => {
+                var stream = std.io.fixedBufferStream(buf);
+                self.writeTo(stream.writer()) catch return "?";
+                return stream.getWritten();
             },
         };
+    }
+
+    pub fn writeTo(self: Value, writer: anytype) !void {
+        switch (self) {
+            .string => |str| try writer.writeAll(str),
+            .int => |int_val| try writer.print("{d}", .{int_val}),
+            .float => |float_val| try writer.print("{d}", .{float_val}),
+            .list => |items| {
+                try writer.writeAll("[ ");
+                for (items, 0..) |item, i| {
+                    if (i > 0) try writer.writeAll(", ");
+                    if (item) |inner_val| {
+                        try inner_val.writeTo(writer);
+                    } else {
+                        try writer.writeAll(NONE_ID);
+                    }
+                }
+                try writer.writeAll(" ]");
+            },
+        }
     }
 
     pub fn getL(self: Value) error{TypeMismatch}![]const ?Value {

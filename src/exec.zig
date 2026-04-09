@@ -55,32 +55,99 @@ pub const ScopeEntry = struct {
     }
 };
 
+// Scopes with up to INLINE_CAP bindings store entries in a flat inline array
+// (linear scan). Larger scopes overflow to a HashMap. Most macro calls bind
+// 1–4 parameters, so the overflow path is almost never reached.
+const INLINE_CAP = 8;
+
+const InlineEntry = struct {
+    key: []const u8,
+    // Value params: thunk owned inline — no heap allocation needed.
+    // Deferred params: borrowed pointer + caller scope.
+    kind: union(enum) {
+        owned:    Thunk,
+        borrowed: ScopeEntry,
+    },
+
+    fn toScopeEntry(self: *const InlineEntry) ScopeEntry {
+        return switch (self.kind) {
+            .owned    => |*thunk| .{ .thunk = thunk, .scope = &Scope.EMPTY },
+            .borrowed => |entry|  entry,
+        };
+    }
+};
+
 pub const Scope = struct {
-    entries: std.StringHashMapUnmanaged(ScopeEntry) = .{},
+    inline_entries: [INLINE_CAP]InlineEntry       = undefined,
+    inline_count:   usize                          = 0,
+    overflow:       ?std.StringHashMapUnmanaged(ScopeEntry) = null,
 
     pub fn get(self: *const Scope, key: []const u8) ?ScopeEntry {
-        return self.entries.get(key);
+        for (self.inline_entries[0..self.inline_count]) |*entry| {
+            if (std.mem.eql(u8, entry.key, key)) return entry.toScopeEntry();
+        }
+        if (self.overflow) |map| return map.get(key);
+        return null;
     }
 
     /// Bind an arbitrary thunk to a name with an explicit evaluation scope.
-    /// setValue and setExpression are convenience wrappers around this.
     pub fn setEntry(self: *Scope, allocator: Allocator, key: []const u8, thunk: *const Thunk, thunk_scope: *const Scope) Allocator.Error!void {
-        try self.entries.put(allocator, key, .{ .thunk = thunk, .scope = thunk_scope });
+        if (self.inline_count < INLINE_CAP) {
+            self.inline_entries[self.inline_count] = .{
+                .key  = key,
+                .kind = .{ .borrowed = .{ .thunk = thunk, .scope = thunk_scope } },
+            };
+            self.inline_count += 1;
+            return;
+        }
+        try self.spillToOverflow(allocator);
+        try self.overflow.?.put(allocator, key, .{ .thunk = thunk, .scope = thunk_scope });
     }
 
-    /// Bind a static value to a name. The value is returned as-is on every access.
+    /// Bind a static value to a name. Stores the thunk inline — no allocation for small scopes.
     pub fn setValue(self: *Scope, allocator: Allocator, key: []const u8, value: ?Value) Allocator.Error!void {
+        if (self.inline_count < INLINE_CAP) {
+            self.inline_entries[self.inline_count] = .{
+                .key  = key,
+                .kind = .{ .owned = .{ .value_literal = value } },
+            };
+            self.inline_count += 1;
+            return;
+        }
+        // Overflow: must heap-allocate the thunk since HashMap stores *const Thunk.
         const thunk = try allocator.create(Thunk);
         thunk.* = .{ .value_literal = value };
-        try self.setEntry(allocator, key, thunk, &Scope.EMPTY);
+        try self.spillToOverflow(allocator);
+        try self.overflow.?.put(allocator, key, .{ .thunk = thunk, .scope = &Scope.EMPTY });
     }
 
-    /// Bind a lazily-evaluated expression to a name. The expression is
-    /// re-evaluated in this scope each time the name is referenced.
+    /// Bind a lazily-evaluated expression to a name.
     pub fn setExpression(self: *Scope, allocator: Allocator, key: []const u8, expr: Expression) Allocator.Error!void {
         const thunk = try allocator.create(Thunk);
         thunk.* = .{ .expression = expr };
-        try self.setEntry(allocator, key, thunk, self);
+        if (self.inline_count < INLINE_CAP) {
+            self.inline_entries[self.inline_count] = .{
+                .key  = key,
+                .kind = .{ .borrowed = .{ .thunk = thunk, .scope = self } },
+            };
+            self.inline_count += 1;
+            return;
+        }
+        try self.spillToOverflow(allocator);
+        try self.overflow.?.put(allocator, key, .{ .thunk = thunk, .scope = self });
+    }
+
+    pub fn deinit(self: *Scope, allocator: Allocator) void {
+        if (self.overflow) |*map| map.deinit(allocator);
+    }
+
+    // Migrate inline entries into the overflow HashMap on first spill.
+    fn spillToOverflow(self: *Scope, allocator: Allocator) Allocator.Error!void {
+        if (self.overflow != null) return;
+        self.overflow = std.StringHashMapUnmanaged(ScopeEntry){};
+        for (self.inline_entries[0..self.inline_count]) |*entry| {
+            try self.overflow.?.put(allocator, entry.key, entry.toScopeEntry());
+        }
     }
 
     pub const EMPTY: Scope = .{};
@@ -135,7 +202,7 @@ pub const Arg = struct {
 // ── Args — Collection of deferred arguments ──
 
 pub const Args = struct {
-    items: []const Arg,
+    items: []const *const Thunk,
     env: *Env,
     scope: *const Scope,
 
@@ -144,7 +211,7 @@ pub const Args = struct {
     }
 
     pub fn at(self: Args, index: usize) Arg {
-        return self.items[index];
+        return .{ .thunk = self.items[index], .env = self.env, .scope = self.scope };
     }
 
     /// Get a single argument, asserting exactly one was provided.
@@ -154,7 +221,7 @@ pub const Args = struct {
                 if (self.items.len == 0) "Expected 1 argument but got 0" else "Expected 1 argument but got multiple",
             );
         }
-        return self.items[0];
+        return self.at(0);
     }
 
     /// Resolve single argument to a value.
@@ -166,8 +233,8 @@ pub const Args = struct {
     /// Evaluate all arguments, returning their optional values.
     pub fn getAll(self: Args) ExecError![]const ?Value {
         const results = try self.env.allocator.alloc(?Value, self.items.len);
-        for (self.items, 0..) |arg, i| {
-            results[i] = try arg.get();
+        for (self.items, 0..) |_, i| {
+            results[i] = try self.at(i).get();
         }
         return results;
     }
@@ -175,8 +242,8 @@ pub const Args = struct {
     /// Resolve all arguments (require non-null values).
     pub fn resolveAll(self: Args) ExecError![]const Value {
         const results = try self.env.allocator.alloc(Value, self.items.len);
-        for (self.items, 0..) |arg, i| {
-            results[i] = try arg.resolve();
+        for (self.items, 0..) |_, i| {
+            results[i] = try self.at(i).resolve();
         }
         return results;
     }
@@ -268,9 +335,9 @@ pub const Macro = struct {
             );
         }
 
-        // Build a new scope with parameter bindings (arena-allocated for safety)
-        const macro_scope = try env.allocator.create(Scope);
-        macro_scope.* = .{};
+        var macro_scope = Scope{};
+        // Overflow HashMap only allocated if param count exceeds INLINE_CAP (rare).
+        defer macro_scope.deinit(env.allocator);
 
         for (self.parameters, arg_thunks) |param, arg_thunk| {
             switch (param.param_type) {
@@ -286,7 +353,7 @@ pub const Macro = struct {
             }
         }
 
-        return env.processExpression(self.body, macro_scope);
+        return env.processExpression(self.body, &macro_scope);
     }
 };
 
@@ -356,7 +423,7 @@ pub const Env = struct {
 
         // 3. Try operation first, then macro
         if (self.registry.getOperation(id_string)) |operation| {
-            const args = try self.packageArgs(expression.args, scope);
+            const args = Args{ .items = expression.args, .env = self, .scope = scope };
             return operation.call(args);
         }
 
@@ -365,14 +432,6 @@ pub const Env = struct {
         }
 
         return self.failFmt("Unknown operation or macro: '{s}'", .{id_string});
-    }
-
-    fn packageArgs(self: *Env, thunks: []const *const Thunk, scope: *const Scope) ExecError!Args {
-        const items = try self.allocator.alloc(Arg, thunks.len);
-        for (thunks, 0..) |thunk, i| {
-            items[i] = .{ .thunk = thunk, .env = self, .scope = scope };
-        }
-        return .{ .items = items, .env = self, .scope = scope };
     }
 
     /// Set an error message and return RuntimeError.
@@ -452,7 +511,7 @@ test "scope thunk resolves entry from scope" {
     const empty_scope = try alloc.create(Scope);
     empty_scope.* = Scope.EMPTY;
     var scope = Scope{};
-    try scope.entries.put(alloc, "x", .{ .thunk = value_thunk, .scope = empty_scope });
+    try scope.setEntry(alloc, "x", value_thunk, empty_scope);
 
     // Create :x (scope thunk that looks up "x")
     const id_thunk = try makeValueLiteral(alloc, .{ .string = "x" });
@@ -730,9 +789,9 @@ test "args validation" {
 
     const thunk_a = try makeValueLiteral(alloc, .{ .int = 10 });
     const thunk_b = try makeValueLiteral(alloc, .{ .int = 20 });
-    const items = try alloc.alloc(Arg, 2);
-    items[0] = .{ .thunk = thunk_a, .env = &env, .scope = &scope };
-    items[1] = .{ .thunk = thunk_b, .env = &env, .scope = &scope };
+    const items = try alloc.alloc(*const Thunk, 2);
+    items[0] = thunk_a;
+    items[1] = thunk_b;
 
     const args = Args{ .items = items, .env = &env, .scope = &scope };
 
@@ -760,7 +819,7 @@ test "scope entry closure captures scope" {
     inner_scope.* = .{};
     const empty_scope = try alloc.create(Scope);
     empty_scope.* = Scope.EMPTY;
-    try inner_scope.entries.put(alloc, "y", .{ .thunk = y_value, .scope = empty_scope });
+    try inner_scope.setEntry(alloc, "y", y_value, empty_scope);
 
     // Create a thunk that references :y — captured with inner_scope
     const y_id = try makeValueLiteral(alloc, .{ .string = "y" });
@@ -768,7 +827,7 @@ test "scope entry closure captures scope" {
 
     // Create an outer scope where "my-val" is bound to :y with inner_scope as the captured scope
     var outer_scope = Scope{};
-    try outer_scope.entries.put(alloc, "my-val", .{ .thunk = y_ref, .scope = inner_scope });
+    try outer_scope.setEntry(alloc, "my-val", y_ref, inner_scope);
 
     // Resolving "my-val" should evaluate :y in inner_scope, finding y=10
     const entry = outer_scope.get("my-val").?;

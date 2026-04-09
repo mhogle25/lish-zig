@@ -148,7 +148,7 @@ fn validateExpression(
     // Success
     const thunk = try allocator.create(Thunk);
     thunk.* = .{ .expression = .{
-        .id = id_thunk.?,
+        .id   = .{ .dynamic = id_thunk.? },
         .args = valid_args.items,
     } };
     return thunk;
@@ -181,9 +181,9 @@ test "validate simple expression" {
 
     switch (result) {
         .ok => |expression| {
-            // ID should be a value literal "say"
-            try std.testing.expect(expression.id.* == .value_literal);
-            try std.testing.expectEqualStrings("say", expression.id.value_literal.?.string);
+            // ID should be a dynamic (unresolved) thunk wrapping a value literal "say"
+            try std.testing.expect(expression.id.dynamic.* == .value_literal);
+            try std.testing.expectEqualStrings("say", expression.id.dynamic.value_literal.?.string);
             try std.testing.expectEqual(@as(usize, 1), expression.args.len);
         },
         .err => |errors| {
@@ -207,7 +207,7 @@ test "validate nested expression" {
 
     switch (result) {
         .ok => |expression| {
-            try std.testing.expectEqualStrings("add", expression.id.value_literal.?.string);
+            try std.testing.expectEqualStrings("add", expression.id.dynamic.value_literal.?.string);
             try std.testing.expectEqual(@as(usize, 2), expression.args.len);
             // First arg should be a nested expression
             try std.testing.expect(expression.args[0].* == .expression);
@@ -227,7 +227,7 @@ test "validate scope thunk" {
 
     switch (result) {
         .ok => |expression| {
-            try std.testing.expectEqualStrings("say", expression.id.value_literal.?.string);
+            try std.testing.expectEqualStrings("say", expression.id.dynamic.value_literal.?.string);
             try std.testing.expectEqual(@as(usize, 1), expression.args.len);
             try std.testing.expect(expression.args[0].* == .scope_thunk);
         },
@@ -356,12 +356,12 @@ test "validate list literal" {
     switch (result) {
         .ok => |expression| {
             // Top level: say with one arg (the list expression)
-            try std.testing.expectEqualStrings("say", expression.id.value_literal.?.string);
+            try std.testing.expectEqualStrings("say", expression.id.dynamic.value_literal.?.string);
             try std.testing.expectEqual(@as(usize, 1), expression.args.len);
 
             // The list arg should be an expression with id "list"
             const list_expr = expression.args[0].expression;
-            try std.testing.expectEqualStrings("list", list_expr.id.value_literal.?.string);
+            try std.testing.expectEqualStrings("list", list_expr.id.dynamic.value_literal.?.string);
             try std.testing.expectEqual(@as(usize, 3), list_expr.args.len);
         },
         .err => return error.TestUnexpectedResult,

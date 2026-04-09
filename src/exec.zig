@@ -36,10 +36,16 @@ pub const Thunk = union(enum) {
     }
 };
 
-// ── Expression ──
+// ── ExpressionId ──
+
+pub const ExpressionId = union(enum) {
+    resolved_op:    Operation,      // direct call, no registry lookup
+    resolved_macro: *const Macro,   // direct call, no registry lookup
+    dynamic:        *const Thunk,   // fallback: evaluate thunk, look up at runtime
+};
 
 pub const Expression = struct {
-    id: *const Thunk,
+    id:   ExpressionId,
     args: []const *const Thunk,
 };
 
@@ -119,22 +125,6 @@ pub const Scope = struct {
         thunk.* = .{ .value_literal = value };
         try self.spillToOverflow(allocator);
         try self.overflow.?.put(allocator, key, .{ .thunk = thunk, .scope = &Scope.EMPTY });
-    }
-
-    /// Bind a lazily-evaluated expression to a name.
-    pub fn setExpression(self: *Scope, allocator: Allocator, key: []const u8, expr: Expression) Allocator.Error!void {
-        const thunk = try allocator.create(Thunk);
-        thunk.* = .{ .expression = expr };
-        if (self.inline_count < INLINE_CAP) {
-            self.inline_entries[self.inline_count] = .{
-                .key  = key,
-                .kind = .{ .borrowed = .{ .thunk = thunk, .scope = self } },
-            };
-            self.inline_count += 1;
-            return;
-        }
-        try self.spillToOverflow(allocator);
-        try self.overflow.?.put(allocator, key, .{ .thunk = thunk, .scope = self });
     }
 
     pub fn deinit(self: *Scope, allocator: Allocator) void {
@@ -396,6 +386,13 @@ pub const Registry = struct {
         self.operations.deinit(allocator);
         self.macro_arena.deinit();
     }
+
+    /// Resolve a name to a pre-resolved ExpressionId, or null if unknown.
+    pub fn resolveId(self: *const Registry, name: []const u8) ?ExpressionId {
+        if (self.getOperation(name)) |op|    return .{ .resolved_op    = op };
+        if (self.getMacro(name))    |macro|  return .{ .resolved_macro = macro };
+        return null;
+    }
 };
 
 // ── Env — Execution environment ──
@@ -407,31 +404,36 @@ pub const Env = struct {
     stdout: ?std.io.AnyWriter = null,
     stderr: ?std.io.AnyWriter = null,
 
-    /// Evaluate an expression: resolve ID, look up in registry, execute.
+    /// Evaluate an expression: dispatch on its (possibly pre-resolved) ID.
     pub fn processExpression(self: *Env, expression: Expression, scope: *const Scope) ExecError!?Value {
-        // 1. Evaluate the ID thunk
-        const id_value = try expression.id.proc(self, scope) orelse
-            return self.fail("Expression ID resolved to none");
-
-        // 2. Require a string for registry lookup
-        const id_string = switch (id_value) {
-            .string => |s| s,
-            .int => |n| return self.failFmt("Expected operation name, got int: {d}", .{n}),
-            .float => |n| return self.failFmt("Expected operation name, got float: {d}", .{n}),
-            .list => return self.fail("Expected operation name, got list"),
-        };
-
-        // 3. Try operation first, then macro
-        if (self.registry.getOperation(id_string)) |operation| {
-            const args = Args{ .items = expression.args, .env = self, .scope = scope };
-            return operation.call(args);
+        const id = expression.id;
+        switch (id) {
+            .resolved_op => |operation| {
+                const args = Args{ .items = expression.args, .env = self, .scope = scope };
+                return operation.call(args);
+            },
+            .resolved_macro => |macro| {
+                return macro.run(expression.args, self, scope);
+            },
+            .dynamic => |id_thunk| {
+                const id_value = try id_thunk.proc(self, scope) orelse
+                    return self.fail("Expression ID resolved to none");
+                const id_string = switch (id_value) {
+                    .string => |s| s,
+                    .int    => |n| return self.failFmt("Expected operation name, got int: {d}", .{n}),
+                    .float  => |n| return self.failFmt("Expected operation name, got float: {d}", .{n}),
+                    .list   =>     return self.fail("Expected operation name, got list"),
+                };
+                if (self.registry.getOperation(id_string)) |operation| {
+                    const args = Args{ .items = expression.args, .env = self, .scope = scope };
+                    return operation.call(args);
+                }
+                if (self.registry.getMacro(id_string)) |macro| {
+                    return macro.run(expression.args, self, scope);
+                }
+                return self.failFmt("Unknown operation or macro: '{s}'", .{id_string});
+            },
         }
-
-        if (self.registry.getMacro(id_string)) |macro| {
-            return macro.run(expression.args, self, scope);
-        }
-
-        return self.failFmt("Unknown operation or macro: '{s}'", .{id_string});
     }
 
     /// Set an error message and return RuntimeError.
@@ -464,8 +466,44 @@ pub fn makeScopeThunk(allocator: Allocator, id_thunk: *const Thunk) Allocator.Er
 pub fn makeExpression(allocator: Allocator, id: *const Thunk, args: []const *const Thunk) Allocator.Error!*Thunk {
     const duped_args = try allocator.dupe(*const Thunk, args);
     const thunk = try allocator.create(Thunk);
-    thunk.* = .{ .expression = .{ .id = id, .args = duped_args } };
+    thunk.* = .{ .expression = .{ .id = .{ .dynamic = id }, .args = duped_args } };
     return thunk;
+}
+
+// ── Resolve pass — upgrades dynamic IDs to pre-resolved form ──
+
+/// Walk a thunk tree and replace dynamic string IDs with resolved references
+/// where the name is a known operation or macro. Safe to call immediately after
+/// parsing — thunks are freshly allocated and not yet const-observed.
+pub fn resolveThunk(thunk: *Thunk, registry: *const Registry) void {
+    switch (thunk.*) {
+        .value_literal, .scope_thunk => {},
+        .expression => |*expr| resolveExpression(expr, registry),
+    }
+}
+
+pub fn resolveExpression(expr: *Expression, registry: *const Registry) void {
+    if (expr.id == .dynamic) {
+        const id_thunk = expr.id.dynamic;
+        if (id_thunk.* == .value_literal) {
+            if (id_thunk.value_literal) |v| {
+                if (v == .string) {
+                    if (registry.resolveId(v.string)) |resolved| {
+                        expr.id = resolved;
+                    }
+                }
+            }
+        }
+    }
+    for (expr.args) |arg| resolveThunk(@constCast(arg), registry);
+}
+
+/// Resolve all macro bodies in the registry. Call after all macros are loaded.
+pub fn resolveRegistryMacros(registry: *Registry) void {
+    var it = registry.macros.iterator();
+    while (it.next()) |entry| {
+        resolveExpression(&@constCast(entry.value_ptr.*).body, registry);
+    }
 }
 
 // ── Tests ──
@@ -684,7 +722,7 @@ test "macro with value parameters" {
         .id = "add-one",
         .parameters = &params,
         .body = .{
-            .id = add_id,
+            .id   = .{ .dynamic = add_id },
             .args = try alloc.dupe(*const Thunk, &.{ x_ref, one }),
         },
     };
@@ -725,7 +763,7 @@ test "macro with deferred parameter" {
         .id = "run-deferred",
         .parameters = &params,
         .body = .{
-            .id = identity_id,
+            .id   = .{ .dynamic = identity_id },
             .args = try alloc.dupe(*const Thunk, &.{thunk_ref}),
         },
     };
@@ -762,7 +800,7 @@ test "macro arity mismatch" {
     macro.* = .{
         .id = "needs-two",
         .parameters = &params,
-        .body = .{ .id = dummy_id, .args = &.{} },
+        .body = .{ .id = .{ .dynamic = dummy_id }, .args = &.{} },
     };
     try registry.registerMacro("needs-two", macro);
 

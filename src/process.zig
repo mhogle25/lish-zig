@@ -70,7 +70,10 @@ pub fn processRaw(
     const validation_result = try validation_mod.validate(env.allocator, ast_root);
 
     switch (validation_result) {
-        .ok => |expression| return executeExpression(env, expression, scope),
+        .ok => |expression| {
+            exec_mod.resolveExpression(@constCast(&expression), env.registry);
+            return executeExpression(env, expression, scope);
+        },
         .err => |errors| return .{ .validation_err = errors },
     }
 }
@@ -95,6 +98,7 @@ pub fn processRawCached(
 
     switch (validation_result) {
         .ok => |expression| {
+            exec_mod.resolveExpression(@constCast(&expression), env.registry);
             try expression_cache.put(source, expression);
             return executeExpression(env, expression, scope);
         },
@@ -131,6 +135,8 @@ pub fn loadMacroModule(
             for (macros) |*macro| {
                 try registry.registerMacro(macro.id, macro);
             }
+            // 4. Resolve all macro bodies now that the full registry is populated
+            exec_mod.resolveRegistryMacros(registry);
             return .{ .ok = macros.len };
         },
         .err => |errors| return .{ .validation_err = errors },

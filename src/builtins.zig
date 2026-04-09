@@ -873,7 +873,7 @@ fn sortOp(args: Args) ExecError!?Value {
 const SortContext = struct {
     env:        *exec.Env,
     scope:      *const exec.Scope,
-    id_thunk:   *const Thunk,
+    id:         exec.ExpressionId,
     sticky_err: ?ExecError,
 };
 
@@ -884,7 +884,7 @@ fn sortbyLessThan(ctx: *SortContext, left: ?Value, right: ?Value) bool {
     var right_thunk = Thunk{ .value_literal = right };
     const arg_buf   = [2]*const Thunk{ &left_thunk, &right_thunk };
 
-    const expression = Expression{ .id = ctx.id_thunk, .args = &arg_buf };
+    const expression = makeExpression(ctx.id, &arg_buf);
     const result = ctx.env.processExpression(expression, ctx.scope) catch |err| {
         ctx.sticky_err = err;
         return false;
@@ -903,12 +903,16 @@ fn sortbyOp(args: Args) ExecError!?Value {
     const list = try args.at(1).resolveList();
 
     var id_thunk = Thunk{ .value_literal = id_value };
-    const sorted = try args.env.allocator.dupe(?Value, list);
+    const id = if (id_value == .string)
+        args.env.registry.resolveId(id_value.string) orelse exec.ExpressionId{ .dynamic = &id_thunk }
+    else
+        exec.ExpressionId{ .dynamic = &id_thunk };
 
+    const sorted = try args.env.allocator.dupe(?Value, list);
     var ctx = SortContext{
         .env        = args.env,
         .scope      = args.scope,
-        .id_thunk   = &id_thunk,
+        .id         = id,
         .sticky_err = null,
     };
 
@@ -947,6 +951,13 @@ fn fillbyOp(args: Args) ExecError!?Value {
     return .{ .list = items };
 }
 
+// ── Higher-order helpers ──
+
+/// Build a stack Expression with a pre-resolved id and an arg slice.
+inline fn makeExpression(id: exec.ExpressionId, arg_buf: []const *const Thunk) Expression {
+    return .{ .id = id, .args = arg_buf };
+}
+
 // ── Higher-order ──
 
 fn mapOp(args: Args) ExecError!?Value {
@@ -957,7 +968,11 @@ fn mapOp(args: Args) ExecError!?Value {
     var id_thunk   = Thunk{ .value_literal = id_value };
     var item_thunk = Thunk{ .value_literal = null };
     const arg_buf  = [1]*const Thunk{ &item_thunk };
-    const expression = Expression{ .id = &id_thunk, .args = &arg_buf };
+    const id = if (id_value == .string)
+        args.env.registry.resolveId(id_value.string) orelse exec.ExpressionId{ .dynamic = &id_thunk }
+    else
+        exec.ExpressionId{ .dynamic = &id_thunk };
+    const expression = makeExpression(id, &arg_buf);
 
     const results = try args.env.allocator.alloc(?Value, list.len);
     for (list, 0..) |item, i| {
@@ -975,7 +990,11 @@ fn foreachOp(args: Args) ExecError!?Value {
     var id_thunk   = Thunk{ .value_literal = id_value };
     var item_thunk = Thunk{ .value_literal = null };
     const arg_buf  = [1]*const Thunk{ &item_thunk };
-    const expression = Expression{ .id = &id_thunk, .args = &arg_buf };
+    const id = if (id_value == .string)
+        args.env.registry.resolveId(id_value.string) orelse exec.ExpressionId{ .dynamic = &id_thunk }
+    else
+        exec.ExpressionId{ .dynamic = &id_thunk };
+    const expression = makeExpression(id, &arg_buf);
 
     for (list) |item| {
         item_thunk = .{ .value_literal = item };
@@ -992,12 +1011,16 @@ fn applyOp(args: Args) ExecError!?Value {
     // Variable-length arg list: must heap-allocate the thunk slice.
     const alloc = args.env.allocator;
     var id_thunk = Thunk{ .value_literal = id_value };
+    const id = if (id_value == .string)
+        args.env.registry.resolveId(id_value.string) orelse exec.ExpressionId{ .dynamic = &id_thunk }
+    else
+        exec.ExpressionId{ .dynamic = &id_thunk };
     const thunks = try alloc.alloc(*const Thunk, list.len);
     for (list, 0..) |item, i| {
         thunks[i] = try exec.makeValueLiteral(alloc, item);
     }
 
-    const expression = Expression{ .id = &id_thunk, .args = thunks };
+    const expression = makeExpression(id, thunks);
     return args.env.processExpression(expression, args.scope);
 }
 
@@ -1009,7 +1032,11 @@ fn filterOp(args: Args) ExecError!?Value {
     var id_thunk   = Thunk{ .value_literal = id_value };
     var item_thunk = Thunk{ .value_literal = null };
     const arg_buf  = [1]*const Thunk{ &item_thunk };
-    const expression = Expression{ .id = &id_thunk, .args = &arg_buf };
+    const id = if (id_value == .string)
+        args.env.registry.resolveId(id_value.string) orelse exec.ExpressionId{ .dynamic = &id_thunk }
+    else
+        exec.ExpressionId{ .dynamic = &id_thunk };
+    const expression = makeExpression(id, &arg_buf);
 
     var results = std.ArrayListUnmanaged(?Value){};
     for (list) |item| {
@@ -1026,11 +1053,15 @@ fn reduceOp(args: Args) ExecError!?Value {
     var accumulator = try args.at(1).get();
     const list = try args.at(2).resolveList();
 
-    var id_thunk  = Thunk{ .value_literal = id_value };
-    var acc_thunk = Thunk{ .value_literal = null };
+    var id_thunk   = Thunk{ .value_literal = id_value };
+    var acc_thunk  = Thunk{ .value_literal = null };
     var item_thunk = Thunk{ .value_literal = null };
     const arg_buf  = [2]*const Thunk{ &acc_thunk, &item_thunk };
-    const expression = Expression{ .id = &id_thunk, .args = &arg_buf };
+    const id = if (id_value == .string)
+        args.env.registry.resolveId(id_value.string) orelse exec.ExpressionId{ .dynamic = &id_thunk }
+    else
+        exec.ExpressionId{ .dynamic = &id_thunk };
+    const expression = makeExpression(id, &arg_buf);
 
     for (list) |item| {
         acc_thunk  = .{ .value_literal = accumulator };
@@ -1048,7 +1079,11 @@ fn anyOp(args: Args) ExecError!?Value {
     var id_thunk   = Thunk{ .value_literal = id_value };
     var item_thunk = Thunk{ .value_literal = null };
     const arg_buf  = [1]*const Thunk{ &item_thunk };
-    const expression = Expression{ .id = &id_thunk, .args = &arg_buf };
+    const id = if (id_value == .string)
+        args.env.registry.resolveId(id_value.string) orelse exec.ExpressionId{ .dynamic = &id_thunk }
+    else
+        exec.ExpressionId{ .dynamic = &id_thunk };
+    const expression = makeExpression(id, &arg_buf);
 
     for (list) |item| {
         item_thunk = .{ .value_literal = item };
@@ -1066,7 +1101,11 @@ fn allOp(args: Args) ExecError!?Value {
     var id_thunk   = Thunk{ .value_literal = id_value };
     var item_thunk = Thunk{ .value_literal = null };
     const arg_buf  = [1]*const Thunk{ &item_thunk };
-    const expression = Expression{ .id = &id_thunk, .args = &arg_buf };
+    const id = if (id_value == .string)
+        args.env.registry.resolveId(id_value.string) orelse exec.ExpressionId{ .dynamic = &id_thunk }
+    else
+        exec.ExpressionId{ .dynamic = &id_thunk };
+    const expression = makeExpression(id, &arg_buf);
 
     for (list) |item| {
         item_thunk = .{ .value_literal = item };
@@ -1084,7 +1123,11 @@ fn countOp(args: Args) ExecError!?Value {
     var id_thunk   = Thunk{ .value_literal = id_value };
     var item_thunk = Thunk{ .value_literal = null };
     const arg_buf  = [1]*const Thunk{ &item_thunk };
-    const expression = Expression{ .id = &id_thunk, .args = &arg_buf };
+    const id = if (id_value == .string)
+        args.env.registry.resolveId(id_value.string) orelse exec.ExpressionId{ .dynamic = &id_thunk }
+    else
+        exec.ExpressionId{ .dynamic = &id_thunk };
+    const expression = makeExpression(id, &arg_buf);
 
     var tally: i64 = 0;
     for (list) |item| {

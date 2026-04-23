@@ -22,7 +22,6 @@ const EscapeState = enum {
 };
 
 const EscapeAction = enum {
-    none,
     move_up,
     move_down,
     move_right,
@@ -34,9 +33,29 @@ const EscapeAction = enum {
     delete_forward,
 };
 
+/// Result of feeding one byte to the escape state machine.
+/// - `not_escape`: byte is not part of any sequence; caller handles it normally.
+/// - `consumed`:   byte was eaten (transition or unknown terminator) but no action.
+/// - `action`:     byte completed a recognised sequence.
+///
+/// Distinguishing `consumed` from `not_escape` is what prevents an unknown
+/// terminator like `Z` in `ESC[Z` from leaking through and being typed as text.
+const EscapeStep = union(enum) {
+    not_escape,
+    consumed,
+    action: EscapeAction,
+};
+
 /// Module-level storage so the SIGINT handler can restore the terminal.
 var global_original_termios: ?posix.termios = null;
 var signal_handler_installed: bool = false;
+
+/// True for ASCII alphanumerics and underscore. Punctuation (`/`, `-`, `.`,
+/// etc.) and whitespace are word boundaries. Lets Ctrl+W on `~/.config/foo`
+/// delete only `foo` instead of the whole path.
+fn isWordChar(byte: u8) bool {
+    return std.ascii.isAlphanumeric(byte) or byte == '_';
+}
 
 fn sigintHandler(_: c_int) callconv(.c) void {
     if (global_original_termios) |original| {
@@ -156,6 +175,7 @@ pub const LineEditor = struct {
         self.history_browse_index = null;
 
         self.enableRawMode();
+        defer self.disableRawMode();
 
         if (!self.is_terminal) {
             return self.readLineFallback();
@@ -167,12 +187,10 @@ pub const LineEditor = struct {
         while (true) {
             var byte_buf: [1]u8 = undefined;
             const bytes_read = posix.read(posix.STDIN_FILENO, &byte_buf) catch {
-                self.disableRawMode();
                 return .eof;
             };
 
             if (bytes_read == 0) {
-                self.disableRawMode();
                 return .eof;
             }
 
@@ -181,10 +199,7 @@ pub const LineEditor = struct {
             switch (self.processInput(byte)) {
                 .continue_reading => continue,
                 .submit_line => {
-                    // Write the newline
                     self.stdout.writeAll("\r\n") catch {};
-                    self.disableRawMode();
-
                     const line = self.line_buffer[0..self.line_length];
                     const trimmed = std.mem.trim(u8, line, " \t\r");
                     if (trimmed.len > 0) {
@@ -203,7 +218,6 @@ pub const LineEditor = struct {
                 .eof_signal => {
                     if (self.line_length == 0) {
                         self.stdout.writeAll("\r\n") catch {};
-                        self.disableRawMode();
                         return .eof;
                     }
                     // Non-empty line: delete forward
@@ -237,15 +251,14 @@ pub const LineEditor = struct {
     };
 
     fn processInput(self: *LineEditor, byte: u8) InputResult {
-        // Run through escape sequence state machine first
-        const action = self.processEscape(byte);
-        if (action != .none) {
-            self.handleEscapeAction(action);
-            return .continue_reading;
+        switch (self.processEscape(byte)) {
+            .not_escape => {},
+            .consumed => return .continue_reading,
+            .action => |action| {
+                self.handleEscapeAction(action);
+                return .continue_reading;
+            },
         }
-
-        // If we're in the middle of an escape sequence, don't process as regular input
-        if (self.escape_state != .ground) return .continue_reading;
 
         switch (byte) {
             '\r', '\n' => return .submit_line,
@@ -326,61 +339,61 @@ pub const LineEditor = struct {
         }
     }
 
-    fn processEscape(self: *LineEditor, byte: u8) EscapeAction {
+    fn processEscape(self: *LineEditor, byte: u8) EscapeStep {
         switch (self.escape_state) {
             .ground => {
                 if (byte == 0x1b) {
                     self.escape_state = .escape;
                     self.csi_param = 0;
-                    return .none;
+                    return .consumed;
                 }
-                return .none;
+                return .not_escape;
             },
             .escape => {
                 if (byte == '[') {
                     self.escape_state = .csi;
-                    return .none;
+                    return .consumed;
                 }
                 self.escape_state = .ground;
                 // ESC b / ESC f — Alt+Left / Alt+Right (readline/emacs style)
-                if (byte == 'b') return .move_word_left;
-                if (byte == 'f') return .move_word_right;
-                return .none;
+                if (byte == 'b') return .{ .action = .move_word_left };
+                if (byte == 'f') return .{ .action = .move_word_right };
+                return .consumed;
             },
             .csi => {
                 switch (byte) {
                     'A' => {
                         self.escape_state = .ground;
-                        return .move_up;
+                        return .{ .action = .move_up };
                     },
                     'B' => {
                         self.escape_state = .ground;
-                        return .move_down;
+                        return .{ .action = .move_down };
                     },
                     'C' => {
                         self.escape_state = .ground;
-                        return .move_right;
+                        return .{ .action = .move_right };
                     },
                     'D' => {
                         self.escape_state = .ground;
-                        return .move_left;
+                        return .{ .action = .move_left };
                     },
                     'H' => {
                         self.escape_state = .ground;
-                        return .home;
+                        return .{ .action = .home };
                     },
                     'F' => {
                         self.escape_state = .ground;
-                        return .end;
+                        return .{ .action = .end };
                     },
                     '0'...'9' => {
                         self.csi_param = byte - '0';
                         self.escape_state = .csi_param;
-                        return .none;
+                        return .consumed;
                     },
                     else => {
                         self.escape_state = .ground;
-                        return .none;
+                        return .consumed;
                     },
                 }
             },
@@ -388,21 +401,21 @@ pub const LineEditor = struct {
                 switch (byte) {
                     '0'...'9' => {
                         self.csi_param = self.csi_param *| 10 +| (byte - '0');
-                        return .none;
+                        return .consumed;
                     },
                     ';' => {
                         self.csi_subparam = 0;
                         self.escape_state = .csi_subparam;
-                        return .none;
+                        return .consumed;
                     },
                     '~' => {
                         self.escape_state = .ground;
-                        if (self.csi_param == 3) return .delete_forward;
-                        return .none;
+                        if (self.csi_param == 3) return .{ .action = .delete_forward };
+                        return .consumed;
                     },
                     else => {
                         self.escape_state = .ground;
-                        return .none;
+                        return .consumed;
                     },
                 }
             },
@@ -411,21 +424,21 @@ pub const LineEditor = struct {
                 switch (byte) {
                     '0'...'9' => {
                         self.csi_subparam = self.csi_subparam *| 10 +| (byte - '0');
-                        return .none;
+                        return .consumed;
                     },
                     'C' => {
                         self.escape_state = .ground;
-                        if (self.csi_param == 1 and self.csi_subparam == 3) return .move_word_right;
-                        return .none;
+                        if (self.csi_param == 1 and self.csi_subparam == 3) return .{ .action = .move_word_right };
+                        return .consumed;
                     },
                     'D' => {
                         self.escape_state = .ground;
-                        if (self.csi_param == 1 and self.csi_subparam == 3) return .move_word_left;
-                        return .none;
+                        if (self.csi_param == 1 and self.csi_subparam == 3) return .{ .action = .move_word_left };
+                        return .consumed;
                     },
                     else => {
                         self.escape_state = .ground;
-                        return .none;
+                        return .consumed;
                     },
                 }
             },
@@ -434,7 +447,6 @@ pub const LineEditor = struct {
 
     fn handleEscapeAction(self: *LineEditor, action: EscapeAction) void {
         switch (action) {
-            .none            => {},
             .move_up         => self.historyUp(),
             .move_down       => self.historyDown(),
             .move_right      => self.moveCursorRight(),
@@ -580,8 +592,11 @@ pub const LineEditor = struct {
     fn moveCursorWordRight(self: *LineEditor) void {
         if (self.cursor_position >= self.line_length) return;
         var pos = self.cursor_position;
-        while (pos < self.line_length and self.line_buffer[pos] != ' ') pos += 1;
-        while (pos < self.line_length and self.line_buffer[pos] == ' ') pos += 1;
+        // Skip non-word chars forward, then word chars forward. Treats
+        // punctuation (/, -, ., etc.) as a boundary so navigation in
+        // path-like text lands on each segment.
+        while (pos < self.line_length and !isWordChar(self.line_buffer[pos])) pos += 1;
+        while (pos < self.line_length and isWordChar(self.line_buffer[pos])) pos += 1;
         self.cursor_position = pos;
         self.refreshLine();
     }
@@ -589,8 +604,8 @@ pub const LineEditor = struct {
     fn moveCursorWordLeft(self: *LineEditor) void {
         if (self.cursor_position == 0) return;
         var pos = self.cursor_position;
-        while (pos > 0 and self.line_buffer[pos - 1] == ' ') pos -= 1;
-        while (pos > 0 and self.line_buffer[pos - 1] != ' ') pos -= 1;
+        while (pos > 0 and !isWordChar(self.line_buffer[pos - 1])) pos -= 1;
+        while (pos > 0 and isWordChar(self.line_buffer[pos - 1])) pos -= 1;
         self.cursor_position = pos;
         self.refreshLine();
     }
@@ -613,13 +628,13 @@ pub const LineEditor = struct {
 
         var target = self.cursor_position;
 
-        // Skip whitespace backward
-        while (target > 0 and self.line_buffer[target - 1] == ' ') {
+        // Skip non-word chars backward (whitespace + punctuation).
+        while (target > 0 and !isWordChar(self.line_buffer[target - 1])) {
             target -= 1;
         }
 
-        // Skip word characters backward
-        while (target > 0 and self.line_buffer[target - 1] != ' ') {
+        // Skip word characters backward.
+        while (target > 0 and isWordChar(self.line_buffer[target - 1])) {
             target -= 1;
         }
 
@@ -765,32 +780,37 @@ pub const LineEditor = struct {
 
 // -- Escape parser tests --
 
+fn expectAction(expected: EscapeAction, step: EscapeStep) !void {
+    try std.testing.expect(step == .action);
+    try std.testing.expectEqual(expected, step.action);
+}
+
 test "escape parser: arrow keys" {
     var editor = LineEditor.testInit();
     defer editor.deinit();
 
     // Up arrow: ESC [ A
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
     try std.testing.expectEqual(EscapeState.escape, editor.escape_state);
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('['));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('['));
     try std.testing.expectEqual(EscapeState.csi, editor.escape_state);
-    try std.testing.expectEqual(EscapeAction.move_up, editor.processEscape('A'));
+    try expectAction(.move_up, editor.processEscape('A'));
     try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
 
     // Down arrow: ESC [ B
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('['));
-    try std.testing.expectEqual(EscapeAction.move_down, editor.processEscape('B'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('['));
+    try expectAction(.move_down, editor.processEscape('B'));
 
     // Right arrow: ESC [ C
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('['));
-    try std.testing.expectEqual(EscapeAction.move_right, editor.processEscape('C'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('['));
+    try expectAction(.move_right, editor.processEscape('C'));
 
     // Left arrow: ESC [ D
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('['));
-    try std.testing.expectEqual(EscapeAction.move_left, editor.processEscape('D'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('['));
+    try expectAction(.move_left, editor.processEscape('D'));
 }
 
 test "escape parser: home and end" {
@@ -798,14 +818,14 @@ test "escape parser: home and end" {
     defer editor.deinit();
 
     // Home: ESC [ H
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('['));
-    try std.testing.expectEqual(EscapeAction.home, editor.processEscape('H'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('['));
+    try expectAction(.home, editor.processEscape('H'));
 
     // End: ESC [ F
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('['));
-    try std.testing.expectEqual(EscapeAction.end, editor.processEscape('F'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('['));
+    try expectAction(.end, editor.processEscape('F'));
 }
 
 test "escape parser: delete key" {
@@ -813,11 +833,11 @@ test "escape parser: delete key" {
     defer editor.deinit();
 
     // Delete: ESC [ 3 ~
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('['));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('3'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('['));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('3'));
     try std.testing.expectEqual(EscapeState.csi_param, editor.escape_state);
-    try std.testing.expectEqual(EscapeAction.delete_forward, editor.processEscape('~'));
+    try expectAction(.delete_forward, editor.processEscape('~'));
     try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
 }
 
@@ -825,11 +845,11 @@ test "escape parser: unknown CSI param sequence" {
     var editor = LineEditor.testInit();
     defer editor.deinit();
 
-    // ESC [ 5 ~ — not mapped, should return none
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('['));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('5'));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('~'));
+    // ESC [ 5 ~ — not mapped, should be consumed without action
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('['));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('5'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('~'));
     try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
 }
 
@@ -838,13 +858,13 @@ test "escape parser: Alt+Left and Alt+Right (ESC b / ESC f)" {
     defer editor.deinit();
 
     // ESC b — Alt+Left
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
-    try std.testing.expectEqual(EscapeAction.move_word_left, editor.processEscape('b'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
+    try expectAction(.move_word_left, editor.processEscape('b'));
     try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
 
     // ESC f — Alt+Right
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
-    try std.testing.expectEqual(EscapeAction.move_word_right, editor.processEscape('f'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
+    try expectAction(.move_word_right, editor.processEscape('f'));
     try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
 }
 
@@ -853,22 +873,22 @@ test "escape parser: Alt+Left and Alt+Right (xterm ESC [ 1 ; 3 D/C)" {
     defer editor.deinit();
 
     // ESC [ 1 ; 3 D — Alt+Left
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('['));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('1'));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(';'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('['));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('1'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(';'));
     try std.testing.expectEqual(EscapeState.csi_subparam, editor.escape_state);
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('3'));
-    try std.testing.expectEqual(EscapeAction.move_word_left, editor.processEscape('D'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('3'));
+    try expectAction(.move_word_left, editor.processEscape('D'));
     try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
 
     // ESC [ 1 ; 3 C — Alt+Right
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('['));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('1'));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(';'));
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('3'));
-    try std.testing.expectEqual(EscapeAction.move_word_right, editor.processEscape('C'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('['));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('1'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(';'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('3'));
+    try expectAction(.move_word_right, editor.processEscape('C'));
     try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
 }
 
@@ -877,9 +897,33 @@ test "escape parser: incomplete escape resets on non-bracket" {
     defer editor.deinit();
 
     // ESC followed by non-'[' should reset to ground
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape(0x1b));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
     try std.testing.expectEqual(EscapeState.escape, editor.escape_state);
-    try std.testing.expectEqual(EscapeAction.none, editor.processEscape('x'));
+    try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('x'));
+    try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
+}
+
+test "escape parser: ground state passes ordinary bytes through" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    // 'a' in ground state is not part of a sequence — caller must handle it.
+    try std.testing.expectEqual(EscapeStep.not_escape, editor.processEscape('a'));
+    try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
+}
+
+test "processInput: unknown CSI terminator does not leak into the line" {
+    // Regression: ESC[Z used to land on 'Z' in ground state and get inserted as
+    // text. processEscape now returns .consumed for the unknown terminator so
+    // processInput skips the regular-byte branch.
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    _ = editor.processInput(0x1b);
+    _ = editor.processInput('[');
+    _ = editor.processInput('Z');
+
+    try std.testing.expectEqualStrings("", editor.getLineSlice());
     try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
 }
 
@@ -994,13 +1038,13 @@ test "line buffer: move cursor word right" {
     editor.cursor_position = 0;
 
     editor.moveCursorWordRight();
-    try std.testing.expectEqual(@as(usize, 6), editor.cursor_position); // past "hello "
+    try std.testing.expectEqual(@as(usize, 5), editor.cursor_position); // end of "hello"
 
     editor.moveCursorWordRight();
-    try std.testing.expectEqual(@as(usize, 12), editor.cursor_position); // past "world "
+    try std.testing.expectEqual(@as(usize, 11), editor.cursor_position); // end of "world"
 
     editor.moveCursorWordRight();
-    try std.testing.expectEqual(@as(usize, 15), editor.cursor_position); // end
+    try std.testing.expectEqual(@as(usize, 15), editor.cursor_position); // end of "foo"
 
     // At end does nothing
     editor.moveCursorWordRight();
@@ -1066,6 +1110,32 @@ test "line buffer: delete word backward with trailing spaces" {
     editor.deleteWordBackward();
     try std.testing.expectEqualStrings("", editor.getLineSlice());
     try std.testing.expectEqual(@as(usize, 0), editor.cursor_position);
+}
+
+test "line buffer: delete word backward stops at punctuation in path" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    editor.testInsertString("~/.config/foo");
+    editor.deleteWordBackward();
+    try std.testing.expectEqualStrings("~/.config/", editor.getLineSlice());
+
+    editor.deleteWordBackward();
+    try std.testing.expectEqualStrings("~/.", editor.getLineSlice());
+}
+
+test "line buffer: move cursor word right stops at punctuation in path" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    editor.testInsertString("~/.config/foo");
+    editor.cursor_position = 0;
+
+    editor.moveCursorWordRight();
+    try std.testing.expectEqual(@as(usize, 9), editor.cursor_position); // past "config"
+
+    editor.moveCursorWordRight();
+    try std.testing.expectEqual(@as(usize, 13), editor.cursor_position); // past "foo"
 }
 
 test "line buffer: delete word backward at beginning does nothing" {

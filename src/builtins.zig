@@ -121,6 +121,7 @@ pub fn registerCore(registry: *Registry, allocator: Allocator) Allocator.Error!v
 
     // Sequencing
     try registry.registerOperation(allocator, "proc", Operation.fromFn(procOp));
+    try registry.registerOperation(allocator, "loop", Operation.fromFn(loopOp));
 }
 
 /// Register output operations (say, error). These write to stdout/stderr and
@@ -1147,6 +1148,15 @@ fn procOp(args: Args) ExecError!?Value {
         result = try args.at(i).get();
     }
     return result;
+}
+
+fn loopOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    const n = try args.at(0).resolveInt();
+    if (n < 0) return args.env.fail("'loop' count cannot be negative");
+    var i: i64 = 0;
+    while (i < n) : (i += 1) _ = try args.at(1).get();
+    return null;
 }
 
 // ── Type conversion ──
@@ -2442,6 +2452,36 @@ test "list: fillby length" {
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "fillby 5 42");
     try std.testing.expectEqual(@as(usize, 5), result.?.list.len);
+}
+
+// ── loop tests ──
+
+test "loop: returns null" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "loop 3 1");
+    try std.testing.expect(result == null);
+}
+
+test "loop: zero count" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "loop 0 1");
+    try std.testing.expect(result == null);
+}
+
+test "loop: re-evaluates body via fillby parity" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(),
+        "length (fillby 4 (proc (loop 2 1) 9))");
+    try std.testing.expectEqual(@as(i64, 4), result.?.int);
+}
+
+test "loop: negative count errors" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try std.testing.expectError(error.RuntimeError, evalWithBuiltins(arena.allocator(), "loop -1 1"));
 }
 
 // ── any/all/count tests ──

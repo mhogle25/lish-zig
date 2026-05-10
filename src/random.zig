@@ -17,6 +17,36 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
     try registry.registerOperation(allocator, "??", Operation.fromFn(randPickOp));
 }
 
+// ── Random source ──
+// Each op pulls bytes from io and converts to the needed type.
+
+fn randomU64(io: std.Io) u64 {
+    var bytes: [8]u8 = undefined;
+    io.random(&bytes);
+    return std.mem.readInt(u64, &bytes, .little);
+}
+
+fn randomF64(io: std.Io) f64 {
+    // Use the top 53 bits of a u64 to get a uniform float in [0, 1).
+    const bits = randomU64(io) >> 11;
+    return @as(f64, @floatFromInt(bits)) * (1.0 / @as(f64, @floatFromInt(@as(u64, 1) << 53)));
+}
+
+fn randomIntRangeAtMost(io: std.Io, comptime T: type, at_least: T, at_most: T) T {
+    const range = @as(u64, @intCast(at_most - at_least)) +| 1;
+    if (range == 0) return at_least;
+    const r = randomU64(io) % range;
+    return at_least + @as(T, @intCast(r));
+}
+
+fn randomIntRangeLessThan(io: std.Io, comptime T: type, at_least: T, less_than: T) T {
+    return randomIntRangeAtMost(io, T, at_least, less_than - 1);
+}
+
+fn requireIo(args: Args) ExecError!std.Io {
+    return args.env.io orelse args.env.fail("random ops require an Io context");
+}
+
 // ── Operations ──
 
 /// `? x y` — random value in [x, y] (both inclusive).
@@ -29,16 +59,18 @@ fn randInclusiveOp(args: Args) ExecError!?Value {
     if (!x.isNumber()) return args.env.fail("'?' expects numbers");
     if (!y.isNumber()) return args.env.fail("'?' expects numbers");
 
+    const io = try requireIo(args);
+
     if (x == .float or y == .float) {
         const xf = x.getF() catch unreachable;
         const yf = y.getF() catch unreachable;
         if (xf > yf) return args.env.fail("'?' expects x <= y");
-        return .{ .float = xf + std.crypto.random.float(f64) * (yf - xf) };
+        return .{ .float = xf + randomF64(io) * (yf - xf) };
     } else {
         const xi = x.getI() catch unreachable;
         const yi = y.getI() catch unreachable;
         if (xi > yi) return args.env.fail("'?' expects x <= y");
-        return .{ .int = std.crypto.random.intRangeAtMost(i64, xi, yi) };
+        return .{ .int = randomIntRangeAtMost(io, i64, xi, yi) };
     }
 }
 
@@ -52,23 +84,26 @@ fn randExclusiveOp(args: Args) ExecError!?Value {
     if (!x.isNumber()) return args.env.fail("'?<' expects numbers");
     if (!y.isNumber()) return args.env.fail("'?<' expects numbers");
 
+    const io = try requireIo(args);
+
     if (x == .float or y == .float) {
         const xf = x.getF() catch unreachable;
         const yf = y.getF() catch unreachable;
         if (xf >= yf) return args.env.fail("'?<' expects x < y");
-        return .{ .float = xf + std.crypto.random.float(f64) * (yf - xf) };
+        return .{ .float = xf + randomF64(io) * (yf - xf) };
     } else {
         const xi = x.getI() catch unreachable;
         const yi = y.getI() catch unreachable;
         if (xi >= yi) return args.env.fail("'?<' expects x < y");
-        return .{ .int = std.crypto.random.intRangeLessThan(i64, xi, yi) };
+        return .{ .int = randomIntRangeLessThan(io, i64, xi, yi) };
     }
 }
 
 /// `?? a b c ...` — pick one argument at random. Only the chosen argument is evaluated.
 fn randPickOp(args: Args) ExecError!?Value {
     try args.expectMinCount(1);
-    const index = std.crypto.random.intRangeLessThan(usize, 0, args.count());
+    const io = try requireIo(args);
+    const index = randomIntRangeLessThan(io, usize, 0, args.count());
     return args.at(index).get();
 }
 
@@ -82,10 +117,14 @@ test "?: integer inclusive range" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
+    var threaded = std.Io.Threaded.init(alloc, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
     var registry = Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
     try registerAll(&registry, alloc);
-    var env = exec.Env{ .registry = &registry, .allocator = alloc };
+    var env = exec.Env{ .registry = &registry, .allocator = alloc, .io = io };
 
     for (0..100) |_| {
         const result = try process.processRaw(&env, "? 1 6", null);
@@ -100,10 +139,14 @@ test "?<: integer exclusive upper" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
+    var threaded = std.Io.Threaded.init(alloc, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
     var registry = Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
     try registerAll(&registry, alloc);
-    var env = exec.Env{ .registry = &registry, .allocator = alloc };
+    var env = exec.Env{ .registry = &registry, .allocator = alloc, .io = io };
 
     for (0..100) |_| {
         const result = try process.processRaw(&env, "?< 0 5", null);
@@ -118,10 +161,14 @@ test "?: same value returns that value" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
+    var threaded = std.Io.Threaded.init(alloc, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
     var registry = Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
     try registerAll(&registry, alloc);
-    var env = exec.Env{ .registry = &registry, .allocator = alloc };
+    var env = exec.Env{ .registry = &registry, .allocator = alloc, .io = io };
 
     const result = try process.processRaw(&env, "? 7 7", null);
     try std.testing.expectEqual(@as(i64, 7), result.ok.?.int);
@@ -132,10 +179,14 @@ test "??: picks from provided values" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
+    var threaded = std.Io.Threaded.init(alloc, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
     var registry = Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
     try registerAll(&registry, alloc);
-    var env = exec.Env{ .registry = &registry, .allocator = alloc };
+    var env = exec.Env{ .registry = &registry, .allocator = alloc, .io = io };
 
     for (0..100) |_| {
         const result = try process.processRaw(&env, "?? 10 20 30", null);

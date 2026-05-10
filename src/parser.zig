@@ -63,11 +63,11 @@ pub const Parser = struct {
         .column = 1,
     },
 
-    node_stack: std.ArrayListUnmanaged(*AstNode) = .{},
+    node_stack: std.ArrayListUnmanaged(*AstNode) = .empty,
     closure_stack: [tok.MAX_EXPRESSION_NESTING]ClosureEntry = undefined,
     closure_stack_count: usize = 0,
     pending_closure_depth: i32 = NO_PENDING_CLOSURE,
-    string_buf: std.ArrayListUnmanaged(u8) = .{},
+    string_buf: std.ArrayListUnmanaged(u8) = .empty,
 
     pub fn init(allocator: Allocator, eof_at: []const TokenType) Parser {
         return .{

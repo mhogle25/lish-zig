@@ -57,7 +57,7 @@ fn isWordChar(byte: u8) bool {
     return std.ascii.isAlphanumeric(byte) or byte == '_';
 }
 
-fn sigintHandler(_: c_int) callconv(.c) void {
+fn sigintHandler(_: posix.SIG) callconv(.c) void {
     if (global_original_termios) |original| {
         posix.tcsetattr(posix.STDIN_FILENO, .FLUSH, original) catch {};
     }
@@ -92,10 +92,10 @@ pub const LineEditor = struct {
     /// When true, pressing backspace between a matched pair deletes both brackets.
     autopair_delete: bool = true,
 
-    stdout: std.io.AnyWriter,
+    stdout: *std.Io.Writer,
     allocator: Allocator,
 
-    pub fn init(allocator: Allocator, stdout: std.io.AnyWriter) LineEditor {
+    pub fn init(allocator: Allocator, stdout: *std.Io.Writer) LineEditor {
         return .{
             .allocator = allocator,
             .stdout = stdout,
@@ -659,8 +659,7 @@ pub const LineEditor = struct {
 
     fn refreshLine(self: *LineEditor) void {
         var refresh_buf: [BUFFER_SIZE + 128]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&refresh_buf);
-        const writer = stream.writer();
+        var writer = std.Io.Writer.fixed(&refresh_buf);
 
         // Carriage return to column 0
         writer.writeAll("\r") catch return;
@@ -674,10 +673,11 @@ pub const LineEditor = struct {
         // Move cursor back to correct position
         const chars_after_cursor = self.line_length - self.cursor_position;
         if (chars_after_cursor > 0) {
-            std.fmt.format(writer, "\x1b[{d}D", .{chars_after_cursor}) catch return;
+            writer.print("\x1b[{d}D", .{chars_after_cursor}) catch return;
         }
 
-        self.stdout.writeAll(stream.getWritten()) catch {};
+        self.stdout.writeAll(writer.buffered()) catch {};
+        self.stdout.flush() catch {};
     }
 
     // -- History --
@@ -757,12 +757,13 @@ pub const LineEditor = struct {
 
     // Helpers for testing: expose internal state without needing a terminal
 
+    var test_discard_buf: [256]u8 = undefined;
+    var test_discarding: std.Io.Writer.Discarding = .init(&test_discard_buf);
+
     fn testInit() LineEditor {
-        var output_buf: [4096]u8 = undefined;
-        _ = &output_buf;
         return .{
             .allocator = std.testing.allocator,
-            .stdout = std.io.null_writer.any(),
+            .stdout = &test_discarding.writer,
             .is_terminal = false,
         };
     }

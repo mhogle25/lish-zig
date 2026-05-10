@@ -20,7 +20,7 @@ pub const ValidationError = struct {
 };
 
 pub const ValidationErrors = struct {
-    items: std.ArrayListUnmanaged(ValidationError) = .{},
+    items: std.ArrayListUnmanaged(ValidationError) = .empty,
 
     pub fn add(self: *ValidationErrors, allocator: Allocator, validation_error: ValidationError) Allocator.Error!void {
         try self.items.append(allocator, validation_error);
@@ -127,7 +127,7 @@ fn validateExpression(
     }
 
     // Validate all arguments
-    var valid_args = std.ArrayListUnmanaged(*const Thunk){};
+    var valid_args = std.ArrayListUnmanaged(*const Thunk).empty;
     for (expr.args) |arg_node| {
         if (try validateStep(allocator, arg_node, errors)) |arg_thunk| {
             try valid_args.append(allocator, arg_thunk);

@@ -414,7 +414,7 @@ fn assertOp(args: Args) ExecError!?Value {
 
 fn concatOp(args: Args) ExecError!?Value {
     try args.expectMinCount(2);
-    var result = std.ArrayListUnmanaged(u8){};
+    var result = std.ArrayListUnmanaged(u8).empty;
     for (0..args.count()) |i| {
         const maybe_value = try args.at(i).get();
         if (maybe_value) |value| {
@@ -432,7 +432,7 @@ fn joinOp(args: Args) ExecError!?Value {
     const separator = try args.at(0).resolveString(&sep_buf);
     const separator_owned = try args.env.allocator.dupe(u8, separator);
 
-    var result = std.ArrayListUnmanaged(u8){};
+    var result = std.ArrayListUnmanaged(u8).empty;
     for (1..args.count()) |i| {
         if (i > 1) {
             try result.appendSlice(args.env.allocator, separator_owned);
@@ -455,17 +455,22 @@ fn sayOp(args: Args) ExecError!?Value {
         const str = try args.at(i).resolveString(&buf);
         writer.writeAll(str) catch {};
     }
+    writer.writeByte('\n') catch {};
+    writer.flush() catch {};
     return null;
 }
 
 fn errorOp(args: Args) ExecError!?Value {
     try args.expectMinCount(1);
     const writer = args.env.stderr orelse return null;
+    writer.writeAll("\x1b[31m") catch {};
     for (0..args.count()) |i| {
         var buf: [256]u8 = undefined;
         const str = try args.at(i).resolveString(&buf);
         writer.writeAll(str) catch {};
     }
+    writer.writeAll("\x1b[0m\n") catch {};
+    writer.flush() catch {};
     return null;
 }
 
@@ -478,7 +483,7 @@ fn splitOp(args: Args) ExecError!?Value {
     const string = target.string;
 
     const alloc = args.env.allocator;
-    var parts = std.ArrayListUnmanaged(?Value){};
+    var parts = std.ArrayListUnmanaged(?Value).empty;
 
     if (separator.len == 0) {
         for (0..string.len) |i| {
@@ -545,7 +550,7 @@ fn replaceOp(args: Args) ExecError!?Value {
 
     if (pattern.len == 0) return .{ .string = target };
 
-    var result = std.ArrayListUnmanaged(u8){};
+    var result = std.ArrayListUnmanaged(u8).empty;
     var remaining = target;
     while (std.mem.indexOf(u8, remaining, pattern)) |idx| {
         try result.appendSlice(alloc, remaining[0..idx]);
@@ -563,7 +568,7 @@ fn formatOp(args: Args) ExecError!?Value {
 
     const template = template_val.string;
     const alloc = args.env.allocator;
-    var result = std.ArrayListUnmanaged(u8){};
+    var result = std.ArrayListUnmanaged(u8).empty;
 
     var remaining = template;
     var arg_index: usize = 1;
@@ -595,7 +600,7 @@ fn listOp(args: Args) ExecError!?Value {
 }
 
 fn flatOp(args: Args) ExecError!?Value {
-    var result = std.ArrayListUnmanaged(?Value){};
+    var result = std.ArrayListUnmanaged(?Value).empty;
     for (0..args.count()) |i| {
         const maybe_value = try args.at(i).get();
         if (maybe_value) |value| {
@@ -703,7 +708,7 @@ fn rangeOp(args: Args) ExecError!?Value {
     }
 
     const alloc = args.env.allocator;
-    var items = std.ArrayListUnmanaged(?Value){};
+    var items = std.ArrayListUnmanaged(?Value).empty;
 
     var current = start;
     if (step > 0) {
@@ -736,7 +741,7 @@ fn untilOp(args: Args) ExecError!?Value {
     }
 
     const alloc = args.env.allocator;
-    var items = std.ArrayListUnmanaged(?Value){};
+    var items = std.ArrayListUnmanaged(?Value).empty;
 
     var current = start;
     if (step > 0) {
@@ -823,7 +828,7 @@ fn flattenInto(maybe_value: ?Value, result: *std.ArrayListUnmanaged(?Value), all
 
 fn flattenOp(args: Args) ExecError!?Value {
     try args.expectMinCount(1);
-    var result = std.ArrayListUnmanaged(?Value){};
+    var result = std.ArrayListUnmanaged(?Value).empty;
     for (0..args.count()) |i| {
         const maybe_value = try args.at(i).get();
         try flattenInto(maybe_value, &result, args.env.allocator);
@@ -1039,7 +1044,7 @@ fn filterOp(args: Args) ExecError!?Value {
         exec.ExpressionId{ .dynamic = &id_thunk };
     const expression = makeExpression(id, &arg_buf);
 
-    var results = std.ArrayListUnmanaged(?Value){};
+    var results = std.ArrayListUnmanaged(?Value).empty;
     for (list) |item| {
         item_thunk = .{ .value_literal = item };
         const result = try args.env.processExpression(expression, args.scope);

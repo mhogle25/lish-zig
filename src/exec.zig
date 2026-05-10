@@ -400,9 +400,10 @@ pub const Registry = struct {
 pub const Env = struct {
     registry: *const Registry,
     allocator: Allocator,
+    io: ?std.Io = null,
     runtime_error: ?[]const u8 = null,
-    stdout: ?std.io.AnyWriter = null,
-    stderr: ?std.io.AnyWriter = null,
+    stdout: ?*std.Io.Writer = null,
+    stderr: ?*std.Io.Writer = null,
 
     /// Evaluate an expression: dispatch on its (possibly pre-resolved) ID.
     pub fn processExpression(self: *Env, expression: Expression, scope: *const Scope) ExecError!?Value {

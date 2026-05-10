@@ -3,51 +3,47 @@ const lish = @import("lish");
 const line_editor_mod = lish.line_editor;
 const repl_mod = lish.repl;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
-    const stdout = lish.session.fdWriter(std.posix.STDOUT_FILENO);
-    const stderr = lish.session.fdWriter(std.posix.STDERR_FILENO);
+    var stdout_writer = std.Io.File.stdout().writer(io, &.{});
+    var stderr_writer = std.Io.File.stderr().writer(io, &.{});
+    const stdout = &stdout_writer.interface;
+    const stderr = &stderr_writer.interface;
 
     // Parse --macros/-m arguments
     var macro_dir_storage: [16][]const u8 = undefined;
     var macro_dir_count: usize = 0;
-    const args = std.os.argv;
-    var arg_idx: usize = 1;
-    while (arg_idx < args.len) : (arg_idx += 1) {
-        const arg = std.mem.span(args[arg_idx]);
+    var arg_iter = init.minimal.args.iterate();
+    _ = arg_iter.next(); // skip argv[0]
+    while (arg_iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "--macros") or std.mem.eql(u8, arg, "-m")) {
-            arg_idx += 1;
-            if (arg_idx < args.len) {
-                if (macro_dir_count >= macro_dir_storage.len) {
-                    try stderr.print("Too many --macros arguments (max 16)\n", .{});
-                    return;
-                }
-                macro_dir_storage[macro_dir_count] = std.mem.span(args[arg_idx]);
-                macro_dir_count += 1;
+            const path = arg_iter.next() orelse break;
+            if (macro_dir_count >= macro_dir_storage.len) {
+                try stderr.print("Too many --macros arguments (max 16)\n", .{});
+                return;
             }
+            macro_dir_storage[macro_dir_count] = path;
+            macro_dir_count += 1;
         }
     }
 
     var repl_config = repl_mod.ReplConfig.init(allocator);
     defer repl_config.deinit();
-    repl_mod.loadConfig(&repl_config, allocator);
+    repl_mod.loadConfig(io, init.minimal.environ, &repl_config, allocator);
 
-    var all_macro_dirs = std.ArrayListUnmanaged([]const u8){};
+    var all_macro_dirs = std.ArrayListUnmanaged([]const u8).empty;
     defer all_macro_dirs.deinit(allocator);
     try all_macro_dirs.appendSlice(allocator, repl_config.macro_dirs.items);
     try all_macro_dirs.appendSlice(allocator, macro_dir_storage[0..macro_dir_count]);
 
-    const session_stdout = repl_mod.NewlineWriter{ .inner = stdout };
-    const session_stderr = repl_mod.AnsiErrorWriter{ .inner = stderr };
-
     var session = try lish.Session.init(allocator, .{
+        .io = io,
         .fragments = &.{ &lish.builtins.registerAll, &lish.random.registerAll },
         .macro_paths = all_macro_dirs.items,
-        .stdout = session_stdout.any(),
-        .stderr = session_stderr.any(),
+        .stdout = stdout,
+        .stderr = stderr,
     });
     defer session.deinit();
 

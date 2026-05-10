@@ -15,38 +15,16 @@ const RegistryFragment = process_mod.RegistryFragment;
 const ValidationError = validation_mod.ValidationError;
 
 pub const SessionConfig = struct {
+    io: std.Io,
     fragments: []const RegistryFragment = &.{},
     macro_paths: []const []const u8 = &.{},
     expression_cache_capacity: usize = 256,
-    stdout: std.io.AnyWriter = null_writer,
-    stderr: std.io.AnyWriter = null_writer,
-};
-
-/// Create an AnyWriter that wraps a POSIX file descriptor.
-pub fn fdWriter(fd: std.posix.fd_t) std.io.AnyWriter {
-    return .{
-        .context = @ptrFromInt(@as(usize, @intCast(fd))),
-        .writeFn = &fdWriteFn,
-    };
-}
-
-fn fdWriteFn(context: *const anyopaque, bytes: []const u8) anyerror!usize {
-    const fd: std.posix.fd_t = @intCast(@intFromPtr(context));
-    return std.posix.write(fd, bytes) catch |err| return err;
-}
-
-fn nullWriteFn(_: *const anyopaque, bytes: []const u8) anyerror!usize {
-    return bytes.len;
-}
-
-const null_context: u8 = 0;
-
-const null_writer: std.io.AnyWriter = .{
-    .context = @ptrCast(&null_context),
-    .writeFn = &nullWriteFn,
+    stdout: ?*std.Io.Writer = null,
+    stderr: ?*std.Io.Writer = null,
 };
 
 pub const Session = struct {
+    io: std.Io,
     registry: Registry,
     env: Env,
     expression_cache: ExpressionCache,
@@ -63,10 +41,12 @@ pub const Session = struct {
         const arena = std.heap.ArenaAllocator.init(allocator);
 
         var session = Session{
+            .io = config.io,
             .registry = registry,
             .env = .{
                 .registry = undefined, // set in execute() via self pointer
                 .allocator = undefined, // set in execute() via self.arena
+                .io = config.io,
                 .stdout = config.stdout,
                 .stderr = config.stderr,
             },
@@ -77,13 +57,13 @@ pub const Session = struct {
 
         // Load macros from configured paths — each may be a file or directory.
         for (config.macro_paths) |macro_path| {
-            var maybe_dir = std.fs.cwd().openDir(macro_path, .{}) catch null;
+            var maybe_dir = std.Io.Dir.cwd().openDir(config.io, macro_path, .{}) catch null;
             if (maybe_dir) |*dir| {
-                dir.close();
-                const result = try process_mod.loadMacroDir(allocator, &session.registry, macro_path);
+                dir.close(config.io);
+                const result = try process_mod.loadMacroDir(config.io, allocator, &session.registry, macro_path);
                 result.deinit(allocator);
             } else {
-                _ = try process_mod.loadMacroFile(allocator, &session.registry, macro_path);
+                _ = try process_mod.loadMacroFile(config.io, allocator, &session.registry, macro_path);
             }
         }
 
@@ -131,12 +111,12 @@ pub const Session = struct {
 
     /// Load macro files from a directory.
     pub fn loadMacroDir(self: *Session, dir_path: []const u8) !MacroDirResult {
-        return process_mod.loadMacroDir(self.session_allocator, &self.registry, dir_path);
+        return process_mod.loadMacroDir(self.io, self.session_allocator, &self.registry, dir_path);
     }
 
     /// Load a single macro file.
     pub fn loadMacroFile(self: *Session, file_path: []const u8) !MacroLoadResult {
-        return process_mod.loadMacroFile(self.session_allocator, &self.registry, file_path);
+        return process_mod.loadMacroFile(self.io, self.session_allocator, &self.registry, file_path);
     }
 
     /// Clear the expression cache.
@@ -158,6 +138,7 @@ const builtins = @import("builtins.zig");
 
 test "session: basic execute" {
     var session = try Session.init(std.testing.allocator, .{
+        .io = std.Io.failing,
         .fragments = &.{&builtins.registerAll},
     });
     defer session.deinit();
@@ -174,6 +155,7 @@ test "session: basic execute" {
 
 test "session: multiple executions reuse cache" {
     var session = try Session.init(std.testing.allocator, .{
+        .io = std.Io.failing,
         .fragments = &.{&builtins.registerAll},
     });
     defer session.deinit();
@@ -199,6 +181,7 @@ test "session: multiple executions reuse cache" {
 
 test "session: runtime error does not break subsequent executions" {
     var session = try Session.init(std.testing.allocator, .{
+        .io = std.Io.failing,
         .fragments = &.{&builtins.registerAll},
     });
     defer session.deinit();
@@ -220,6 +203,7 @@ test "session: runtime error does not break subsequent executions" {
 
 test "session: clear cache" {
     var session = try Session.init(std.testing.allocator, .{
+        .io = std.Io.failing,
         .fragments = &.{&builtins.registerAll},
     });
     defer session.deinit();

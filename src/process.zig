@@ -156,16 +156,12 @@ pub fn loadFragments(
 
 /// Read a .lishmacro file from disk, parse, validate, and register macros.
 pub fn loadMacroFile(
+    io: std.Io,
     allocator: Allocator,
     registry: *Registry,
     file_path: []const u8,
 ) Allocator.Error!MacroLoadResult {
-    const file = std.fs.cwd().openFile(file_path, .{}) catch |err| {
-        return .{ .io_error = err };
-    };
-    defer file.close();
-
-    const source = file.readToEndAlloc(allocator, 1024 * 1024) catch |err| {
+    const source = std.Io.Dir.cwd().readFileAlloc(io, file_path, allocator, .limited(1024 * 1024)) catch |err| {
         return .{ .io_error = err };
     };
     defer allocator.free(source);
@@ -175,28 +171,29 @@ pub fn loadMacroFile(
 
 /// Scan a directory for .lishmacro files and load each one.
 pub fn loadMacroDir(
+    io: std.Io,
     allocator: Allocator,
     registry: *Registry,
     dir_path: []const u8,
 ) !MacroDirResult {
-    var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch |err| {
+    var dir = std.Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true }) catch |err| {
         const file_errors = try allocator.alloc(MacroDirResult.FileError, 1);
         file_errors[0] = .{ .path = try allocator.dupe(u8, dir_path), .io_error = err };
         return .{ .loaded_count = 0, .file_errors = file_errors };
     };
-    defer dir.close();
+    defer dir.close(io);
 
     var loaded_count: usize = 0;
-    var file_errors: std.ArrayListUnmanaged(MacroDirResult.FileError) = .{};
+    var file_errors: std.ArrayListUnmanaged(MacroDirResult.FileError) = .empty;
 
     var iter = dir.iterate();
-    while (try iter.next()) |entry| {
+    while (try iter.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, MACRO_EXTENSION)) continue;
 
         const full_path = try std.fs.path.join(allocator, &.{ dir_path, entry.name });
 
-        const result = try loadMacroFile(allocator, registry, full_path);
+        const result = try loadMacroFile(io, allocator, registry, full_path);
         switch (result) {
             .ok => |count| {
                 allocator.free(full_path);

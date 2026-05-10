@@ -54,7 +54,7 @@ pub const AstBuilder = struct {
         return .{
             .builder = self,
             .id = id,
-            .args = .{},
+            .args = .empty,
             .meta_type = .standard,
             .sticky_err = null,
         };
@@ -66,7 +66,7 @@ pub const AstBuilder = struct {
         return .{
             .builder = self,
             .id = "list",
-            .args = .{},
+            .args = .empty,
             .meta_type = .list_literal,
             .sticky_err = null,
         };
@@ -78,7 +78,7 @@ pub const AstBuilder = struct {
         return .{
             .builder = self,
             .id = "proc",
-            .args = .{},
+            .args = .empty,
             .meta_type = .block_literal,
             .sticky_err = null,
         };
@@ -92,7 +92,7 @@ pub const AstBuilder = struct {
         return .{
             .builder = self,
             .name = name,
-            .params = .{},
+            .params = .empty,
             .sticky_err = null,
         };
     }
@@ -180,16 +180,16 @@ const serializer_mod = @import("serializer.zig");
 
 fn expectExpr(node: *const AstNode, expected: []const u8) !void {
     var buf: [256]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    try serializer_mod.serializeExpression(node, stream.writer());
-    try std.testing.expectEqualStrings(expected, stream.getWritten());
+    var writer = std.Io.Writer.fixed(&buf);
+    try serializer_mod.serializeExpression(node, &writer);
+    try std.testing.expectEqualStrings(expected, writer.buffered());
 }
 
 fn expectMacro(macro_def: AstMacro, expected: []const u8) !void {
     var buf: [256]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    try serializer_mod.serializeMacro(macro_def, stream.writer());
-    try std.testing.expectEqualStrings(expected, stream.getWritten());
+    var writer = std.Io.Writer.fixed(&buf);
+    try serializer_mod.serializeMacro(macro_def, &writer);
+    try std.testing.expectEqualStrings(expected, writer.buffered());
 }
 
 test "builder: leaf nodes" {

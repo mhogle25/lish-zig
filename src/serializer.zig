@@ -183,16 +183,16 @@ const Allocator = std.mem.Allocator;
 
 fn expectSerialized(node: *const AstNode, expected: []const u8) !void {
     var buf: [1024]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    try serializeExpression(node, stream.writer());
-    try std.testing.expectEqualStrings(expected, stream.getWritten());
+    var writer = std.Io.Writer.fixed(&buf);
+    try serializeExpression(node, &writer);
+    try std.testing.expectEqualStrings(expected, writer.buffered());
 }
 
 fn expectSerializedMacro(macro: AstMacro, expected: []const u8) !void {
     var buf: [1024]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    try serializeMacro(macro, stream.writer());
-    try std.testing.expectEqualStrings(expected, stream.getWritten());
+    var writer = std.Io.Writer.fixed(&buf);
+    try serializeMacro(macro, &writer);
+    try std.testing.expectEqualStrings(expected, writer.buffered());
 }
 
 // ── needsQuoting / looksLikeNumber ──
@@ -440,11 +440,11 @@ test "serialize: macro module" {
     }
 
     var buf: [256]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    try serializeMacroModule(macros_buf[0..macro_count], stream.writer());
+    var writer = std.Io.Writer.fixed(&buf);
+    try serializeMacroModule(macros_buf[0..macro_count], &writer);
     try std.testing.expectEqualStrings(
         "|double x| * :x 2\n|triple x| * :x 3",
-        stream.getWritten(),
+        writer.buffered(),
     );
 }
 

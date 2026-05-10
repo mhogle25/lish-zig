@@ -71,10 +71,10 @@ const MacroParser = struct {
     state: State,
 
     current_id: ?AstMacroId = null,
-    parameters: std.ArrayListUnmanaged(AstMacroParam) = .{},
-    macros: std.ArrayListUnmanaged(AstMacroNode) = .{},
+    parameters: std.ArrayListUnmanaged(AstMacroParam) = .empty,
+    macros: std.ArrayListUnmanaged(AstMacroNode) = .empty,
     id_set: std.StringHashMapUnmanaged(void) = .{},
-    string_buf: std.ArrayListUnmanaged(u8) = .{},
+    string_buf: std.ArrayListUnmanaged(u8) = .empty,
 
     const State = enum { init, in_params, past_id, deferred_param };
 
@@ -303,7 +303,7 @@ pub const MacroValidationResult = union(enum) {
 
 pub fn validateMacroModule(allocator: Allocator, module: AstMacroModule) Allocator.Error!MacroValidationResult {
     var errors = validation_mod.ValidationErrors{};
-    var valid_macros = std.ArrayListUnmanaged(exec.Macro){};
+    var valid_macros = std.ArrayListUnmanaged(exec.Macro).empty;
 
     for (module.macros) |macro_node| {
         switch (macro_node) {
@@ -341,7 +341,7 @@ fn validateMacro(
     };
 
     // Validate parameters
-    var valid_params = std.ArrayListUnmanaged(exec.MacroParameter){};
+    var valid_params = std.ArrayListUnmanaged(exec.MacroParameter).empty;
     for (macro.parameters) |param_node| {
         switch (param_node) {
             .valid => |param| {

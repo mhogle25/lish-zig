@@ -34,9 +34,9 @@ pub const Value = union(enum) {
             .int => |int_val| std.fmt.bufPrint(buf, "{d}", .{int_val}) catch "?",
             .float => |float_val| std.fmt.bufPrint(buf, "{d}", .{float_val}) catch "?",
             .list => {
-                var stream = std.io.fixedBufferStream(buf);
-                self.writeTo(stream.writer()) catch return "?";
-                return stream.getWritten();
+                var writer = std.Io.Writer.fixed(buf);
+                self.writeTo(&writer) catch return "?";
+                return writer.buffered();
             },
         };
     }
@@ -95,7 +95,7 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn format(self: Value, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(self: Value, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self) {
             .string => |str| try writer.writeAll(str),
             .int => |int_val| try writer.print("{d}", .{int_val}),
@@ -105,7 +105,7 @@ pub const Value = union(enum) {
                 for (items, 0..) |item, i| {
                     if (i > 0) try writer.writeAll(", ");
                     if (item) |inner_val| {
-                        try inner_val.format("", .{}, writer);
+                        try inner_val.format(writer);
                     } else {
                         try writer.writeAll(NONE_ID);
                     }

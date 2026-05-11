@@ -294,7 +294,7 @@ test "validate with bracket errors" {
         id_node,
         &.{},
         .{
-            .message = "Missing closing bracket",
+            .message = "Missing closing parenthesis",
             .token_line = 1,
             .token_column = 1,
             .token_start = 0,
@@ -310,7 +310,7 @@ test "validate with bracket errors" {
         .ok => return error.TestUnexpectedResult,
         .err => |errors| {
             try std.testing.expect(errors.len >= 1);
-            try std.testing.expectEqualStrings("Missing closing bracket", errors[0].message);
+            try std.testing.expectEqualStrings("Missing closing parenthesis", errors[0].message);
         },
     }
 }

@@ -26,24 +26,24 @@ pub const TokenType = enum {
 
     pub fn label(self: TokenType) []const u8 {
         return switch (self) {
-            .identifier => "Identifier",
-            .int => "Integer",
-            .float => "Floating-Point Number",
-            .macro_bracket => "Macro Bar",
-            .call_expression_symbol => "Call Expression Symbol",
-            .deferred_macro_param_symbol => "Deferred Macro Param Symbol",
-            .call_scope_thunk_symbol => "Call Scope Thunk Symbol",
-            .expression_opening_bracket => "Expression Opening Parenthesis",
-            .expression_closing_bracket => "Expression Closing Parenthesis",
-            .list_opening_bracket => "List Opening Bracket",
-            .list_closing_bracket => "List Closing Bracket",
-            .block_opening_bracket => "Block Opening Brace",
-            .block_closing_bracket => "Block Closing Brace",
-            .string_literal => "String Literal",
-            .eof => "End of File",
-            .unterminated_string => "Unterminated String",
-            .too_long_term => "Exceedingly Long Term",
-            .too_long_string_literal => "Exceedingly Long String Literal",
+            .identifier                  => "identifier",
+            .int                         => "integer",
+            .float                       => "floating-point number",
+            .macro_bracket               => "macro bar",
+            .call_expression_symbol      => "call expression symbol",
+            .deferred_macro_param_symbol => "deferred macro param symbol",
+            .call_scope_thunk_symbol     => "call scope thunk symbol",
+            .expression_opening_bracket  => "opening parenthesis",
+            .expression_closing_bracket  => "closing parenthesis",
+            .list_opening_bracket        => "opening bracket",
+            .list_closing_bracket        => "closing bracket",
+            .block_opening_bracket       => "opening brace",
+            .block_closing_bracket       => "closing brace",
+            .string_literal              => "string literal",
+            .eof                         => "end of file",
+            .unterminated_string         => "unterminated string",
+            .too_long_term               => "exceedingly long term",
+            .too_long_string_literal     => "exceedingly long string literal",
         };
     }
 
@@ -54,6 +54,19 @@ pub const TokenType = enum {
             .block_closing_bracket,
             => true,
             else => false,
+        };
+    }
+
+    /// Returns the opener for a closer (and vice versa); null for non-bracket tokens.
+    pub fn paired(self: TokenType) ?TokenType {
+        return switch (self) {
+            .expression_opening_bracket => .expression_closing_bracket,
+            .expression_closing_bracket => .expression_opening_bracket,
+            .list_opening_bracket       => .list_closing_bracket,
+            .list_closing_bracket       => .list_opening_bracket,
+            .block_opening_bracket      => .block_closing_bracket,
+            .block_closing_bracket      => .block_opening_bracket,
+            else                        => null,
         };
     }
 

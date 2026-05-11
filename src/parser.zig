@@ -349,7 +349,7 @@ pub const Parser = struct {
 
         while (true) {
             if ((self.pending_closure_depth >= 0 and self.pending_closure_depth < bracket_depth) or self.isEof()) {
-                open_err = missingCloseErr(opening_token);
+                open_err = try self.missingCloseErr(opening_token);
                 return self.finishClosure(expr_count, open_err, close_err);
             }
 
@@ -441,23 +441,23 @@ pub const Parser = struct {
 
                     if (match_depth != NO_PENDING_CLOSURE) {
                         self.pending_closure_depth = match_depth;
-                        open_err = missingCloseErr(opening_token);
+                        open_err = try self.missingCloseErr(opening_token);
                         return self.finishClosure(expr_count, open_err, close_err);
                     }
 
                     open_err = .{
-                        .message = "Mismatched brackets",
-                        .token_line = opening_token.line,
+                        .message      = try self.bracketMsg("Missing {s}", opening_token.type.paired().?),
+                        .token_line   = opening_token.line,
                         .token_column = opening_token.column,
-                        .token_start = opening_token.start,
-                        .token_end = opening_token.end,
+                        .token_start  = opening_token.start,
+                        .token_end    = opening_token.end,
                     };
                     close_err = .{
-                        .message = "Unexpected closing bracket",
-                        .token_line = self.token.line,
+                        .message      = try self.bracketMsg("Unexpected {s}", self.token.type),
+                        .token_line   = self.token.line,
                         .token_column = self.token.column,
-                        .token_start = self.token.start,
-                        .token_end = self.token.end,
+                        .token_start  = self.token.start,
+                        .token_end    = self.token.end,
                     };
                     return self.finishClosure(expr_count, open_err, close_err);
                 },
@@ -469,7 +469,7 @@ pub const Parser = struct {
 
             if (self.pending_closure_depth >= 0) {
                 if (self.pending_closure_depth < bracket_depth) {
-                    open_err = missingCloseErr(opening_token);
+                    open_err = try self.missingCloseErr(opening_token);
                     return self.finishClosure(expr_count, open_err, close_err);
                 }
                 if (self.pending_closure_depth == bracket_depth) {
@@ -513,18 +513,18 @@ pub const Parser = struct {
 
         if (result.closing_match_depth == NO_PENDING_CLOSURE) {
             open_err.* = .{
-                .message = "Mismatched brackets",
-                .token_line = opening_token.line,
+                .message      = try self.bracketMsg("Missing {s}", opening_token.type.paired().?),
+                .token_line   = opening_token.line,
                 .token_column = opening_token.column,
-                .token_start = opening_token.start,
-                .token_end = opening_token.end,
+                .token_start  = opening_token.start,
+                .token_end    = opening_token.end,
             };
             close_err.* = .{
-                .message = "Unexpected closing bracket",
-                .token_line = self.token.line,
+                .message      = try self.bracketMsg("Unexpected {s}", self.token.type),
+                .token_line   = self.token.line,
                 .token_column = self.token.column,
-                .token_start = self.token.start,
-                .token_end = self.token.end,
+                .token_start  = self.token.start,
+                .token_end    = self.token.end,
             };
             return true;
         }
@@ -572,7 +572,7 @@ pub const Parser = struct {
             .list_closing_bracket,
             .block_closing_bracket,
             => .{
-                .node = try self.syntaxErr("Expected a term but got a closing bracket"),
+                .node = try self.syntaxErrFmt("Expected a term but got a {s}", self.token.type.label()),
                 .saw_closing_bracket = true,
                 .closing_match_depth = self.findMatchingDepth(self.token.type),
             },
@@ -649,20 +649,24 @@ pub const Parser = struct {
     fn expressionNestingErr(self: *Parser) Allocator.Error!*AstNode {
         return self.syntaxErr("Expression nesting threshold reached");
     }
+
+    fn bracketMsg(self: *Parser, comptime fmt: []const u8, token_type: TokenType) Allocator.Error![]const u8 {
+        return std.fmt.allocPrint(self.allocator, fmt, .{token_type.label()});
+    }
+
+    fn missingCloseErr(self: *Parser, opening_token: Token) Allocator.Error!AstBracketError {
+        return .{
+            .message = try self.bracketMsg("Missing {s}", opening_token.type.paired().?),
+            .token_line   = opening_token.line,
+            .token_column = opening_token.column,
+            .token_start  = opening_token.start,
+            .token_end    = opening_token.end,
+        };
+    }
 };
 
 fn singleTermResult(node: *AstNode) SingleTermResult {
     return .{ .node = node };
-}
-
-fn missingCloseErr(opening_token: Token) AstBracketError {
-    return .{
-        .message = "Missing closing bracket",
-        .token_line = opening_token.line,
-        .token_column = opening_token.column,
-        .token_start = opening_token.start,
-        .token_end = opening_token.end,
-    };
 }
 
 // ── Tests ──

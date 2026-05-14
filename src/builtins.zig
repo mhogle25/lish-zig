@@ -1204,17 +1204,25 @@ fn whileOp(args: Args) ExecError!?Value {
 // ── Binding ──
 
 fn letOp(args: Args) ExecError!?Value {
-    try args.expectCount(3);
-
-    var name_buf: [256]u8 = undefined;
-    const name  = try args.at(0).resolveString(&name_buf);
-    const value = try args.at(1).get();
+    const count = args.count();
+    if (count < 3 or count % 2 == 0) {
+        return args.env.fail("'let' expects an odd number of arguments (name/value pairs + body)");
+    }
 
     var extended_scope = exec.Scope{ .parent = args.scope };
     defer extended_scope.deinit(args.env.allocator);
-    try extended_scope.setValue(args.env.allocator, name, value);
 
-    return args.items[2].proc(args.env, &extended_scope);
+    const body_index = count - 1;
+    var name_buf: [256]u8 = undefined;
+    var i: usize = 0;
+    while (i < body_index) : (i += 2) {
+        const raw_name = try args.at(i).resolveString(&name_buf);
+        const name     = try args.env.allocator.dupe(u8, raw_name);
+        const value    = try args.items[i + 1].proc(args.env, &extended_scope);
+        try extended_scope.setValue(args.env.allocator, name, value);
+    }
+
+    return args.items[body_index].proc(args.env, &extended_scope);
 }
 
 // ── Type conversion ──
@@ -2947,4 +2955,39 @@ test "let: hyphenated name binds correctly" {
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "let my-val 7 (* :my-val 3)");
     try std.testing.expectEqual(@as(i64, 21), result.?.int);
+}
+
+test "let: multi-binding pairs" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "let a 1 b 2 (+ :a :b)");
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
+}
+
+test "let: three bindings" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "let a 1 b 2 c 3 (+ :a (+ :b :c))");
+    try std.testing.expectEqual(@as(i64, 6), result.?.int);
+}
+
+test "let: later binding sees earlier (sequential)" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "let a 1 b :a :b");
+    try std.testing.expectEqual(@as(i64, 1), result.?.int);
+}
+
+test "let: later binding can compute from earlier" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "let a 5 b (* :a 2) :b");
+    try std.testing.expectEqual(@as(i64, 10), result.?.int);
+}
+
+test "let: even arg count fails" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = evalWithBuiltins(arena.allocator(), "let a 1 b 2");
+    try std.testing.expectError(error.RuntimeError, result);
 }

@@ -194,3 +194,25 @@ test "??: picks from provided values" {
         try std.testing.expect(value == 10 or value == 20 or value == 30);
     }
 }
+
+test "let: binds ? once — body sees the same roll on every reference" {
+    // Without let: (- (? 0 1000000) (? 0 1000000)) is almost never 0.
+    // With let:    (let r (? 0 1000000) (- :r :r)) is always 0.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var threaded = std.Io.Threaded.init(alloc, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var registry = Registry.init(alloc);
+    try builtins.registerAll(&registry, alloc);
+    try registerAll(&registry, alloc);
+    var env = exec.Env{ .registry = &registry, .allocator = alloc, .io = io };
+
+    for (0..50) |_| {
+        const result = try process.processRaw(&env, "let r (? 0 1000000) (- :r :r)", null);
+        try std.testing.expectEqual(@as(i64, 0), result.ok.?.int);
+    }
+}

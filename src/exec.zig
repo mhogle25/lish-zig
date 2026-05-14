@@ -84,15 +84,19 @@ const InlineEntry = struct {
 };
 
 pub const Scope = struct {
-    inline_entries: [INLINE_CAP]InlineEntry       = undefined,
-    inline_count:   usize                          = 0,
+    parent:         ?*const Scope                          = null,
+    inline_entries: [INLINE_CAP]InlineEntry                = undefined,
+    inline_count:   usize                                  = 0,
     overflow:       ?std.StringHashMapUnmanaged(ScopeEntry) = null,
 
     pub fn get(self: *const Scope, key: []const u8) ?ScopeEntry {
         for (self.inline_entries[0..self.inline_count]) |*entry| {
             if (std.mem.eql(u8, entry.key, key)) return entry.toScopeEntry();
         }
-        if (self.overflow) |map| return map.get(key);
+        if (self.overflow) |map| {
+            if (map.get(key)) |entry| return entry;
+        }
+        if (self.parent) |parent| return parent.get(key);
         return null;
     }
 

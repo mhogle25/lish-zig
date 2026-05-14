@@ -12,7 +12,7 @@ lish borrows Lisp's prefix notation and parenthesized sub-expressions, but diver
 - **Call-by-name, not call-by-value.** Arguments are not evaluated before the call. They are re-evaluated each time the callee accesses them. This applies uniformly to all operations, not just special forms.
 - **No cons cells.** Lists are flat arrays. There is no `car`, `cdr`, or dotted pair notation.
 - **No first-class functions.** There is no `lambda` and no closures. Macros are named parameter-substitution patterns evaluated at call time, not compile-time code transformers.
-- **No runtime variable binding.** There is no `let`, `define`, or `setq`. The scope is provided by the host at runtime and is read-only from within lish.
+- **No mutable state.** There is no `set`, `define`, or `setq`. Host state flows in through scope thunks and is read-only from within lish. The one existing binding form is `let`, which introduces an immutable, lexically-scoped name for a value. The binding evaporates at the end of its body and cannot be reassigned.
 
 ## Features
 
@@ -118,8 +118,11 @@ Macros (params accessed with `:`):
 | Math              | `min`, `max`, `clamp`, `abs`, `floor`, `ceil`, `round`, `even`, `odd`, `sign` |
 | Type              | `type`, `int`, `float`, `string`                                              |
 | Sequencing        | `proc`                                                                        |
+| Binding           | `let`                                                                         |
 
 `proc` takes its name from three overlapping meanings: **procedure** (execute a sequence of steps), **procure** (retrieve a value), and **process** (transform a sequence). With one argument it returns that argument's value; with multiple arguments it evaluates each in order and returns the last.
+
+`let NAME EXPR BODY` evaluates `EXPR` once, binds the result to `NAME` for the duration of `BODY`, and returns the body's value. Inside `BODY`, references via `:NAME` resolve to the bound value. Bindings are immutable, lexically scoped, and do not leak into sibling expressions or called macros.
 
 ## Usage
 

@@ -68,6 +68,7 @@ pub fn registerCore(registry: *Registry, allocator: Allocator) Allocator.Error!v
     try registry.registerOperation(allocator, "prefix", Operation.fromFn(prefixOp));
     try registry.registerOperation(allocator, "suffix", Operation.fromFn(suffixOp));
     try registry.registerOperation(allocator, "in", Operation.fromFn(inOp));
+    try registry.registerOperation(allocator, "find", Operation.fromFn(findOp));
 
     // List
     try registry.registerOperation(allocator, "list", Operation.fromFn(listOp));
@@ -89,6 +90,7 @@ pub fn registerCore(registry: *Registry, allocator: Allocator) Allocator.Error!v
     try registry.registerOperation(allocator, "reverse", Operation.fromFn(reverseOp));
     try registry.registerOperation(allocator, "take", Operation.fromFn(takeOp));
     try registry.registerOperation(allocator, "drop", Operation.fromFn(dropOp));
+    try registry.registerOperation(allocator, "slice", Operation.fromFn(sliceOp));
     try registry.registerOperation(allocator, "zip", Operation.fromFn(zipOp));
 
     // Higher-order
@@ -112,6 +114,13 @@ pub fn registerCore(registry: *Registry, allocator: Allocator) Allocator.Error!v
     try registry.registerOperation(allocator, "even", Operation.fromFn(evenOp));
     try registry.registerOperation(allocator, "odd", Operation.fromFn(oddOp));
     try registry.registerOperation(allocator, "sign", Operation.fromFn(signOp));
+    try registry.registerOperation(allocator, "pi", Operation.fromFn(piOp));
+    try registry.registerOperation(allocator, "sqrt", Operation.fromFn(sqrtOp));
+    try registry.registerOperation(allocator, "sin", Operation.fromFn(sinOp));
+    try registry.registerOperation(allocator, "cos", Operation.fromFn(cosOp));
+    try registry.registerOperation(allocator, "atan2", Operation.fromFn(atan2Op));
+    try registry.registerOperation(allocator, "log", Operation.fromFn(logOp));
+    try registry.registerOperation(allocator, "exp", Operation.fromFn(expOp));
 
     // Type
     try registry.registerOperation(allocator, "type", Operation.fromFn(typeOp));
@@ -122,6 +131,10 @@ pub fn registerCore(registry: *Registry, allocator: Allocator) Allocator.Error!v
     // Sequencing
     try registry.registerOperation(allocator, "proc", Operation.fromFn(procOp));
     try registry.registerOperation(allocator, "loop", Operation.fromFn(loopOp));
+    try registry.registerOperation(allocator, "while", Operation.fromFn(whileOp));
+
+    // Binding
+    try registry.registerOperation(allocator, "let", Operation.fromFn(letOp));
 }
 
 /// Register output operations (say, error). These write to stdout/stderr and
@@ -453,24 +466,24 @@ fn sayOp(args: Args) ExecError!?Value {
     for (0..args.count()) |i| {
         var buf: [256]u8 = undefined;
         const str = try args.at(i).resolveString(&buf);
-        writer.writeAll(str) catch {};
+        writer.writeAll(str)  catch return args.env.fail("Failed to write to stdout");
     }
-    writer.writeByte('\n') catch {};
-    writer.flush() catch {};
+    writer.writeByte('\n')    catch return args.env.fail("Failed to write to stdout");
+    writer.flush()            catch return args.env.fail("Failed to write to stdout");
     return null;
 }
 
 fn errorOp(args: Args) ExecError!?Value {
     try args.expectMinCount(1);
     const writer = args.env.stderr orelse return null;
-    writer.writeAll("\x1b[31m") catch {};
+    writer.writeAll("\x1b[31m") catch return args.env.fail("Failed to write to stderr");
     for (0..args.count()) |i| {
         var buf: [256]u8 = undefined;
         const str = try args.at(i).resolveString(&buf);
-        writer.writeAll(str) catch {};
+        writer.writeAll(str)    catch return args.env.fail("Failed to write to stderr");
     }
-    writer.writeAll("\x1b[0m\n") catch {};
-    writer.flush() catch {};
+    writer.writeAll("\x1b[0m\n") catch return args.env.fail("Failed to write to stderr");
+    writer.flush()              catch return args.env.fail("Failed to write to stderr");
     return null;
 }
 
@@ -792,6 +805,22 @@ fn dropOp(args: Args) ExecError!?Value {
         .list => |items| .{ .list = if (drop_count >= items.len) &.{} else items[drop_count..] },
         .string => |str| .{ .string = if (drop_count >= str.len) "" else str[drop_count..] },
         else => args.env.fail("'drop' expects a list or string"),
+    };
+}
+
+fn sliceOp(args: Args) ExecError!?Value {
+    try args.expectCount(3);
+    const start_i = try args.at(0).resolveInt();
+    const end_i = try args.at(1).resolveInt();
+    if (start_i < 0) return args.env.fail("'slice' start cannot be negative");
+    if (end_i < start_i) return args.env.fail("'slice' end cannot be before start");
+    const collection = try args.at(2).resolve();
+    const start: usize = @intCast(start_i);
+    const end: usize = @intCast(end_i);
+    return switch (collection) {
+        .list => |items| .{ .list = items[@min(start, items.len)..@min(end, items.len)] },
+        .string => |str| .{ .string = str[@min(start, str.len)..@min(end, str.len)] },
+        else => args.env.fail("'slice' expects a list or string"),
     };
 }
 
@@ -1164,6 +1193,30 @@ fn loopOp(args: Args) ExecError!?Value {
     return null;
 }
 
+fn whileOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    while ((try args.at(0).get()) != null) {
+        _ = try args.at(1).get();
+    }
+    return null;
+}
+
+// ── Binding ──
+
+fn letOp(args: Args) ExecError!?Value {
+    try args.expectCount(3);
+
+    var name_buf: [256]u8 = undefined;
+    const name  = try args.at(0).resolveString(&name_buf);
+    const value = try args.at(1).get();
+
+    var extended_scope = exec.Scope{ .parent = args.scope };
+    defer extended_scope.deinit(args.env.allocator);
+    try extended_scope.setValue(args.env.allocator, name, value);
+
+    return args.items[2].proc(args.env, &extended_scope);
+}
+
 // ── Type conversion ──
 
 fn intOp(args: Args) ExecError!?Value {
@@ -1269,6 +1322,27 @@ fn inOp(args: Args) ExecError!?Value {
             return null;
         },
         else => args.env.fail("'in' expects a string or list as second argument"),
+    };
+}
+
+fn findOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    const needle = try args.at(0).resolve();
+    const haystack = try args.at(1).resolve();
+    return switch (haystack) {
+        .string => |haystack_str| {
+            var needle_buf: [256]u8 = undefined;
+            const needle_str = needle.getS(&needle_buf);
+            const index = std.mem.indexOf(u8, haystack_str, needle_str) orelse return null;
+            return .{ .int = @intCast(index) };
+        },
+        .list => |items| {
+            for (items, 0..) |item, i| {
+                if (item != null and needle.eql(item.?)) return .{ .int = @intCast(i) };
+            }
+            return null;
+        },
+        else => args.env.fail("'find' expects a string or list as second argument"),
     };
 }
 
@@ -1405,6 +1479,47 @@ fn signOp(args: Args) ExecError!?Value {
         return .{ .int = if (f < 0) -1 else if (f > 0) 1 else 0 };
     }
     return args.env.fail("'sign' expects a number");
+}
+
+fn piOp(_: Args) ExecError!?Value {
+    return .{ .float = std.math.pi };
+}
+
+fn sqrtOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const x = try args.at(0).resolveFloat();
+    return .{ .float = @sqrt(x) };
+}
+
+fn sinOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const x = try args.at(0).resolveFloat();
+    return .{ .float = @sin(x) };
+}
+
+fn cosOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const x = try args.at(0).resolveFloat();
+    return .{ .float = @cos(x) };
+}
+
+fn atan2Op(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    const y = try args.at(0).resolveFloat();
+    const x = try args.at(1).resolveFloat();
+    return .{ .float = std.math.atan2(y, x) };
+}
+
+fn logOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const x = try args.at(0).resolveFloat();
+    return .{ .float = @log(x) };
+}
+
+fn expOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const x = try args.at(0).resolveFloat();
+    return .{ .float = @exp(x) };
 }
 
 // ── Numeric helpers ──
@@ -2589,4 +2704,247 @@ test "math: sign float" {
     defer arena.deinit();
     const result = try evalWithBuiltins(arena.allocator(), "sign -3.5");
     try std.testing.expectEqual(@as(i64, -1), result.?.int);
+}
+
+// ── while tests ──
+
+test "while: terminates when condition is none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "while $none 1");
+    try std.testing.expect(result == null);
+}
+
+test "while: re-evaluates condition" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(),
+        "length (fillby 3 (proc (while $none 1) 7))");
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
+}
+
+// ── slice tests ──
+
+test "slice: list middle range" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (slice 1 4 [10 20 30 40 50])");
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
+}
+
+test "slice: string range" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "slice 0 5 \"hello world\"");
+    try std.testing.expectEqualStrings("hello", result.?.string);
+}
+
+test "slice: clamps end past length" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "slice 2 99 \"abcdef\"");
+    try std.testing.expectEqualStrings("cdef", result.?.string);
+}
+
+test "slice: empty when start equals end" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "length (slice 2 2 [1 2 3])");
+    try std.testing.expectEqual(@as(i64, 0), result.?.int);
+}
+
+test "slice: end before start errors" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try std.testing.expectError(error.RuntimeError, evalWithBuiltins(arena.allocator(), "slice 5 2 [1 2 3 4 5]"));
+}
+
+// ── find tests ──
+
+test "find: substring match" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "find \"world\" \"hello world\"");
+    try std.testing.expectEqual(@as(i64, 6), result.?.int);
+}
+
+test "find: substring miss returns none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "find \"zzz\" \"hello\"");
+    try std.testing.expect(result == null);
+}
+
+test "find: list element match" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "find 30 [10 20 30 40]");
+    try std.testing.expectEqual(@as(i64, 2), result.?.int);
+}
+
+test "find: list element miss" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "find 99 [10 20 30]");
+    try std.testing.expect(result == null);
+}
+
+test "find: first index when duplicates" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "find 5 [1 5 5 5]");
+    try std.testing.expectEqual(@as(i64, 1), result.?.int);
+}
+
+// ── math: trig and constants ──
+
+test "math: pi constant" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "pi");
+    try std.testing.expectApproxEqAbs(@as(f64, std.math.pi), result.?.float, 1e-12);
+}
+
+test "math: sqrt" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "sqrt 9");
+    try std.testing.expectApproxEqAbs(@as(f64, 3.0), result.?.float, 1e-12);
+}
+
+test "math: sin of zero" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "sin 0");
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), result.?.float, 1e-12);
+}
+
+test "math: cos of zero" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "cos 0");
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.?.float, 1e-12);
+}
+
+test "math: sin of pi" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "sin (pi)");
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), result.?.float, 1e-12);
+}
+
+test "math: atan2 quadrants" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "atan2 1 0");
+    try std.testing.expectApproxEqAbs(@as(f64, std.math.pi / 2.0), result.?.float, 1e-12);
+}
+
+test "math: log natural" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "log 1");
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), result.?.float, 1e-12);
+}
+
+test "math: exp" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "exp 0");
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.?.float, 1e-12);
+}
+
+test "math: exp/log inverse" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "log (exp 2.5)");
+    try std.testing.expectApproxEqAbs(@as(f64, 2.5), result.?.float, 1e-12);
+}
+
+// ── let: binding ──
+
+test "let: basic binding" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "let x 5 :x");
+    try std.testing.expectEqual(@as(i64, 5), result.?.int);
+}
+
+test "let: value is computed once" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "let x (+ 1 2) :x");
+    try std.testing.expectEqual(@as(i64, 3), result.?.int);
+}
+
+test "let: body uses binding multiple times" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "let x 5 (+ :x :x)");
+    try std.testing.expectEqual(@as(i64, 10), result.?.int);
+}
+
+test "let: string binding" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "let greeting \"hello\" :greeting");
+    try std.testing.expectEqualStrings("hello", result.?.string);
+}
+
+test "let: outer visible in inner body" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "let x 5 (let y :x :y)");
+    try std.testing.expectEqual(@as(i64, 5), result.?.int);
+}
+
+test "let: nested bindings compose" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "let x 5 (let y 10 (+ :x :y))");
+    try std.testing.expectEqual(@as(i64, 15), result.?.int);
+}
+
+test "let: inner shadows outer" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "let x 5 (let x 10 :x)");
+    try std.testing.expectEqual(@as(i64, 10), result.?.int);
+}
+
+test "let: shadow does not leak past inner body" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Inner let shadows x with 10, but outer body after inner should see x=5
+    const result = try evalWithBuiltins(arena.allocator(), "let x 5 (+ (let x 10 :x) :x)");
+    try std.testing.expectEqual(@as(i64, 15), result.?.int);
+}
+
+test "let: sibling proc expressions do not see binding" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // First sub-expr binds x; second references :x which should not be in scope
+    const result = evalWithBuiltins(arena.allocator(), "proc (let x 5 :x) :x");
+    try std.testing.expectError(error.RuntimeError, result);
+}
+
+test "let: wrong arg count fails" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = evalWithBuiltins(arena.allocator(), "let x 5");
+    try std.testing.expectError(error.RuntimeError, result);
+}
+
+test "let: unknown reference in body fails" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = evalWithBuiltins(arena.allocator(), "let x 5 :y");
+    try std.testing.expectError(error.RuntimeError, result);
+}
+
+test "let: hyphenated name binds correctly" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try evalWithBuiltins(arena.allocator(), "let my-val 7 (* :my-val 3)");
+    try std.testing.expectEqual(@as(i64, 21), result.?.int);
 }

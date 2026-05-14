@@ -538,3 +538,103 @@ test "processRawCached: validation errors are not cached" {
     }
     try std.testing.expectEqual(@as(usize, 0), expression_cache.count());
 }
+
+// ── let × macros: isolation and visibility ──
+
+test "let: let-binding does not leak into a called macro's body" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var registry = Registry.init(alloc);
+    try builtins.registerAll(&registry, alloc);
+
+    // `grab` references :y, which is NOT one of its params — it should never resolve
+    const load_result = try loadMacroModule(&registry, "| grab | proc :y");
+    switch (load_result) {
+        .ok => {},
+        .io_error, .validation_err => return error.TestUnexpectedResult,
+    }
+
+    var env = Env{ .registry = &registry, .allocator = alloc };
+    // outer `let` binds y=42; macro is called from the body; macro must not see :y
+    const result = try processRaw(&env, "let y 42 (grab)", null);
+    switch (result) {
+        .ok => return error.TestUnexpectedResult,
+        .validation_err => return error.TestUnexpectedResult,
+        .runtime_err => {}, // expected — :y not in macro scope
+    }
+}
+
+test "let: inside macro body, both macro param and let-binding visible" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var registry = Registry.init(alloc);
+    try builtins.registerAll(&registry, alloc);
+
+    // scale x → let doubled = x*2 in (doubled + x)
+    const load_result = try loadMacroModule(
+        &registry,
+        "| scale x | let doubled (* :x 2) (+ :doubled :x)",
+    );
+    switch (load_result) {
+        .ok => {},
+        .io_error, .validation_err => return error.TestUnexpectedResult,
+    }
+
+    var env = Env{ .registry = &registry, .allocator = alloc };
+    const result = try processRaw(&env, "scale 5", null);
+    switch (result) {
+        .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 15), maybe_value.?.int),
+        .validation_err, .runtime_err => return error.TestUnexpectedResult,
+    }
+}
+
+test "let: macro arguments evaluate in caller's let scope" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var registry = Registry.init(alloc);
+    try builtins.registerAll(&registry, alloc);
+
+    const load_result = try loadMacroModule(&registry, "| double x | * :x 2");
+    switch (load_result) {
+        .ok => {},
+        .io_error, .validation_err => return error.TestUnexpectedResult,
+    }
+
+    var env = Env{ .registry = &registry, .allocator = alloc };
+    // y from outer let is read when the macro's value-param is evaluated
+    const result = try processRaw(&env, "let y 5 (double :y)", null);
+    switch (result) {
+        .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 10), maybe_value.?.int),
+        .validation_err, .runtime_err => return error.TestUnexpectedResult,
+    }
+}
+
+test "let: deferred param captures let scope as a closure" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var registry = Registry.init(alloc);
+    try builtins.registerAll(&registry, alloc);
+
+    // run-it takes a deferred body; the body is `(+ :y 100)` which references the
+    // outer let-binding via the deferred param's captured scope
+    const load_result = try loadMacroModule(&registry, "| run-it ~body | proc :body");
+    switch (load_result) {
+        .ok => {},
+        .io_error, .validation_err => return error.TestUnexpectedResult,
+    }
+
+    var env = Env{ .registry = &registry, .allocator = alloc };
+    const result = try processRaw(&env, "let y 5 (run-it (+ :y 100))", null);
+    switch (result) {
+        .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 105), maybe_value.?.int),
+        .validation_err, .runtime_err => return error.TestUnexpectedResult,
+    }
+}

@@ -965,8 +965,8 @@ fn fillOp(args: Args) ExecError!?Value {
     const n = n_value.getI() catch return args.env.fail("'fill' expects an integer count");
     if (n < 0) return args.env.fail("'fill' count cannot be negative");
 
-    const fill_value: ?Value = if (count == 2) try args.at(1).get() else .{ .int = 0 };
-
+    const fill_value: ?Value = if (count == 2) try args.at(1).get() else null; 
+    
     const alloc = args.env.allocator;
     const items = try alloc.alloc(?Value, @intCast(n));
     for (items) |*slot| slot.* = fill_value;

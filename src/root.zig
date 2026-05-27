@@ -38,6 +38,8 @@ pub const Macro = exec.Macro;
 
 pub const processRaw = process.processRaw;
 pub const loadMacroModule = process.loadMacroModule;
+pub const loadStdlib = process.loadStdlib;
+pub const STDLIB_SOURCE = process.STDLIB_SOURCE;
 pub const loadFragments = process.loadFragments;
 pub const loadMacroFile = process.loadMacroFile;
 pub const loadMacroDir = process.loadMacroDir;

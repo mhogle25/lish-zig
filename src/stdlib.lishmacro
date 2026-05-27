@@ -1,0 +1,3 @@
+## lish standard library macros.
+## Bundled into the compiled lish binary and loaded by `process.loadStdlib`.
+## Library consumers can choose to include these by calling the same helper.

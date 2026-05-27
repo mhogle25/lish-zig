@@ -47,6 +47,8 @@ pub fn main(init: std.process.Init) !void {
     });
     defer session.deinit();
 
+    _ = try lish.loadStdlib(&session.registry);
+
     var editor = line_editor_mod.LineEditor.init(allocator, stdout);
     editor.autopair_insert = repl_config.autopair_insert;
     editor.autopair_delete = repl_config.autopair_delete;

@@ -21,7 +21,8 @@ lish borrows Lisp's prefix notation and parenthesized sub-expressions, but diver
 - **Existential truthiness** — no booleans; values either exist (`?Value`) or they don't (`null`)
 - **Arena allocation** — parse and execute within a single arena lifecycle
 - **Expression caching** — generic LRU cache avoids redundant parsing
-- **75 built-in operations** — arithmetic, comparison, logic, control flow, string, list, higher-order, type, and math functions
+- **92 built-in operations** — arithmetic, comparison, logic, control flow, string, list, higher-order, type, math, binding, and meta functions
+- **Binding form for iteration** — `map`, `filter`, `reduce`, etc. take a binding name and a sub-expression body, so transforms live inline at the call site
 - **Session API** — backend-agnostic REPL core
 - **AST builder** — fluent Zig API for constructing lish expressions and macro definitions programmatically
 - **AST serializer** — convert any AST node back to lish source text
@@ -102,27 +103,65 @@ Macros (params accessed with `:`):
 
 ## Built-in Operations
 
-| Category          | Operations                                                                    |
-|-------------------|-------------------------------------------------------------------------------|
-| Constants         | `some`, `none`                                                                |
-| Arithmetic        | `+`, `-`, `*`, `/`, `%`, `^`                                                  |
-| Comparison        | `<`, `<=`, `>`, `>=`, `is`, `isnt`, `compare`                                 |
-| Logic             | `and`, `or`, `not`                                                            |
-| Control Flow      | `if`, `when`, `match`, `assert`                                               |
-| String            | `concat`, `join`, `split`, `trim`, `upper`, `lower`, `replace`, `format`      |
-| String Predicates | `prefix`, `suffix`, `in`                                                      |
-| Output            | `say`, `error`                                                                |
-| List              | `list`, `flat`, `flatten`, `range`, `until`, `sort`, `sortby`                 |
-| Collection        | `length`, `first`, `last`, `rest`, `at`, `reverse`, `take`, `drop`, `zip`     |
-| Higher-Order      | `map`, `foreach`, `apply`, `filter`, `reduce`, `any`, `all`, `count`          |
-| Math              | `min`, `max`, `clamp`, `abs`, `floor`, `ceil`, `round`, `even`, `odd`, `sign` |
-| Type              | `type`, `int`, `float`, `string`                                              |
-| Sequencing        | `proc`                                                                        |
-| Binding           | `let`                                                                         |
+| Category          | Operations                                                                                                                       |
+|-------------------|----------------------------------------------------------------------------------------------------------------------------------|
+| Constants         | `some`, `none`                                                                                                                   |
+| Arithmetic        | `+`, `-`, `*`, `/`, `%`, `^`                                                                                                     |
+| Comparison        | `<`, `<=`, `>`, `>=`, `is`, `isnt`, `compare`                                                                                    |
+| Logic             | `and`, `or`, `not`                                                                                                               |
+| Control Flow      | `if`, `when`, `match`, `assert`                                                                                                  |
+| String            | `concat`, `join`, `split`, `trim`, `upper`, `lower`, `replace`, `format`                                                         |
+| String Predicates | `prefix`, `suffix`, `in`, `find`                                                                                                 |
+| Output            | `say`, `error`                                                                                                                   |
+| List              | `list`, `flat`, `flatten`, `range`, `until`, `sort`, `sortby`, `sortwith`, `fill`, `fillby`                                      |
+| Collection        | `length`, `first`, `last`, `rest`, `at`, `reverse`, `take`, `drop`, `slice`, `zip`                                               |
+| Higher-Order      | `map`, `foreach`, `filter`, `reduce`, `any`, `all`, `count`, `findby`                                                            |
+| Meta              | `apply`, `known`                                                                                                                 |
+| Math              | `min`, `max`, `clamp`, `abs`, `floor`, `ceil`, `round`, `even`, `odd`, `sign`, `pi`, `sqrt`, `sin`, `cos`, `atan2`, `log`, `exp` |
+| Type              | `type`, `int`, `float`, `string`                                                                                                 |
+| Sequencing        | `proc`, `loop`, `while`                                                                                                          |
+| Binding           | `let`, `pipe`                                                                                                                    |
 
 `proc` takes its name from three overlapping meanings: **procedure** (execute a sequence of steps), **procure** (retrieve a value), and **process** (transform a sequence). With one argument it returns that argument's value; with multiple arguments it evaluates each in order and returns the last.
 
-`let NAME EXPR BODY` evaluates `EXPR` once, binds the result to `NAME` for the duration of `BODY`, and returns the body's value. Inside `BODY`, references via `:NAME` resolve to the bound value. Bindings are immutable, lexically scoped, and do not leak into sibling expressions or called macros.
+`let NAME EXPR BODY` evaluates `EXPR` once, binds the result to `NAME` for the duration of `BODY`, and returns the body's value. Inside `BODY`, references via `:NAME` resolve to the bound value. Bindings are immutable, lexically scoped, and do not leak into sibling expressions or called macros. `let` accepts multiple name/value pairs before the body, evaluated sequentially so later pairs can reference earlier ones.
+
+`pipe NAME INITIAL STEP...` threads a value through a sequence of transformations. The first step is evaluated with `:NAME` bound to `INITIAL`; each subsequent step receives the previous step's result via the same binding. Returns the final step's value. Example: `pipe x 25 (sqrt :x) (+ :x 3)` → `(+ (sqrt 25) 3)` → `8`.
+
+### Binding form for iterative ops
+
+`map`, `foreach`, `filter`, `reduce`, `any`, `all`, `count`, `findby`, `sortby`, and `sortwith` all take a **binding name** followed by a **source** and a **body expression**. Inside the body, `:NAME` refers to the current element (or accumulator).
+
+```
+map x [1 2 3] (* :x 2)                              ## [2 4 6]
+filter n [1 2 3 4 5 6] (even :n)                    ## [2 4 6]
+reduce acc 0 x [1 2 3 4 5] (+ :acc :x)              ## 15
+findby x [1 2 3 4] (> :x 2)                         ## 3
+sortby x [3 1 2] :x                                 ## [1 2 3]
+sortwith a b [3 1 2] (compare :a :b)                ## [1 2 3]
+```
+
+`reduce` is the only op with two bindings — an accumulator name with its initial value, then an item name with its source list, then the body. `sortwith` is similar in shape: two element names (`a` and `b`) compared per swap.
+
+`loop` and `fillby` accept an **optional** binding for the iteration index — `loop n body` repeats N times without exposing the index; `loop i n body` binds `:i` to `0..N-1` in each iteration. `fillby` mirrors this for slot index.
+
+### Meta operations
+
+`apply NAME LIST` calls the operation named by `NAME` with the elements of `LIST` as positional arguments: `apply "+" [1 2 3]` → `6`. The first argument resolves to a string, looked up in the registry, so dispatch can be dynamic.
+
+`known NAME` returns `NAME` if it is registered as an operation or macro, or null otherwise. Useful for graceful fallback: `apply (or (known "custom-handler") "default") args`.
+
+### `is` and `isnt` are value-preserving
+
+When the comparison succeeds, both ops return the **left argument's value** rather than a generic truthy sentinel — falling back to the sentinel only when the left value is itself null. This lets you thread the actual value through `or` chains and other null-coalescing pipelines:
+
+```
+or (isnt (compare (rank :a) (rank :b)) 0)
+   (isnt (compare (name :a) (name :b)) 0)
+   0
+```
+
+The chain returns the first non-zero `compare` result — preserving the sign — and `0` if all compares matched.
 
 ## Usage
 
@@ -236,6 +275,16 @@ Or pass macro files or directories at the CLI:
 zig build run -- -m macros/
 zig build run -- -m macros/math.lishmacro
 ```
+
+### Loading the bundled stdlib
+
+lish ships a small standard-library macro file (`src/stdlib.lishmacro`) compiled into the binary via `@embedFile`. The REPL loads it by default. Library consumers can opt in with a single call after session init:
+
+```zig
+_ = try lish.loadStdlib(&session.registry);
+```
+
+The raw source is also exposed as `lish.STDLIB_SOURCE` for consumers that want to inspect or pre-process it.
 
 ### Building AST Programmatically
 
@@ -422,7 +471,7 @@ Note: `say` and `error` are not available in the config context — they are exc
 | `parser.zig`       | Recursive descent expression parser                  |
 | `validation.zig`   | AST to executable transformation with error checking |
 | `exec.zig`         | Runtime: Thunk, Expression, Scope, Env, Registry     |
-| `builtins.zig`     | 75 built-in operations                               |
+| `builtins.zig`     | 92 built-in operations                               |
 | `macro_parser.zig` | Macro definition parser and validator                |
 | `cache.zig`        | Generic LRU cache (`LruCache(V)`)                    |
 | `process.zig`      | Convenience API: processRaw, macro file loading      |

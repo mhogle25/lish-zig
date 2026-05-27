@@ -1,0 +1,173 @@
+const std = @import("std");
+const exec = @import("../exec.zig");
+const val = @import("../value.zig");
+const helpers = @import("helpers.zig");
+
+const Value = val.Value;
+const Args = exec.Args;
+const ExecError = exec.ExecError;
+const Registry = exec.Registry;
+const Operation = exec.Operation;
+const Allocator = std.mem.Allocator;
+
+pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
+    try registry.registerOperation(allocator, "<",       Operation.fromFn(lessThanOp));
+    try registry.registerOperation(allocator, "<=",      Operation.fromFn(lessThanOrEqualOp));
+    try registry.registerOperation(allocator, ">",       Operation.fromFn(greaterThanOp));
+    try registry.registerOperation(allocator, ">=",      Operation.fromFn(greaterThanOrEqualOp));
+    try registry.registerOperation(allocator, "is",      Operation.fromFn(isOp));
+    try registry.registerOperation(allocator, "isnt",    Operation.fromFn(isntOp));
+    try registry.registerOperation(allocator, "compare", Operation.fromFn(compareOp));
+}
+
+fn lessThanOp(args: Args) ExecError!?Value {
+    return helpers.numericComparison(args, cmpLtInt, cmpLtFloat);
+}
+fn cmpLtInt(left: i64, right: i64) bool {
+    return left < right;
+}
+fn cmpLtFloat(left: f64, right: f64) bool {
+    return left < right;
+}
+
+fn lessThanOrEqualOp(args: Args) ExecError!?Value {
+    return helpers.numericComparison(args, cmpLeInt, cmpLeFloat);
+}
+fn cmpLeInt(left: i64, right: i64) bool {
+    return left <= right;
+}
+fn cmpLeFloat(left: f64, right: f64) bool {
+    return left <= right;
+}
+
+fn greaterThanOp(args: Args) ExecError!?Value {
+    return helpers.numericComparison(args, cmpGtInt, cmpGtFloat);
+}
+fn cmpGtInt(left: i64, right: i64) bool {
+    return left > right;
+}
+fn cmpGtFloat(left: f64, right: f64) bool {
+    return left > right;
+}
+
+fn greaterThanOrEqualOp(args: Args) ExecError!?Value {
+    return helpers.numericComparison(args, cmpGeInt, cmpGeFloat);
+}
+fn cmpGeInt(left: i64, right: i64) bool {
+    return left >= right;
+}
+fn cmpGeFloat(left: f64, right: f64) bool {
+    return left >= right;
+}
+
+fn isOp(args: Args) ExecError!?Value {
+    try args.expectMinCount(2);
+    const values = try args.getAll();
+    const first = values[0];
+    for (values[1..]) |other| {
+        if (first == null and other == null) continue;
+        if (first == null or other == null) return null;
+        if (!first.?.eql(other.?)) return null;
+    }
+    return first orelse val.some();
+}
+
+fn isntOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    const left = try args.at(0).get();
+    const right = try args.at(1).get();
+
+    if (left == null and right == null) return null;
+    if (left != null and right != null and left.?.eql(right.?)) return null;
+    return left orelse val.some();
+}
+
+fn compareOp(args: Args) ExecError!?Value {
+    try args.expectCount(2);
+    const left = try args.at(0).resolve();
+    const right = try args.at(1).resolve();
+
+    if (left.isNumber() and right.isNumber()) {
+        const left_f = left.getF() catch unreachable;
+        const right_f = right.getF() catch unreachable;
+        const result: i64 = if (left_f < right_f) -1 else if (left_f > right_f) @as(i64, 1) else 0;
+        return .{ .int = result };
+    }
+
+    if (left == .string and right == .string) {
+        const order = std.mem.order(u8, left.string, right.string);
+        const result: i64 = switch (order) {
+            .lt => -1,
+            .gt => 1,
+            .eq => 0,
+        };
+        return .{ .int = result };
+    }
+
+    return null;
+}
+
+// ── Tests ──
+
+const testing = @import("testing.zig");
+
+test "comparison: less than" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const truthy = try testing.evalWithBuiltins(arena.allocator(), "< 1 2");
+    try std.testing.expect(truthy != null);
+    const falsy = try testing.evalWithBuiltins(arena.allocator(), "< 2 1");
+    try std.testing.expect(falsy == null);
+}
+
+test "comparison: chained" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const ascending = try testing.evalWithBuiltins(arena.allocator(), "< 1 2 3");
+    try std.testing.expect(ascending != null);
+    const not_ascending = try testing.evalWithBuiltins(arena.allocator(), "< 1 3 2");
+    try std.testing.expect(not_ascending == null);
+}
+
+test "comparison: is and isnt" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const equal = try testing.evalWithBuiltins(arena.allocator(), "is 5 5");
+    try std.testing.expect(equal != null);
+    const not_equal = try testing.evalWithBuiltins(arena.allocator(), "is 5 6");
+    try std.testing.expect(not_equal == null);
+    const different = try testing.evalWithBuiltins(arena.allocator(), "isnt 5 6");
+    try std.testing.expect(different != null);
+}
+
+test "comparison: isnt returns left value when truthy" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const left_int = try testing.evalWithBuiltins(arena.allocator(), "isnt 5 6");
+    try std.testing.expectEqual(@as(i64, 5), left_int.?.int);
+    const left_zero = try testing.evalWithBuiltins(arena.allocator(), "isnt 0 1");
+    try std.testing.expectEqual(@as(i64, 0), left_zero.?.int);
+    const equal = try testing.evalWithBuiltins(arena.allocator(), "isnt 5 5");
+    try std.testing.expect(equal == null);
+    const left_null = try testing.evalWithBuiltins(arena.allocator(), "isnt $none 5");
+    try std.testing.expect(left_null != null);
+}
+
+test "comparison: compare" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const less = try testing.evalWithBuiltins(arena.allocator(), "compare 1 2");
+    try std.testing.expectEqual(@as(i64, -1), less.?.int);
+    const greater = try testing.evalWithBuiltins(arena.allocator(), "compare 2 1");
+    try std.testing.expectEqual(@as(i64, 1), greater.?.int);
+    const equal = try testing.evalWithBuiltins(arena.allocator(), "compare 5 5");
+    try std.testing.expectEqual(@as(i64, 0), equal.?.int);
+}
+
+test "comparison: compare incompatible types returns none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "compare 1 \"hello\"");
+    try std.testing.expect(result == null);
+}
+

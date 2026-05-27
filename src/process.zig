@@ -143,6 +143,15 @@ pub fn loadMacroModule(
     }
 }
 
+/// Lish standard library source — bundled into the compiled binary.
+pub const STDLIB_SOURCE = @embedFile("stdlib.lishmacro");
+
+/// Load the bundled standard library macros into a registry.
+/// Library consumers opt into the stdlib by calling this after Session init.
+pub fn loadStdlib(registry: *Registry) Allocator.Error!MacroLoadResult {
+    return loadMacroModule(registry, STDLIB_SOURCE);
+}
+
 /// Load multiple registry fragments into a registry.
 pub fn loadFragments(
     registry: *Registry,
@@ -636,5 +645,20 @@ test "let: deferred param captures let scope as a closure" {
     switch (result) {
         .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 105), maybe_value.?.int),
         .validation_err, .runtime_err => return error.TestUnexpectedResult,
+    }
+}
+
+test "loadStdlib: loads bundled stdlib without error" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var registry = Registry.init(alloc);
+    try builtins.registerAll(&registry, alloc);
+
+    const result = try loadStdlib(&registry);
+    switch (result) {
+        .ok => {},
+        .io_error, .validation_err => return error.TestUnexpectedResult,
     }
 }

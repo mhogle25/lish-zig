@@ -18,7 +18,7 @@ pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void 
 
 fn ifElseOp(args: Args) ExecError!?Value {
     const count = args.count();
-    if (count != 2 and count != 3) return args.env.fail("'if' expects 2 or 3 arguments");
+    if (count != 2 and count != 3) return args.env.fail(.arity_mismatch, "'if' expects  or 3 arguments");
 
     const condition = try args.at(0).get();
 
@@ -32,7 +32,7 @@ fn ifElseOp(args: Args) ExecError!?Value {
 fn whenOp(args: Args) ExecError!?Value {
     const count = args.count();
     if (count < 2 or count % 2 != 0) {
-        return args.env.fail("'when' expects an even number of arguments (condition/result pairs)");
+        return args.env.fail(.arity_mismatch, "'when' expects an even number of arguments (condition/result pairs)");
     }
 
     var i: usize = 0;
@@ -49,7 +49,7 @@ fn whenOp(args: Args) ExecError!?Value {
 fn matchOp(args: Args) ExecError!?Value {
     const count = args.count();
     if (count < 3 or count % 2 == 0) {
-        return args.env.fail("'match' expects an odd number of arguments (target + pattern/result pairs)");
+        return args.env.fail(.arity_mismatch, "'match' expects an odd number of arguments (target + pattern/result pairs)");
     }
 
     const target = try args.at(0).get();
@@ -75,15 +75,15 @@ fn matchOp(args: Args) ExecError!?Value {
 
 fn assertOp(args: Args) ExecError!?Value {
     const count = args.count();
-    if (count < 1 or count > 2) return args.env.fail("'assert' expects 1 or 2 arguments");
+    if (count < 1 or count > 2) return args.env.fail(.arity_mismatch, "'assert' expects  or 2 arguments");
     const condition = try args.at(0).get();
     if (condition != null) return condition;
     if (count == 2) {
         var msg_buf: [512]u8 = undefined;
         const message = try args.at(1).resolveString(&msg_buf);
-        return args.env.failFmt("Assertion failed: {s}", .{message});
+        return args.env.failFmt(.user, "Assertion failed: {s}", .{message});
     }
-    return args.env.fail("Assertion failed");
+    return args.env.fail(.user, "Assertion failed");
 }
 
 // ── Tests ──

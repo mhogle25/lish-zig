@@ -57,7 +57,7 @@ pub const Session = struct {
             .session_allocator = allocator,
         };
 
-        // Load macros from configured paths — each may be a file or directory.
+        // Load macros from configured paths, each may be a file or directory.
         for (config.macro_paths) |macro_path| {
             var maybe_dir = std.Io.Dir.cwd().openDir(config.io, macro_path, .{}) catch null;
             if (maybe_dir) |*dir| {
@@ -164,7 +164,7 @@ test "session: multiple executions reuse cache" {
     });
     defer session.deinit();
 
-    // First execution — cache miss
+    // First execution, cache miss
     const result1 = try session.execute("+ 10 20");
     switch (result1) {
         .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 30), maybe_value.?.int),
@@ -172,7 +172,7 @@ test "session: multiple executions reuse cache" {
         .runtime_err => return error.TestUnexpectedResult,
     }
 
-    // Second execution — cache hit
+    // Second execution, cache hit
     const result2 = try session.execute("+ 10 20");
     switch (result2) {
         .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 30), maybe_value.?.int),

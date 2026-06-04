@@ -12,6 +12,7 @@ const Env = exec_mod.Env;
 const Scope = exec_mod.Scope;
 const Registry = exec_mod.Registry;
 const Expression = exec_mod.Expression;
+const RuntimeErr = exec_mod.RuntimeErr;
 const ValidationError = validation_mod.ValidationError;
 pub const ExpressionCache = cache_mod.ExpressionCache;
 pub const LruCache = cache_mod.LruCache;
@@ -33,7 +34,7 @@ pub const LISH_FILE_MAX_SIZE = 1024 * 1024;
 pub const ProcessResult = union(enum) {
     ok: ?Value,
     validation_err: []const ValidationError,
-    runtime_err: []const u8,
+    runtime_err: RuntimeErr,
 };
 
 /// Result of loading a macro module from source.
@@ -87,7 +88,7 @@ pub fn processRaw(
     }
 }
 
-/// Parse, validate, and execute — with expression caching.
+/// Parse, validate, and execute, with expression caching.
 /// On cache hit, skips parsing and validation entirely.
 /// The env's allocator should outlive the cache (e.g. a session-scoped arena).
 pub fn processRawCached(
@@ -118,7 +119,7 @@ pub fn processRawCached(
 fn executeExpression(env: *Env, expression: Expression, scope: ?*const Scope) (Allocator.Error)!ProcessResult {
     const exec_scope = scope orelse &Scope.EMPTY;
     const result = env.processExpression(expression, exec_scope) catch |err| switch (err) {
-        error.RuntimeError => return .{ .runtime_err = env.runtime_error orelse "Unknown runtime error" },
+        error.RuntimeError => return .{ .runtime_err = env.runtime_error orelse .{ .category = .internal, .message = "Unknown runtime error" } },
         error.OutOfMemory => return error.OutOfMemory,
     };
     return .{ .ok = result };
@@ -152,7 +153,7 @@ pub fn loadMacroModule(
     }
 }
 
-/// Lish standard library source — bundled into the compiled binary.
+/// Lish standard library source, bundled into the compiled binary.
 pub const STDLIB_SOURCE = @embedFile("stdlib" ++ MACRO_EXTENSION);
 
 /// Load the bundled standard library macros into a registry.
@@ -338,8 +339,8 @@ test "processRaw: runtime error for unknown operation" {
     switch (result) {
         .ok => return error.TestUnexpectedResult,
         .validation_err => return error.TestUnexpectedResult,
-        .runtime_err => |message| {
-            try std.testing.expect(std.mem.indexOf(u8, message, "nonexistent") != null);
+        .runtime_err => |re| {
+            try std.testing.expect(std.mem.indexOf(u8, re.message, "nonexistent") != null);
         },
     }
 }
@@ -354,7 +355,7 @@ test "processRaw: with scope" {
     var env = Env{ .registry = &registry, .allocator = alloc };
 
     // Set up a scope with "x" = 10
-    const value_thunk = try exec_mod.makeValueLiteral(alloc, .{ .int = 10 });
+    const value_thunk = try exec_mod.makeValueLiteral(alloc, exec_mod.Position.synthetic, .{ .int = 10 });
     const empty_scope = try alloc.create(Scope);
     empty_scope.* = Scope.EMPTY;
     var scope = Scope{};
@@ -476,7 +477,7 @@ test "processRaw: full pipeline with macros and scope" {
     try std.testing.expectEqual(MacroLoadResult{ .ok = 1 }, load_result);
 
     // Set up scope with x = 100
-    const value_thunk = try exec_mod.makeValueLiteral(alloc, .{ .int = 100 });
+    const value_thunk = try exec_mod.makeValueLiteral(alloc, exec_mod.Position.synthetic, .{ .int = 100 });
     const empty_scope = try alloc.create(Scope);
     empty_scope.* = Scope.EMPTY;
     var scope = Scope{};
@@ -581,7 +582,7 @@ test "let: let-binding does not leak into a called macro's body" {
     var registry = Registry.init(alloc);
     try builtins.registerAll(&registry, alloc);
 
-    // `grab` references :y, which is NOT one of its params — it should never resolve
+    // `grab` references :y, which is NOT one of its params, it should never resolve
     const load_result = try loadMacroModule(&registry, "| grab | proc :y");
     switch (load_result) {
         .ok => {},
@@ -594,7 +595,7 @@ test "let: let-binding does not leak into a called macro's body" {
     switch (result) {
         .ok => return error.TestUnexpectedResult,
         .validation_err => return error.TestUnexpectedResult,
-        .runtime_err => {}, // expected — :y not in macro scope
+        .runtime_err => {}, // expected, :y not in macro scope
     }
 }
 
@@ -705,8 +706,8 @@ test "bounds: recursion depth halts runaway macro" {
 
     const result = try processRaw(&env, "forever", null);
     switch (result) {
-        .runtime_err => |msg| {
-            try std.testing.expect(std.mem.indexOf(u8, msg, "Recursion depth") != null);
+        .runtime_err => |re| {
+            try std.testing.expect(std.mem.indexOf(u8, re.message, "Recursion depth") != null);
         },
         else => return error.TestUnexpectedResult,
     }
@@ -727,8 +728,8 @@ test "bounds: fuel exhaustion halts long loop" {
     // Sub-expression body forces a processExpression call per iteration.
     const result = try processRaw(&env, "loop 1000 (+ 1 1)", null);
     switch (result) {
-        .runtime_err => |msg| {
-            try std.testing.expect(std.mem.indexOf(u8, msg, "Fuel exhausted") != null);
+        .runtime_err => |re| {
+            try std.testing.expect(std.mem.indexOf(u8, re.message, "Fuel exhausted") != null);
         },
         else => return error.TestUnexpectedResult,
     }
@@ -765,8 +766,8 @@ test "bounds: list length cap halts huge range" {
 
     const result = try processRaw(&env, "range 0 100000", null);
     switch (result) {
-        .runtime_err => |msg| {
-            try std.testing.expect(std.mem.indexOf(u8, msg, "List length") != null);
+        .runtime_err => |re| {
+            try std.testing.expect(std.mem.indexOf(u8, re.message, "List length") != null);
         },
         else => return error.TestUnexpectedResult,
     }
@@ -785,8 +786,8 @@ test "bounds: list length cap halts huge fill" {
 
     const result = try processRaw(&env, "fill 1000000 0", null);
     switch (result) {
-        .runtime_err => |msg| {
-            try std.testing.expect(std.mem.indexOf(u8, msg, "List length") != null);
+        .runtime_err => |re| {
+            try std.testing.expect(std.mem.indexOf(u8, re.message, "List length") != null);
         },
         else => return error.TestUnexpectedResult,
     }
@@ -811,8 +812,8 @@ test "bounds: string length cap halts huge concat" {
     const result = try processRaw(&env,
         "double (double (double (double (double (double (double (double (double (double \"x\")))))))))", null);
     switch (result) {
-        .runtime_err => |msg| {
-            try std.testing.expect(std.mem.indexOf(u8, msg, "String length") != null);
+        .runtime_err => |re| {
+            try std.testing.expect(std.mem.indexOf(u8, re.message, "String length") != null);
         },
         else => return error.TestUnexpectedResult,
     }

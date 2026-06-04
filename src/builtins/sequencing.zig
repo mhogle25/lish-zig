@@ -26,17 +26,17 @@ fn procOp(args: Args) ExecError!?Value {
 
 fn loopOp(args: Args) ExecError!?Value {
     const count = args.count();
-    if (count != 2 and count != 3) return args.env.fail("'loop' expects 2 or 3 arguments");
+    if (count != 2 and count != 3) return args.env.fail(.arity_mismatch, "'loop' expects  or 3 arguments");
 
     if (count == 2) {
         const n = try args.at(0).resolveInt();
-        if (n < 0) return args.env.fail("'loop' count cannot be negative");
+        if (n < 0) return args.env.fail(.invalid_argument, "'loop' count cannot be negative");
         var i: i64 = 0;
         while (i < n) : (i += 1) _ = try args.at(1).get();
         return null;
     }
 
-    // 3-arg form: name, count, body — name is bound to the iteration index.
+    // 3-arg form: name, count, body, name is bound to the iteration index.
     var iter_scope = exec.Scope{ .parent = args.scope };
     defer iter_scope.deinit(args.env.allocator);
 
@@ -45,7 +45,7 @@ fn loopOp(args: Args) ExecError!?Value {
     const name     = try args.env.allocator.dupe(u8, raw_name);
 
     const n = try args.at(1).resolveInt();
-    if (n < 0) return args.env.fail("'loop' count cannot be negative");
+    if (n < 0) return args.env.fail(.invalid_argument, "'loop' count cannot be negative");
 
     const body = args.items[2];
     var i: i64 = 0;

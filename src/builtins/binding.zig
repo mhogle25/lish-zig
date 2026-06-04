@@ -17,7 +17,7 @@ pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void 
 fn letOp(args: Args) ExecError!?Value {
     const count = args.count();
     if (count < 3 or count % 2 == 0) {
-        return args.env.fail("'let' expects an odd number of arguments (name/value pairs + body)");
+        return args.env.fail(.arity_mismatch, "'let' expects an odd number of arguments (name/value pairs + body)");
     }
 
     var extended_scope = exec.Scope{ .parent = args.scope };
@@ -39,7 +39,7 @@ fn letOp(args: Args) ExecError!?Value {
 fn pipeOp(args: Args) ExecError!?Value {
     const count = args.count();
     if (count < 3) {
-        return args.env.fail("'pipe' expects at least 3 arguments (name, initial value, step+)");
+        return args.env.fail(.arity_mismatch, "'pipe' expects at least  arguments (name, initial value, step+)");
     }
 
     var pipe_scope = exec.Scope{ .parent = args.scope };

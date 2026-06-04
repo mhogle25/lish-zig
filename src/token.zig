@@ -98,10 +98,10 @@ pub const TokenType = enum {
 pub const Token = struct {
     type: TokenType,
     lexeme: []const u8,
-    start: usize,
-    end: usize,
-    line: usize,
-    column: usize,
+    start: u32,
+    end: u32,
+    line: u32,
+    column: u32,
     invalid_escape_count: usize = 0,
 
     pub fn hasInvalidEscapes(self: Token) bool {

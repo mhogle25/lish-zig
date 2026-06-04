@@ -4,7 +4,7 @@ const exec = @import("exec.zig");
 const Registry = exec.Registry;
 const Allocator = std.mem.Allocator;
 
-// ── Sub-module imports ──
+// Sub-module imports 
 
 const constants    = @import("builtins/constants.zig");
 const arithmetic   = @import("builtins/arithmetic.zig");
@@ -21,7 +21,7 @@ const sequencing   = @import("builtins/sequencing.zig");
 const binding      = @import("builtins/binding.zig");
 const output       = @import("builtins/output.zig");
 
-// ── Registration ──
+// Registration 
 
 /// Register all built-in operations including output ops (say, error).
 pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!void {

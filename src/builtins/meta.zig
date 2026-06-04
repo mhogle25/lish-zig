@@ -28,14 +28,14 @@ fn applyOp(args: Args) ExecError!?Value {
 
     // Variable-length arg list: must heap-allocate the thunk slice.
     const alloc = args.env.allocator;
-    var id_thunk = Thunk{ .value_literal = id_value };
+    var id_thunk = Thunk{ .position = exec.Position.synthetic, .body = .{ .value_literal = id_value } };
     const id = if (id_value == .string)
         args.env.registry.resolveId(id_value.string) orelse exec.ExpressionId{ .dynamic = &id_thunk }
     else
         exec.ExpressionId{ .dynamic = &id_thunk };
     const thunks = try alloc.alloc(*const Thunk, list.len);
     for (list, 0..) |item, i| {
-        thunks[i] = try exec.makeValueLiteral(alloc, item);
+        thunks[i] = try exec.makeValueLiteral(alloc, exec.Position.synthetic, item);
     }
 
     const expression = makeExpression(id, thunks);

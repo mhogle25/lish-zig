@@ -31,10 +31,10 @@ pub const Lexer = struct {
             return .{
                 .type = .eof,
                 .lexeme = "",
-                .start = self.idx,
-                .end = self.idx,
-                .line = self.line,
-                .column = self.column,
+                .start = @intCast(self.idx),
+                .end = @intCast(self.idx),
+                .line = @intCast(self.line),
+                .column = @intCast(self.column),
             };
         }
 
@@ -82,10 +82,10 @@ pub const Lexer = struct {
             return .{
                 .type = .eof,
                 .lexeme = "",
-                .start = self.idx,
-                .end = self.idx,
-                .line = self.line,
-                .column = self.column,
+                .start = @intCast(self.idx),
+                .end = @intCast(self.idx),
+                .line = @intCast(self.line),
+                .column = @intCast(self.column),
             };
         }
 
@@ -119,10 +119,10 @@ pub const Lexer = struct {
         return .{
             .type = token_type,
             .lexeme = self.source[start..self.idx],
-            .start = start,
-            .end = self.idx,
-            .line = self.line,
-            .column = col,
+            .start = @intCast(start),
+            .end = @intCast(self.idx),
+            .line = @intCast(self.line),
+            .column = @intCast(col),
         };
     }
 
@@ -195,10 +195,10 @@ pub const Lexer = struct {
         return .{
             .type = token_type,
             .lexeme = self.source[start..self.idx],
-            .start = start,
-            .end = self.idx,
-            .line = starting_line,
-            .column = starting_column,
+            .start = @intCast(start),
+            .end = @intCast(self.idx),
+            .line = @intCast(starting_line),
+            .column = @intCast(starting_column),
             .invalid_escape_count = invalid_escape_count,
         };
     }
@@ -210,10 +210,10 @@ pub const Lexer = struct {
             return .{
                 .type = .unterminated_string,
                 .lexeme = self.source[start..],
-                .start = start,
-                .end = self.source.len,
-                .line = self.line,
-                .column = self.column,
+                .start = @intCast(start),
+                .end = @intCast(self.source.len),
+                .line = @intCast(self.line),
+                .column = @intCast(self.column),
             };
         }
 
@@ -238,10 +238,10 @@ pub const Lexer = struct {
                 return .{
                     .type = token_type,
                     .lexeme = self.source[start..end],
-                    .start = start,
-                    .end = end,
-                    .line = starting_line,
-                    .column = starting_column,
+                    .start = @intCast(start),
+                    .end = @intCast(end),
+                    .line = @intCast(starting_line),
+                    .column = @intCast(starting_column),
                     .invalid_escape_count = invalid_escape_count,
                 };
             }
@@ -271,10 +271,10 @@ pub const Lexer = struct {
         return .{
             .type = .unterminated_string,
             .lexeme = self.source[start..],
-            .start = start,
-            .end = self.source.len,
-            .line = starting_line,
-            .column = starting_column,
+            .start = @intCast(start),
+            .end = @intCast(self.source.len),
+            .line = @intCast(starting_line),
+            .column = @intCast(starting_column),
             .invalid_escape_count = invalid_escape_count,
         };
     }

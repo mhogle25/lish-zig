@@ -22,27 +22,27 @@ pub const AstBuilder = struct {
     // ── Leaf node constructors ──
 
     pub fn int(self: AstBuilder, value: i64) Allocator.Error!*const AstNode {
-        return ast_mod.makeValueLiteral(self.allocator, .{ .int = value });
+        return ast_mod.makeValueLiteral(self.allocator, ast_mod.Position.synthetic, .{ .int = value });
     }
 
     pub fn float(self: AstBuilder, value: f64) Allocator.Error!*const AstNode {
-        return ast_mod.makeValueLiteral(self.allocator, .{ .float = value });
+        return ast_mod.makeValueLiteral(self.allocator, ast_mod.Position.synthetic, .{ .float = value });
     }
 
     pub fn string(self: AstBuilder, value: []const u8) Allocator.Error!*const AstNode {
-        return ast_mod.makeValueLiteral(self.allocator, .{ .string = value });
+        return ast_mod.makeValueLiteral(self.allocator, ast_mod.Position.synthetic, .{ .string = value });
     }
 
     /// Produces a `:name` scope thunk.
     pub fn scope(self: AstBuilder, name: []const u8) Allocator.Error!*const AstNode {
-        const id_node = try ast_mod.makeValueLiteral(self.allocator, .{ .string = name });
-        return ast_mod.makeScopeThunk(self.allocator, id_node);
+        const id_node = try ast_mod.makeValueLiteral(self.allocator, ast_mod.Position.synthetic, .{ .string = name });
+        return ast_mod.makeScopeThunk(self.allocator, ast_mod.Position.synthetic, id_node);
     }
 
     /// Produces a `$name` zero-argument call expression.
     pub fn call(self: AstBuilder, name: []const u8) Allocator.Error!*const AstNode {
-        const id_node = try ast_mod.makeValueLiteral(self.allocator, .{ .string = name });
-        return ast_mod.makeExpression(self.allocator, id_node, &.{}, null, null,
+        const id_node = try ast_mod.makeValueLiteral(self.allocator, ast_mod.Position.synthetic, .{ .string = name });
+        return ast_mod.makeExpression(self.allocator, ast_mod.Position.synthetic, id_node, &.{}, null, null,
             .{ .meta_type = .single_term });
     }
 
@@ -126,9 +126,9 @@ pub const ExprBuilder = struct {
     /// Finish building the expression using the stored meta type.
     pub fn build(self: *ExprBuilder) Allocator.Error!*const AstNode {
         if (self.sticky_err) |err| return err;
-        const id_node = try ast_mod.makeValueLiteral(self.builder.allocator, .{ .string = self.id });
+        const id_node = try ast_mod.makeValueLiteral(self.builder.allocator, ast_mod.Position.synthetic, .{ .string = self.id });
         const args_slice = try self.args.toOwnedSlice(self.builder.allocator);
-        return ast_mod.makeExpression(self.builder.allocator, id_node, args_slice, null, null,
+        return ast_mod.makeExpression(self.builder.allocator, ast_mod.Position.synthetic, id_node, args_slice, null, null,
             .{ .meta_type = self.meta_type });
     }
 };
@@ -257,7 +257,7 @@ test "builder: asTopLevel" {
     const node = try eb.arg(try b.int(1)).asTopLevel().build();
     try std.testing.expectEqual(
         AstExpression.MetaType.top_level,
-        node.expression.meta.meta_type,
+        node.body.expression.meta.meta_type,
     );
 }
 
@@ -268,7 +268,7 @@ test "builder: list literal" {
 
     var lb = b.list();
     const node = try lb.arg(try b.int(1)).arg(try b.int(2)).arg(try b.int(3)).build();
-    try std.testing.expectEqual(AstExpression.MetaType.list_literal, node.expression.meta.meta_type);
+    try std.testing.expectEqual(AstExpression.MetaType.list_literal, node.body.expression.meta.meta_type);
     try expectExpr(node, "list 1 2 3");
 }
 
@@ -284,7 +284,7 @@ test "builder: block literal" {
         .arg(try say1.arg(try b.string("hello")).build())
         .arg(try say2.arg(try b.string("world")).build())
         .build();
-    try std.testing.expectEqual(AstExpression.MetaType.block_literal, node.expression.meta.meta_type);
+    try std.testing.expectEqual(AstExpression.MetaType.block_literal, node.body.expression.meta.meta_type);
     try expectExpr(node, "proc (say hello) (say world)");
 }
 
@@ -296,12 +296,12 @@ test "builder: list vs expr list" {
     // b.list() → .list_literal
     var lb = b.list();
     const list_node = try lb.arg(try b.int(1)).build();
-    try std.testing.expectEqual(AstExpression.MetaType.list_literal, list_node.expression.meta.meta_type);
+    try std.testing.expectEqual(AstExpression.MetaType.list_literal, list_node.body.expression.meta.meta_type);
 
     // b.expr("list") → .standard
     var eb = b.expr("list");
     const expr_node = try eb.arg(try b.int(1)).build();
-    try std.testing.expectEqual(AstExpression.MetaType.standard, expr_node.expression.meta.meta_type);
+    try std.testing.expectEqual(AstExpression.MetaType.standard, expr_node.body.expression.meta.meta_type);
 }
 
 test "builder: macro with value param" {

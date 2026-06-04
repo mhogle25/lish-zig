@@ -32,11 +32,11 @@ pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void 
 fn minOp(args: Args) ExecError!?Value {
     try args.expectMinCount(2);
     var result = try args.at(0).resolve();
-    if (!result.isNumber()) return args.env.fail("Expected a number");
+    if (!result.isNumber()) return args.env.fail(.type_mismatch, "Expected a number");
 
     for (1..args.count()) |i| {
         const operand = try args.at(i).resolve();
-        if (!operand.isNumber()) return args.env.fail("Expected a number");
+        if (!operand.isNumber()) return args.env.fail(.type_mismatch, "Expected a number");
 
         if (result == .float or operand == .float) {
             const left = result.getF() catch unreachable;
@@ -54,11 +54,11 @@ fn minOp(args: Args) ExecError!?Value {
 fn maxOp(args: Args) ExecError!?Value {
     try args.expectMinCount(2);
     var result = try args.at(0).resolve();
-    if (!result.isNumber()) return args.env.fail("Expected a number");
+    if (!result.isNumber()) return args.env.fail(.type_mismatch, "Expected a number");
 
     for (1..args.count()) |i| {
         const operand = try args.at(i).resolve();
-        if (!operand.isNumber()) return args.env.fail("Expected a number");
+        if (!operand.isNumber()) return args.env.fail(.type_mismatch, "Expected a number");
 
         if (result == .float or operand == .float) {
             const left = result.getF() catch unreachable;
@@ -79,7 +79,7 @@ fn clampOp(args: Args) ExecError!?Value {
     const min_val = try args.at(1).resolve();
     const max_val = try args.at(2).resolve();
     if (!value.isNumber() or !min_val.isNumber() or !max_val.isNumber())
-        return args.env.fail("Expected a number");
+        return args.env.fail(.type_mismatch, "Expected a number");
 
     if (value == .float or min_val == .float or max_val == .float) {
         const val_f = value.getF() catch unreachable;
@@ -100,7 +100,7 @@ fn absOp(args: Args) ExecError!?Value {
     return switch (value) {
         .int => |int_val| .{ .int = if (int_val < 0) -%int_val else int_val },
         .float => |float_val| .{ .float = @abs(float_val) },
-        else => args.env.fail("Expected a number"),
+        else => args.env.fail(.type_mismatch, "Expected a number"),
     };
 }
 
@@ -110,7 +110,7 @@ fn floorOp(args: Args) ExecError!?Value {
     return switch (value) {
         .int => value,
         .float => |float_val| .{ .int = @intFromFloat(@floor(float_val)) },
-        else => args.env.fail("Expected a number"),
+        else => args.env.fail(.type_mismatch, "Expected a number"),
     };
 }
 
@@ -120,7 +120,7 @@ fn ceilOp(args: Args) ExecError!?Value {
     return switch (value) {
         .int => value,
         .float => |float_val| .{ .int = @intFromFloat(@ceil(float_val)) },
-        else => args.env.fail("Expected a number"),
+        else => args.env.fail(.type_mismatch, "Expected a number"),
     };
 }
 
@@ -130,21 +130,21 @@ fn roundOp(args: Args) ExecError!?Value {
     return switch (value) {
         .int => value,
         .float => |float_val| .{ .int = @intFromFloat(@round(float_val)) },
-        else => args.env.fail("Expected a number"),
+        else => args.env.fail(.type_mismatch, "Expected a number"),
     };
 }
 
 fn evenOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
     const value = try args.at(0).resolve();
-    const n = value.getI() catch return args.env.fail("'even' expects an integer");
+    const n = value.getI() catch return args.env.fail(.type_mismatch, "'even' expects an integer");
     return val.toCondition(@mod(n, 2) == 0);
 }
 
 fn oddOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
     const value = try args.at(0).resolve();
-    const n = value.getI() catch return args.env.fail("'odd' expects an integer");
+    const n = value.getI() catch return args.env.fail(.type_mismatch, "'odd' expects an integer");
     return val.toCondition(@mod(n, 2) != 0);
 }
 
@@ -159,7 +159,7 @@ fn signOp(args: Args) ExecError!?Value {
         const f = value.float;
         return .{ .int = if (f < 0) -1 else if (f > 0) 1 else 0 };
     }
-    return args.env.fail("'sign' expects a number");
+    return args.env.fail(.type_mismatch, "'sign' expects a number");
 }
 
 fn piOp(_: Args) ExecError!?Value {

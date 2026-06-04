@@ -44,62 +44,62 @@ fn randomIntRangeLessThan(io: std.Io, comptime T: type, at_least: T, less_than: 
 }
 
 fn requireIo(args: Args) ExecError!std.Io {
-    return args.env.io orelse args.env.fail("random ops require an Io context");
+    return args.env.io orelse args.env.fail(.internal, "random ops require an Io context");
 }
 
 // ── Operations ──
 
-/// `? x y` — random value in [x, y] (both inclusive).
+/// `? x y`, random value in [x, y] (both inclusive).
 /// For integers, both endpoints are reachable.
 /// For floats, [x, y) is used internally; hitting exactly y is not representable.
 fn randInclusiveOp(args: Args) ExecError!?Value {
     try args.expectCount(2);
     const x = try args.at(0).resolve();
     const y = try args.at(1).resolve();
-    if (!x.isNumber()) return args.env.fail("'?' expects numbers");
-    if (!y.isNumber()) return args.env.fail("'?' expects numbers");
+    if (!x.isNumber()) return args.env.fail(.type_mismatch, "'?' expects numbers");
+    if (!y.isNumber()) return args.env.fail(.type_mismatch, "'?' expects numbers");
 
     const io = try requireIo(args);
 
     if (x == .float or y == .float) {
         const xf = x.getF() catch unreachable;
         const yf = y.getF() catch unreachable;
-        if (xf > yf) return args.env.fail("'?' expects x <= y");
+        if (xf > yf) return args.env.fail(.invalid_argument, "'?' expects x <= y");
         return .{ .float = xf + randomF64(io) * (yf - xf) };
     } else {
         const xi = x.getI() catch unreachable;
         const yi = y.getI() catch unreachable;
-        if (xi > yi) return args.env.fail("'?' expects x <= y");
+        if (xi > yi) return args.env.fail(.invalid_argument, "'?' expects x <= y");
         return .{ .int = randomIntRangeAtMost(io, i64, xi, yi) };
     }
 }
 
-/// `?< x y` — random value in [x, y) (upper-exclusive).
+/// `?< x y`, random value in [x, y) (upper-exclusive).
 /// For integers, y is never returned.
 /// For floats, standard [x, y) semantics.
 fn randExclusiveOp(args: Args) ExecError!?Value {
     try args.expectCount(2);
     const x = try args.at(0).resolve();
     const y = try args.at(1).resolve();
-    if (!x.isNumber()) return args.env.fail("'?<' expects numbers");
-    if (!y.isNumber()) return args.env.fail("'?<' expects numbers");
+    if (!x.isNumber()) return args.env.fail(.type_mismatch, "'?<' expects numbers");
+    if (!y.isNumber()) return args.env.fail(.type_mismatch, "'?<' expects numbers");
 
     const io = try requireIo(args);
 
     if (x == .float or y == .float) {
         const xf = x.getF() catch unreachable;
         const yf = y.getF() catch unreachable;
-        if (xf >= yf) return args.env.fail("'?<' expects x < y");
+        if (xf >= yf) return args.env.fail(.invalid_argument, "'?<' expects x < y");
         return .{ .float = xf + randomF64(io) * (yf - xf) };
     } else {
         const xi = x.getI() catch unreachable;
         const yi = y.getI() catch unreachable;
-        if (xi >= yi) return args.env.fail("'?<' expects x < y");
+        if (xi >= yi) return args.env.fail(.invalid_argument, "'?<' expects x < y");
         return .{ .int = randomIntRangeLessThan(io, i64, xi, yi) };
     }
 }
 
-/// `?? a b c ...` — pick one argument at random. Only the chosen argument is evaluated.
+/// `?? a b c ...`, pick one argument at random. Only the chosen argument is evaluated.
 fn randPickOp(args: Args) ExecError!?Value {
     try args.expectMinCount(1);
     const io = try requireIo(args);
@@ -195,7 +195,7 @@ test "??: picks from provided values" {
     }
 }
 
-test "let: binds ? once — body sees the same roll on every reference" {
+test "let: binds ? once, body sees the same roll on every reference" {
     // Without let: (- (? 0 1000000) (? 0 1000000)) is almost never 0.
     // With let:    (let r (? 0 1000000) (- :r :r)) is always 0.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

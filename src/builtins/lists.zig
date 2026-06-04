@@ -74,7 +74,7 @@ fn lengthOp(args: Args) ExecError!?Value {
     return switch (value) {
         .list => |items| .{ .int = @intCast(items.len) },
         .string => |str| .{ .int = @intCast(str.len) },
-        else => args.env.fail("'length' expects a list or string"),
+        else => args.env.fail(.type_mismatch, "'length' expects a list or string"),
     };
 }
 
@@ -84,7 +84,7 @@ fn firstOp(args: Args) ExecError!?Value {
     return switch (value) {
         .list => |items| if (items.len == 0) null else items[0],
         .string => |str| if (str.len == 0) null else .{ .string = str[0..1] },
-        else => args.env.fail("'first' expects a list or string"),
+        else => args.env.fail(.type_mismatch, "'first' expects a list or string"),
     };
 }
 
@@ -94,14 +94,14 @@ fn restOp(args: Args) ExecError!?Value {
     return switch (value) {
         .list => |items| if (items.len <= 1) .{ .list = &.{} } else .{ .list = items[1..] },
         .string => |str| if (str.len <= 1) .{ .string = "" } else .{ .string = str[1..] },
-        else => args.env.fail("'rest' expects a list or string"),
+        else => args.env.fail(.type_mismatch, "'rest' expects a list or string"),
     };
 }
 
 fn atOp(args: Args) ExecError!?Value {
     try args.expectCount(2);
     const index_value = try args.at(0).resolve();
-    const index = index_value.getI() catch return args.env.fail("'at' expects an integer index");
+    const index = index_value.getI() catch return args.env.fail(.type_mismatch, "'at' expects an integer index");
     if (index < 0) return null;
     const collection = try args.at(1).resolve();
     return switch (collection) {
@@ -114,7 +114,7 @@ fn atOp(args: Args) ExecError!?Value {
             const idx: usize = @intCast(index);
             return .{ .string = str[idx .. idx + 1] };
         },
-        else => args.env.fail("'at' expects a list or string"),
+        else => args.env.fail(.type_mismatch, "'at' expects a list or string"),
     };
 }
 
@@ -137,24 +137,24 @@ fn reverseOp(args: Args) ExecError!?Value {
             }
             return .{ .string = reversed };
         },
-        else => args.env.fail("'reverse' expects a list or string"),
+        else => args.env.fail(.type_mismatch, "'reverse' expects a list or string"),
     };
 }
 
 fn rangeOp(args: Args) ExecError!?Value {
     const count = args.count();
-    if (count < 2 or count > 3) return args.env.fail("'range' expects 2 or 3 arguments");
+    if (count < 2 or count > 3) return args.env.fail(.arity_mismatch, "'range' expects  or 3 arguments");
 
     const start_value = try args.at(0).resolve();
     const end_value = try args.at(1).resolve();
-    const start = start_value.getI() catch return args.env.fail("'range' expects integer arguments");
-    const end = end_value.getI() catch return args.env.fail("'range' expects integer arguments");
+    const start = start_value.getI() catch return args.env.fail(.type_mismatch, "'range' expects integer arguments");
+    const end = end_value.getI() catch return args.env.fail(.type_mismatch, "'range' expects integer arguments");
 
     var step: i64 = if (start <= end) 1 else -1;
     if (count == 3) {
         const step_value = try args.at(2).resolve();
-        step = step_value.getI() catch return args.env.fail("'range' expects an integer step");
-        if (step == 0) return args.env.fail("'range' step cannot be zero");
+        step = step_value.getI() catch return args.env.fail(.type_mismatch, "'range' expects an integer step");
+        if (step == 0) return args.env.fail(.arithmetic, "'range' step cannot be zero");
     }
 
     const alloc = args.env.allocator;
@@ -178,18 +178,18 @@ fn rangeOp(args: Args) ExecError!?Value {
 
 fn untilOp(args: Args) ExecError!?Value {
     const count = args.count();
-    if (count < 2 or count > 3) return args.env.fail("'until' expects 2 or 3 arguments");
+    if (count < 2 or count > 3) return args.env.fail(.arity_mismatch, "'until' expects  or 3 arguments");
 
     const start_value = try args.at(0).resolve();
     const end_value = try args.at(1).resolve();
-    const start = start_value.getI() catch return args.env.fail("'until' expects integer arguments");
-    const end = end_value.getI() catch return args.env.fail("'until' expects integer arguments");
+    const start = start_value.getI() catch return args.env.fail(.type_mismatch, "'until' expects integer arguments");
+    const end = end_value.getI() catch return args.env.fail(.type_mismatch, "'until' expects integer arguments");
 
     var step: i64 = if (start <= end) 1 else -1;
     if (count == 3) {
         const step_value = try args.at(2).resolve();
-        step = step_value.getI() catch return args.env.fail("'until' expects an integer step");
-        if (step == 0) return args.env.fail("'until' step cannot be zero");
+        step = step_value.getI() catch return args.env.fail(.type_mismatch, "'until' expects an integer step");
+        if (step == 0) return args.env.fail(.arithmetic, "'until' step cannot be zero");
     }
 
     const alloc = args.env.allocator;
@@ -217,35 +217,35 @@ fn lastOp(args: Args) ExecError!?Value {
     return switch (value) {
         .list => |items| if (items.len == 0) null else items[items.len - 1],
         .string => |str| if (str.len == 0) null else .{ .string = str[str.len - 1 ..] },
-        else => args.env.fail("'last' expects a list or string"),
+        else => args.env.fail(.type_mismatch, "'last' expects a list or string"),
     };
 }
 
 fn takeOp(args: Args) ExecError!?Value {
     try args.expectCount(2);
     const count_val = try args.at(0).resolve();
-    const take_n = count_val.getI() catch return args.env.fail("'take' expects an integer count");
-    if (take_n < 0) return args.env.fail("'take' count cannot be negative");
+    const take_n = count_val.getI() catch return args.env.fail(.type_mismatch, "'take' expects an integer count");
+    if (take_n < 0) return args.env.fail(.invalid_argument, "'take' count cannot be negative");
     const value = try args.at(1).resolve();
     const take_count: usize = @intCast(take_n);
     return switch (value) {
         .list => |items| .{ .list = items[0..@min(take_count, items.len)] },
         .string => |str| .{ .string = str[0..@min(take_count, str.len)] },
-        else => args.env.fail("'take' expects a list or string"),
+        else => args.env.fail(.type_mismatch, "'take' expects a list or string"),
     };
 }
 
 fn dropOp(args: Args) ExecError!?Value {
     try args.expectCount(2);
     const count_val = try args.at(0).resolve();
-    const drop_n = count_val.getI() catch return args.env.fail("'drop' expects an integer count");
-    if (drop_n < 0) return args.env.fail("'drop' count cannot be negative");
+    const drop_n = count_val.getI() catch return args.env.fail(.type_mismatch, "'drop' expects an integer count");
+    if (drop_n < 0) return args.env.fail(.invalid_argument, "'drop' count cannot be negative");
     const value = try args.at(1).resolve();
     const drop_count: usize = @intCast(drop_n);
     return switch (value) {
         .list => |items| .{ .list = if (drop_count >= items.len) &.{} else items[drop_count..] },
         .string => |str| .{ .string = if (drop_count >= str.len) "" else str[drop_count..] },
-        else => args.env.fail("'drop' expects a list or string"),
+        else => args.env.fail(.type_mismatch, "'drop' expects a list or string"),
     };
 }
 
@@ -253,15 +253,15 @@ fn sliceOp(args: Args) ExecError!?Value {
     try args.expectCount(3);
     const start_i = try args.at(0).resolveInt();
     const end_i = try args.at(1).resolveInt();
-    if (start_i < 0) return args.env.fail("'slice' start cannot be negative");
-    if (end_i < start_i) return args.env.fail("'slice' end cannot be before start");
+    if (start_i < 0) return args.env.fail(.invalid_argument, "'slice' start cannot be negative");
+    if (end_i < start_i) return args.env.fail(.invalid_argument, "'slice' end cannot be before start");
     const collection = try args.at(2).resolve();
     const start: usize = @intCast(start_i);
     const end: usize = @intCast(end_i);
     return switch (collection) {
         .list => |items| .{ .list = items[@min(start, items.len)..@min(end, items.len)] },
         .string => |str| .{ .string = str[@min(start, str.len)..@min(end, str.len)] },
-        else => args.env.fail("'slice' expects a list or string"),
+        else => args.env.fail(.type_mismatch, "'slice' expects a list or string"),
     };
 }
 
@@ -426,11 +426,11 @@ fn sortwithOp(args: Args) ExecError!?Value {
 
 fn fillOp(args: Args) ExecError!?Value {
     const count = args.count();
-    if (count < 1 or count > 2) return args.env.fail("'fill' expects 1 or 2 arguments");
+    if (count < 1 or count > 2) return args.env.fail(.arity_mismatch, "'fill' expects  or 2 arguments");
 
     const n_value = try args.at(0).resolve();
-    const n = n_value.getI() catch return args.env.fail("'fill' expects an integer count");
-    if (n < 0) return args.env.fail("'fill' count cannot be negative");
+    const n = n_value.getI() catch return args.env.fail(.type_mismatch, "'fill' expects an integer count");
+    if (n < 0) return args.env.fail(.invalid_argument, "'fill' count cannot be negative");
 
     const fill_value: ?Value = if (count == 2) try args.at(1).get() else null;
 
@@ -443,14 +443,14 @@ fn fillOp(args: Args) ExecError!?Value {
 
 fn fillbyOp(args: Args) ExecError!?Value {
     const count = args.count();
-    if (count != 2 and count != 3) return args.env.fail("'fillby' expects 2 or 3 arguments");
+    if (count != 2 and count != 3) return args.env.fail(.arity_mismatch, "'fillby' expects  or 3 arguments");
 
     const alloc = args.env.allocator;
 
     if (count == 2) {
         const n_value = try args.at(0).resolve();
-        const n = n_value.getI() catch return args.env.fail("'fillby' expects an integer count");
-        if (n < 0) return args.env.fail("'fillby' count cannot be negative");
+        const n = n_value.getI() catch return args.env.fail(.type_mismatch, "'fillby' expects an integer count");
+        if (n < 0) return args.env.fail(.invalid_argument, "'fillby' count cannot be negative");
 
         try helpers.checkListLength(args, @intCast(n));
         const items = try alloc.alloc(?Value, @intCast(n));
@@ -458,7 +458,7 @@ fn fillbyOp(args: Args) ExecError!?Value {
         return .{ .list = items };
     }
 
-    // 3-arg form: name, count, body — name is bound to the slot index per iteration.
+    // 3-arg form: name, count, body, name is bound to the slot index per iteration.
     var iter_scope = exec.Scope{ .parent = args.scope };
     defer iter_scope.deinit(alloc);
 
@@ -467,8 +467,8 @@ fn fillbyOp(args: Args) ExecError!?Value {
     const name     = try alloc.dupe(u8, raw_name);
 
     const n_value = try args.at(1).resolve();
-    const n = n_value.getI() catch return args.env.fail("'fillby' expects an integer count");
-    if (n < 0) return args.env.fail("'fillby' count cannot be negative");
+    const n = n_value.getI() catch return args.env.fail(.type_mismatch, "'fillby' expects an integer count");
+    if (n < 0) return args.env.fail(.invalid_argument, "'fillby' count cannot be negative");
 
     try helpers.checkListLength(args, @intCast(n));
     const body  = args.items[2];
@@ -703,10 +703,10 @@ test "collection: flatten variadic" {
 test "collection: flatten vs flat" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    // flat is shallow — inner list [4 5] stays as a list element
+    // flat is shallow, inner list [4 5] stays as a list element
     const flat_result = try testing.evalWithBuiltins(arena.allocator(), "length (flat [1 2] [3 [4 5]])");
     try std.testing.expectEqual(@as(i64, 4), flat_result.?.int);
-    // flatten is deep — recurses into [4 5]
+    // flatten is deep, recurses into [4 5]
     const flatten_result = try testing.evalWithBuiltins(arena.allocator(), "length (flatten [1 2] [3 [4 5]])");
     try std.testing.expectEqual(@as(i64, 5), flatten_result.?.int);
 }
@@ -728,7 +728,7 @@ test "collection: sort strings" {
 test "sortby: key-based ascending" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    // Sort by the value itself (identity key) — natural ascending order.
+    // Sort by the value itself (identity key), natural ascending order.
     const result = try testing.evalWithBuiltins(arena.allocator(), "sortby x [3 1 2] :x");
     const items = result.?.list;
     try std.testing.expectEqual(@as(i64, 1), items[0].?.int);

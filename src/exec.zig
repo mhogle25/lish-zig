@@ -4,30 +4,88 @@ const val = @import("value.zig");
 const Value = val.Value;
 const Allocator = std.mem.Allocator;
 
-// ── Error types ──
+// Error types
 
 pub const ExecError = Allocator.Error || error{RuntimeError};
 
-// ── Thunk — Core deferred computation ──
+// Position and source tracking
 
-pub const Thunk = union(enum) {
-    value_literal: ?Value,
-    scope_thunk: *const Thunk,
-    expression: Expression,
+/// Byte-offset span into a source. Line/column computed on demand by the host
+/// from these offsets plus the source content.
+pub const Position = struct {
+    start: u32,
+    end:   u32,
 
-    /// Evaluate this thunk in the given environment and scope.
+    /// Synthetic position for thunks not constructed from source (e.g.,
+    /// scope bindings created at runtime by setValue).
+    pub const synthetic: Position = .{ .start = 0, .end = 0 };
+};
+
+/// Identifier for which source a Position indexes into. Hosts populate this
+/// at evaluation entry (top-level eval) and per-Macro (when the macro is
+/// loaded). At runtime, Env.current_source reflects the macro/source whose
+/// thunks are currently executing.
+pub const SourceId = union(enum) {
+    none,
+    repl,
+    embedded_stdlib,
+    file: u16,
+};
+
+// Runtime errors
+
+/// Category of a runtime error. Hosts use this to distinguish (e.g.) "fuel
+/// exhausted" from "type mismatch" without parsing the message text.
+pub const ErrorCategory = enum {
+    fuel_exhausted,            // bounds: fuel
+    recursion_depth_exceeded,  // bounds: call depth
+    list_too_large,            // bounds: max_list_length
+    string_too_large,          // bounds: max_string_length
+    unknown_op,                // name not registered in current registry chain
+    arity_mismatch,            // wrong number of arguments
+    type_mismatch,             // value of wrong runtime type
+    bounds_violation,          // index access out of valid range
+    arithmetic,                // divide by zero, integer overflow, etc.
+    invalid_argument,          // right type, unacceptable value
+    user,                      // explicit script-raised (assert, future panic)
+    internal,                  // interpreter bug / shouldn't-happen
+};
+
+/// Structured runtime error stored on Env.runtime_error after env.fail().
+/// Source and position are captured automatically from Env's current
+/// evaluation context at the moment of failure.
+pub const RuntimeErr = struct {
+    category: ErrorCategory,
+    message:  []const u8,
+    source:   SourceId    = .none,
+    position: ?Position   = null,
+};
+
+// Thunk
+
+pub const Thunk = struct {
+    position: Position,
+    body:     ThunkBody,
+
+    /// Evaluate this thunk in the given environment and scope. Updates
+    /// env.current_position to this thunk's position for the duration of
+    /// evaluation so any env.fail call inside captures the right location.
     pub fn proc(self: *const Thunk, env: *Env, scope: *const Scope) ExecError!?Value {
-        return switch (self.*) {
+        const saved_position = env.current_position;
+        env.current_position = self.position;
+        defer env.current_position = saved_position;
+
+        return switch (self.body) {
             .value_literal => |stored_value| stored_value,
             .scope_thunk => |id_thunk| {
                 const id_value = try id_thunk.proc(env, scope) orelse
-                    return env.fail("Scope thunk ID resolved to none");
+                    return env.fail(.invalid_argument, "Scope thunk ID resolved to none");
 
                 var id_buf: [256]u8 = undefined;
                 const id_string = id_value.getS(&id_buf);
 
                 const entry = scope.get(id_string) orelse
-                    return env.fail("Scope entry not found");
+                    return env.fail(.unknown_op, "Scope entry not found");
 
                 return entry.run(env);
             },
@@ -36,7 +94,13 @@ pub const Thunk = union(enum) {
     }
 };
 
-// ── ExpressionId ──
+pub const ThunkBody = union(enum) {
+    value_literal: ?Value,
+    scope_thunk:   *const Thunk,
+    expression:    Expression,
+};
+
+// ExpressionId 
 
 pub const ExpressionId = union(enum) {
     resolved_op:    Operation,      // direct call, no registry lookup
@@ -49,7 +113,7 @@ pub const Expression = struct {
     args: []const *const Thunk,
 };
 
-// ── Scope ──
+// Scope 
 
 pub const ScopeEntry = struct {
     thunk: *const Thunk,
@@ -68,8 +132,7 @@ const INLINE_CAP = 8;
 
 const InlineEntry = struct {
     key: []const u8,
-    // Value params: thunk owned inline — no heap allocation needed.
-    // Deferred params: borrowed pointer + caller scope.
+
     kind: union(enum) {
         owned:    Thunk,
         borrowed: ScopeEntry,
@@ -114,19 +177,19 @@ pub const Scope = struct {
         try self.overflow.?.put(allocator, key, .{ .thunk = thunk, .scope = thunk_scope });
     }
 
-    /// Bind a static value to a name. Stores the thunk inline — no allocation for small scopes.
+    /// Bind a static value to a name. Stores the thunk inline. No allocation for small scopes.
     pub fn setValue(self: *Scope, allocator: Allocator, key: []const u8, value: ?Value) Allocator.Error!void {
         if (self.inline_count < INLINE_CAP) {
             self.inline_entries[self.inline_count] = .{
                 .key  = key,
-                .kind = .{ .owned = .{ .value_literal = value } },
+                .kind = .{ .owned = .{ .position = Position.synthetic, .body = .{ .value_literal = value } } },
             };
             self.inline_count += 1;
             return;
         }
         // Overflow: must heap-allocate the thunk since HashMap stores *const Thunk.
         const thunk = try allocator.create(Thunk);
-        thunk.* = .{ .value_literal = value };
+        thunk.* = .{ .position = Position.synthetic, .body = .{ .value_literal = value } };
         try self.spillToOverflow(allocator);
         try self.overflow.?.put(allocator, key, .{ .thunk = thunk, .scope = &Scope.EMPTY });
     }
@@ -147,7 +210,7 @@ pub const Scope = struct {
     pub const EMPTY: Scope = .{};
 };
 
-// ── Arg — Deferred argument wrapper ──
+// Arg
 
 pub const Arg = struct {
     thunk: *const Thunk,
@@ -162,7 +225,7 @@ pub const Arg = struct {
     /// Evaluate and require a non-null value.
     pub fn resolve(self: Arg) ExecError!Value {
         return try self.get() orelse
-            return self.env.fail("Expected a value but got none");
+            return self.env.fail(.type_mismatch, "Expected a value but got none");
     }
 
     /// Evaluate and get as string.
@@ -175,25 +238,25 @@ pub const Arg = struct {
     pub fn resolveInt(self: Arg) ExecError!i64 {
         const result = try self.resolve();
         return result.getI() catch
-            return self.env.fail("Expected a number");
+            return self.env.fail(.type_mismatch, "Expected a number");
     }
 
     /// Evaluate and get as float.
     pub fn resolveFloat(self: Arg) ExecError!f64 {
         const result = try self.resolve();
         return result.getF() catch
-            return self.env.fail("Expected a number");
+            return self.env.fail(.type_mismatch, "Expected a number");
     }
 
     /// Evaluate and get as list.
     pub fn resolveList(self: Arg) ExecError![]const ?Value {
         const result = try self.resolve();
         return result.getL() catch
-            return self.env.fail("Expected a list");
+            return self.env.fail(.type_mismatch, "Expected a list");
     }
 };
 
-// ── Args — Collection of deferred arguments ──
+// Args
 
 pub const Args = struct {
     items: []const *const Thunk,
@@ -211,7 +274,7 @@ pub const Args = struct {
     /// Get a single argument, asserting exactly one was provided.
     pub fn single(self: Args) ExecError!Arg {
         if (self.items.len != 1) {
-            return self.env.fail(
+            return self.env.fail(.arity_mismatch,
                 if (self.items.len == 0) "Expected 1 argument but got 0" else "Expected 1 argument but got multiple",
             );
         }
@@ -245,19 +308,19 @@ pub const Args = struct {
     /// Validate that exactly the expected number of arguments was provided.
     pub fn expectCount(self: Args, expected: usize) ExecError!void {
         if (self.items.len != expected) {
-            return self.env.failFmt("Expected {d} argument(s) but got {d}", .{ expected, self.items.len });
+            return self.env.failFmt(.arity_mismatch, "Expected {d} argument(s) but got {d}", .{ expected, self.items.len });
         }
     }
 
     /// Validate at least the minimum number of arguments was provided.
     pub fn expectMinCount(self: Args, minimum: usize) ExecError!void {
         if (self.items.len < minimum) {
-            return self.env.failFmt("Expected at least {d} argument(s) but got {d}", .{ minimum, self.items.len });
+            return self.env.failFmt(.arity_mismatch, "Expected at least {d} argument(s) but got {d}", .{ minimum, self.items.len });
         }
     }
 };
 
-// ── Operation — Callable with optional bound context ──
+// Operation
 
 pub const Operation = struct {
     context: ?*anyopaque,
@@ -298,7 +361,7 @@ pub const Operation = struct {
     }
 };
 
-// ── Macro — User-defined function ──
+// Macro
 
 pub const MacroParameterType = enum {
     value,
@@ -314,6 +377,10 @@ pub const Macro = struct {
     id: []const u8,
     parameters: []const MacroParameter,
     body: Expression,
+    /// Source the macro body's thunks belong to. Swapped into env.current_source
+    /// during execution so positions captured by env.fail resolve to the right
+    /// file. Defaults to `.none` for macros constructed in tests.
+    source: SourceId = .none,
 
     /// Execute the macro: bind arguments to parameters, evaluate body.
     pub fn run(
@@ -323,7 +390,7 @@ pub const Macro = struct {
         caller_scope: *const Scope,
     ) ExecError!?Value {
         if (self.parameters.len != arg_thunks.len) {
-            return env.failFmt(
+            return env.failFmt(.invalid_argument, 
                 "Macro '{s}' expected {d} argument(s) but got {d}",
                 .{ self.id, self.parameters.len, arg_thunks.len },
             );
@@ -347,11 +414,17 @@ pub const Macro = struct {
             }
         }
 
+        // Switch source context to the macro's source while evaluating its body.
+        // Positions captured during body execution will resolve against self.source.
+        const saved_source = env.current_source;
+        env.current_source = self.source;
+        defer env.current_source = saved_source;
+
         return env.processExpression(self.body, &macro_scope);
     }
 };
 
-// ── Registry — Operation and macro namespace ──
+// Registry
 
 pub const Registry = struct {
     operations: std.StringHashMapUnmanaged(Operation) = .{},
@@ -399,7 +472,7 @@ pub const Registry = struct {
     }
 };
 
-// ── Bounds — runtime resource limits ──
+// Runtime resource limits 
 
 /// Per-evaluation resource limits. Null fields mean "unlimited".
 /// `max_call_depth` always applies (no null option) since deep recursion
@@ -425,20 +498,20 @@ pub const Bounds = struct {
     max_string_length: ?usize = null,
 };
 
-// ── Env — Execution environment ──
+// Env
 
 pub const Env = struct {
     registry: *const Registry,
     allocator: Allocator,
     io: ?std.Io = null,
-    runtime_error: ?[]const u8 = null,
+    runtime_error: ?RuntimeErr = null,
     stdout: ?*std.Io.Writer = null,
     stderr: ?*std.Io.Writer = null,
 
     /// Resource limits applied during evaluation.
     bounds: Bounds = .{},
 
-    /// Current recursion depth — incremented at processExpression entry,
+    /// Current recursion depth, incremented at processExpression entry,
     /// decremented on exit. Should be 0 between top-level evaluations.
     call_depth: usize = 0,
 
@@ -447,18 +520,28 @@ pub const Env = struct {
     /// Null = unlimited (no decrement, no check).
     fuel_remaining: ?usize = null,
 
+    /// Source position of the Thunk currently being evaluated. Updated on
+    /// every Thunk.proc entry, restored on exit. Read by env.fail to attach
+    /// the innermost position to runtime errors.
+    current_position: ?Position = null,
+
+    /// Source the currently-executing thunks belong to. Updated on macro
+    /// entry (Macro.run swaps to self.source) and on top-level evaluation
+    /// entry (host sets it before kicking off processing).
+    current_source: SourceId = .none,
+
     /// Evaluate an expression: dispatch on its (possibly pre-resolved) ID.
     pub fn processExpression(self: *Env, expression: Expression, scope: *const Scope) ExecError!?Value {
         // Recursion-depth guard: prevents Zig stack overflow from runaway macros.
         self.call_depth += 1;
         defer self.call_depth -= 1;
         if (self.call_depth > self.bounds.max_call_depth) {
-            return self.failFmt("Recursion depth exceeded (max {d})", .{self.bounds.max_call_depth});
+            return self.failFmt(.recursion_depth_exceeded, "Recursion depth exceeded (max {d})", .{self.bounds.max_call_depth});
         }
 
         // Fuel guard: bounds total work per top-level evaluation.
         if (self.fuel_remaining) |*fuel| {
-            if (fuel.* == 0) return self.fail("Fuel exhausted");
+            if (fuel.* == 0) return self.fail(.fuel_exhausted, "Fuel exhausted");
             fuel.* -= 1;
         }
 
@@ -473,12 +556,12 @@ pub const Env = struct {
             },
             .dynamic => |id_thunk| {
                 const id_value = try id_thunk.proc(self, scope) orelse
-                    return self.fail("Expression ID resolved to none");
+                    return self.fail(.invalid_argument, "Expression ID resolved to none");
                 const id_string = switch (id_value) {
                     .string => |s| s,
-                    .int    => |n| return self.failFmt("Expected operation name, got int: {d}", .{n}),
-                    .float  => |n| return self.failFmt("Expected operation name, got float: {d}", .{n}),
-                    .list   =>     return self.fail("Expected operation name, got list"),
+                    .int    => |n| return self.failFmt(.type_mismatch, "Expected operation name, got int: {d}", .{n}),
+                    .float  => |n| return self.failFmt(.type_mismatch, "Expected operation name, got float: {d}", .{n}),
+                    .list   =>     return self.fail(.type_mismatch, "Expected operation name, got list"),
                 };
                 if (self.registry.getOperation(id_string)) |operation| {
                     const args = Args{ .items = expression.args, .env = self, .scope = scope };
@@ -487,71 +570,93 @@ pub const Env = struct {
                 if (self.registry.getMacro(id_string)) |macro| {
                     return macro.run(expression.args, self, scope);
                 }
-                return self.failFmt("Unknown operation or macro: '{s}'", .{id_string});
+                return self.failFmt(.unknown_op, "Unknown operation or macro: '{s}'", .{id_string});
             },
         }
     }
 
-    /// Set an error message and return RuntimeError.
-    pub fn fail(self: *Env, message: []const u8) error{RuntimeError} {
-        self.runtime_error = message;
+    /// Record a categorized runtime error and return RuntimeError. Captures
+    /// the current source position and source from Env automatically.
+    pub fn fail(self: *Env, category: ErrorCategory, message: []const u8) error{RuntimeError} {
+        self.runtime_error = .{
+            .category = category,
+            .message  = message,
+            .source   = self.current_source,
+            .position = self.current_position,
+        };
         return error.RuntimeError;
     }
 
-    /// Set a formatted error message and return RuntimeError.
-    pub fn failFmt(self: *Env, comptime fmt: []const u8, args: anytype) error{RuntimeError} {
-        self.runtime_error = std.fmt.allocPrint(self.allocator, fmt, args) catch "error (allocation failed)";
+    /// Record a categorized formatted runtime error and return RuntimeError.
+    pub fn failFmt(self: *Env, category: ErrorCategory, comptime fmt: []const u8, args: anytype) error{RuntimeError} {
+        const message = std.fmt.allocPrint(self.allocator, fmt, args) catch "error (allocation failed)";
+        self.runtime_error = .{
+            .category = category,
+            .message  = message,
+            .source   = self.current_source,
+            .position = self.current_position,
+        };
         return error.RuntimeError;
     }
 };
 
-// ── Thunk construction helpers ──
+// Thunk construction helpers 
 
-pub fn makeValueLiteral(allocator: Allocator, value: ?Value) Allocator.Error!*Thunk {
+pub fn makeValueLiteral(allocator: Allocator, position: Position, value: ?Value) Allocator.Error!*Thunk {
     const thunk = try allocator.create(Thunk);
-    thunk.* = .{ .value_literal = value };
+    thunk.* = .{ .position = position, .body = .{ .value_literal = value } };
     return thunk;
 }
 
-pub fn makeScopeThunk(allocator: Allocator, id_thunk: *const Thunk) Allocator.Error!*Thunk {
+pub fn makeScopeThunk(allocator: Allocator, position: Position, id_thunk: *const Thunk) Allocator.Error!*Thunk {
     const thunk = try allocator.create(Thunk);
-    thunk.* = .{ .scope_thunk = id_thunk };
+    thunk.* = .{ .position = position, .body = .{ .scope_thunk = id_thunk } };
     return thunk;
 }
 
-pub fn makeExpression(allocator: Allocator, id: *const Thunk, args: []const *const Thunk) Allocator.Error!*Thunk {
+pub fn makeExpression(allocator: Allocator, position: Position, id: *const Thunk, args: []const *const Thunk) Allocator.Error!*Thunk {
     const duped_args = try allocator.dupe(*const Thunk, args);
     const thunk = try allocator.create(Thunk);
-    thunk.* = .{ .expression = .{ .id = .{ .dynamic = id }, .args = duped_args } };
+    thunk.* = .{ .position = position, .body = .{ .expression = .{ .id = .{ .dynamic = id }, .args = duped_args } } };
     return thunk;
 }
 
-// ── Resolve pass — upgrades dynamic IDs to pre-resolved form ──
+// Resolve pass
 
 /// Walk a thunk tree and replace dynamic string IDs with resolved references
 /// where the name is a known operation or macro. Safe to call immediately after
-/// parsing — thunks are freshly allocated and not yet const-observed.
+/// parsing. Thunks are freshly allocated and not yet const-observed.
 pub fn resolveThunk(thunk: *Thunk, registry: *const Registry) void {
-    switch (thunk.*) {
+    switch (thunk.body) {
         .value_literal, .scope_thunk => {},
         .expression => |*expr| resolveExpression(expr, registry),
     }
 }
 
 pub fn resolveExpression(expr: *Expression, registry: *const Registry) void {
-    if (expr.id == .dynamic) {
-        const id_thunk = expr.id.dynamic;
-        if (id_thunk.* == .value_literal) {
-            if (id_thunk.value_literal) |v| {
-                if (v == .string) {
-                    if (registry.resolveId(v.string)) |resolved| {
-                        expr.id = resolved;
-                    }
-                }
-            }
-        }
-    }
+    resolveExpressionId(expr, registry);
     for (expr.args) |arg| resolveThunk(@constCast(arg), registry);
+}
+
+/// Replace a dynamic string-name ID with a pre-resolved op or macro reference,
+/// if the name is registered. No-op otherwise. Walks down through the dynamic
+/// id thunk, extracting each layer or bailing if it does not match.
+fn resolveExpressionId(expr: *Expression, registry: *const Registry) void {
+    const id_thunk = switch (expr.id) {
+        .dynamic => |t| t,
+        else => return,
+    };
+    const literal = switch (id_thunk.body) {
+        .value_literal => |v| v orelse return,
+        else => return,
+    };
+    const name = switch (literal) {
+        .string => |s| s,
+        else => return,
+    };
+    if (registry.resolveId(name)) |resolved| {
+        expr.id = resolved;
+    }
 }
 
 /// Resolve all macro bodies in the registry. Call after all macros are loaded.
@@ -562,7 +667,7 @@ pub fn resolveRegistryMacros(registry: *Registry) void {
     }
 }
 
-// ── Tests ──
+// Tests 
 
 test "value literal thunk returns stored value" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -573,7 +678,7 @@ test "value literal thunk returns stored value" {
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
-    const thunk = try makeValueLiteral(alloc, .{ .int = 42 });
+    const thunk = try makeValueLiteral(alloc, Position.synthetic, .{ .int = 42 });
     const result = try thunk.proc(&env, &scope);
     try std.testing.expectEqual(@as(i64, 42), result.?.int);
 }
@@ -587,7 +692,7 @@ test "value literal none thunk returns null" {
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
-    const thunk = try makeValueLiteral(alloc, null);
+    const thunk = try makeValueLiteral(alloc, Position.synthetic, null);
     const result = try thunk.proc(&env, &scope);
     try std.testing.expect(result == null);
 }
@@ -601,15 +706,15 @@ test "scope thunk resolves entry from scope" {
     var env = Env{ .registry = &registry, .allocator = alloc };
 
     // Create a scope with "x" bound to 99
-    const value_thunk = try makeValueLiteral(alloc, .{ .int = 99 });
+    const value_thunk = try makeValueLiteral(alloc, Position.synthetic, .{ .int = 99 });
     const empty_scope = try alloc.create(Scope);
     empty_scope.* = Scope.EMPTY;
     var scope = Scope{};
     try scope.setEntry(alloc, "x", value_thunk, empty_scope);
 
     // Create :x (scope thunk that looks up "x")
-    const id_thunk = try makeValueLiteral(alloc, .{ .string = "x" });
-    const lookup_thunk = try makeScopeThunk(alloc, id_thunk);
+    const id_thunk = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "x" });
+    const lookup_thunk = try makeScopeThunk(alloc, Position.synthetic, id_thunk);
 
     const result = try lookup_thunk.proc(&env, &scope);
     try std.testing.expectEqual(@as(i64, 99), result.?.int);
@@ -624,12 +729,12 @@ test "scope thunk fails for missing entry" {
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
-    const id_thunk = try makeValueLiteral(alloc, .{ .string = "missing" });
-    const lookup_thunk = try makeScopeThunk(alloc, id_thunk);
+    const id_thunk = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "missing" });
+    const lookup_thunk = try makeScopeThunk(alloc, Position.synthetic, id_thunk);
 
     const result = lookup_thunk.proc(&env, &scope);
     try std.testing.expectError(error.RuntimeError, result);
-    try std.testing.expectEqualStrings("Scope entry not found", env.runtime_error.?);
+    try std.testing.expectEqualStrings("Scope entry not found", env.runtime_error.?.message);
 }
 
 test "expression evaluates operation" {
@@ -643,9 +748,9 @@ test "expression evaluates operation" {
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
-    const id = try makeValueLiteral(alloc, .{ .string = "double" });
-    const arg = try makeValueLiteral(alloc, .{ .int = 21 });
-    const expr_thunk = try makeExpression(alloc, id, &.{arg});
+    const id = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "double" });
+    const arg = try makeValueLiteral(alloc, Position.synthetic, .{ .int = 21 });
+    const expr_thunk = try makeExpression(alloc, Position.synthetic, id, &.{arg});
 
     const result = try expr_thunk.proc(&env, &scope);
     try std.testing.expectEqual(@as(i64, 42), result.?.int);
@@ -665,12 +770,12 @@ test "expression fails when op id is int" {
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
-    const id = try makeValueLiteral(alloc, .{ .int = 42 });
-    const expr_thunk = try makeExpression(alloc, id, &.{});
+    const id = try makeValueLiteral(alloc, Position.synthetic, .{ .int = 42 });
+    const expr_thunk = try makeExpression(alloc, Position.synthetic, id, &.{});
 
     const result = expr_thunk.proc(&env, &scope);
     try std.testing.expectError(error.RuntimeError, result);
-    try std.testing.expectEqualStrings("Expected operation name, got int: 42", env.runtime_error.?);
+    try std.testing.expectEqualStrings("Expected operation name, got int: 42", env.runtime_error.?.message);
 }
 
 test "expression fails when op id is float" {
@@ -682,12 +787,12 @@ test "expression fails when op id is float" {
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
-    const id = try makeValueLiteral(alloc, .{ .float = 3.14 });
-    const expr_thunk = try makeExpression(alloc, id, &.{});
+    const id = try makeValueLiteral(alloc, Position.synthetic, .{ .float = 3.14 });
+    const expr_thunk = try makeExpression(alloc, Position.synthetic, id, &.{});
 
     const result = expr_thunk.proc(&env, &scope);
     try std.testing.expectError(error.RuntimeError, result);
-    try std.testing.expectEqualStrings("Expected operation name, got float: 3.14", env.runtime_error.?);
+    try std.testing.expectEqualStrings("Expected operation name, got float: 3.14", env.runtime_error.?.message);
 }
 
 test "expression fails when op id is list" {
@@ -700,12 +805,12 @@ test "expression fails when op id is list" {
     const scope = Scope.EMPTY;
 
     const items = [_]?Value{.{ .int = 1 }};
-    const id = try makeValueLiteral(alloc, .{ .list = &items });
-    const expr_thunk = try makeExpression(alloc, id, &.{});
+    const id = try makeValueLiteral(alloc, Position.synthetic, .{ .list = &items });
+    const expr_thunk = try makeExpression(alloc, Position.synthetic, id, &.{});
 
     const result = expr_thunk.proc(&env, &scope);
     try std.testing.expectError(error.RuntimeError, result);
-    try std.testing.expectEqualStrings("Expected operation name, got list", env.runtime_error.?);
+    try std.testing.expectEqualStrings("Expected operation name, got list", env.runtime_error.?.message);
 }
 
 test "expression fails for unknown operation" {
@@ -717,8 +822,8 @@ test "expression fails for unknown operation" {
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
-    const id = try makeValueLiteral(alloc, .{ .string = "nonexistent" });
-    const expr_thunk = try makeExpression(alloc, id, &.{});
+    const id = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "nonexistent" });
+    const expr_thunk = try makeExpression(alloc, Position.synthetic, id, &.{});
 
     const result = expr_thunk.proc(&env, &scope);
     try std.testing.expectError(error.RuntimeError, result);
@@ -736,14 +841,14 @@ test "nested expression evaluation" {
     const scope = Scope.EMPTY;
 
     // Build: add (add 1 2) 3 → expects 6
-    const add_id_inner = try makeValueLiteral(alloc, .{ .string = "add" });
-    const one = try makeValueLiteral(alloc, .{ .int = 1 });
-    const two = try makeValueLiteral(alloc, .{ .int = 2 });
-    const inner_expr = try makeExpression(alloc, add_id_inner, &.{ one, two });
+    const add_id_inner = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "add" });
+    const one = try makeValueLiteral(alloc, Position.synthetic, .{ .int = 1 });
+    const two = try makeValueLiteral(alloc, Position.synthetic, .{ .int = 2 });
+    const inner_expr = try makeExpression(alloc, Position.synthetic, add_id_inner, &.{ one, two });
 
-    const add_id_outer = try makeValueLiteral(alloc, .{ .string = "add" });
-    const three = try makeValueLiteral(alloc, .{ .int = 3 });
-    const outer_expr = try makeExpression(alloc, add_id_outer, &.{ inner_expr, three });
+    const add_id_outer = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "add" });
+    const three = try makeValueLiteral(alloc, Position.synthetic, .{ .int = 3 });
+    const outer_expr = try makeExpression(alloc, Position.synthetic, add_id_outer, &.{ inner_expr, three });
 
     const result = try outer_expr.proc(&env, &scope);
     try std.testing.expectEqual(@as(i64, 6), result.?.int);
@@ -768,10 +873,10 @@ test "macro with value parameters" {
         .{ .id = "x", .param_type = .value },
     };
 
-    const add_id = try makeValueLiteral(alloc, .{ .string = "add" });
-    const x_id = try makeValueLiteral(alloc, .{ .string = "x" });
-    const x_ref = try makeScopeThunk(alloc, x_id);
-    const one = try makeValueLiteral(alloc, .{ .int = 1 });
+    const add_id = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "add" });
+    const x_id = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "x" });
+    const x_ref = try makeScopeThunk(alloc, Position.synthetic, x_id);
+    const one = try makeValueLiteral(alloc, Position.synthetic, .{ .int = 1 });
 
     const macro = try alloc.create(Macro);
     macro.* = .{
@@ -788,9 +893,9 @@ test "macro with value parameters" {
     const scope = Scope.EMPTY;
 
     // Call: add-one 5 → expects 6
-    const call_id = try makeValueLiteral(alloc, .{ .string = "add-one" });
-    const five = try makeValueLiteral(alloc, .{ .int = 5 });
-    const call_thunk = try makeExpression(alloc, call_id, &.{five});
+    const call_id = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "add-one" });
+    const five = try makeValueLiteral(alloc, Position.synthetic, .{ .int = 5 });
+    const call_thunk = try makeExpression(alloc, Position.synthetic, call_id, &.{five});
 
     const result = try call_thunk.proc(&env, &scope);
     try std.testing.expectEqual(@as(i64, 6), result.?.int);
@@ -810,9 +915,9 @@ test "macro with deferred parameter" {
         .{ .id = "thunk", .param_type = .deferred },
     };
 
-    const identity_id = try makeValueLiteral(alloc, .{ .string = "passthrough" });
-    const thunk_id = try makeValueLiteral(alloc, .{ .string = "thunk" });
-    const thunk_ref = try makeScopeThunk(alloc, thunk_id);
+    const identity_id = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "passthrough" });
+    const thunk_id = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "thunk" });
+    const thunk_ref = try makeScopeThunk(alloc, Position.synthetic, thunk_id);
 
     const macro = try alloc.create(Macro);
     macro.* = .{
@@ -829,9 +934,9 @@ test "macro with deferred parameter" {
     const scope = Scope.EMPTY;
 
     // Call: run-deferred 42 → the literal 42 is passed deferred, resolved when :thunk is accessed
-    const call_id = try makeValueLiteral(alloc, .{ .string = "run-deferred" });
-    const forty_two = try makeValueLiteral(alloc, .{ .int = 42 });
-    const call_thunk = try makeExpression(alloc, call_id, &.{forty_two});
+    const call_id = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "run-deferred" });
+    const forty_two = try makeValueLiteral(alloc, Position.synthetic, .{ .int = 42 });
+    const call_thunk = try makeExpression(alloc, Position.synthetic, call_id, &.{forty_two});
 
     const result = try call_thunk.proc(&env, &scope);
     try std.testing.expectEqual(@as(i64, 42), result.?.int);
@@ -851,7 +956,7 @@ test "macro arity mismatch" {
         .{ .id = "x", .param_type = .value },
         .{ .id = "y", .param_type = .value },
     };
-    const dummy_id = try makeValueLiteral(alloc, .{ .string = "proc" });
+    const dummy_id = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "proc" });
     const macro = try alloc.create(Macro);
     macro.* = .{
         .id = "needs-two",
@@ -864,9 +969,9 @@ test "macro arity mismatch" {
     const scope = Scope.EMPTY;
 
     // Call with wrong arity: needs-two 1 (missing second arg)
-    const call_id = try makeValueLiteral(alloc, .{ .string = "needs-two" });
-    const one = try makeValueLiteral(alloc, .{ .int = 1 });
-    const call_thunk = try makeExpression(alloc, call_id, &.{one});
+    const call_id = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "needs-two" });
+    const one = try makeValueLiteral(alloc, Position.synthetic, .{ .int = 1 });
+    const call_thunk = try makeExpression(alloc, Position.synthetic, call_id, &.{one});
 
     const result = call_thunk.proc(&env, &scope);
     try std.testing.expectError(error.RuntimeError, result);
@@ -881,8 +986,8 @@ test "args validation" {
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
 
-    const thunk_a = try makeValueLiteral(alloc, .{ .int = 10 });
-    const thunk_b = try makeValueLiteral(alloc, .{ .int = 20 });
+    const thunk_a = try makeValueLiteral(alloc, Position.synthetic, .{ .int = 10 });
+    const thunk_b = try makeValueLiteral(alloc, Position.synthetic, .{ .int = 20 });
     const items = try alloc.alloc(*const Thunk, 2);
     items[0] = thunk_a;
     items[1] = thunk_b;
@@ -908,16 +1013,16 @@ test "scope entry closure captures scope" {
     var env = Env{ .registry = &registry, .allocator = alloc };
 
     // Create an inner scope where "y" = 10
-    const y_value = try makeValueLiteral(alloc, .{ .int = 10 });
+    const y_value = try makeValueLiteral(alloc, Position.synthetic, .{ .int = 10 });
     const inner_scope = try alloc.create(Scope);
     inner_scope.* = .{};
     const empty_scope = try alloc.create(Scope);
     empty_scope.* = Scope.EMPTY;
     try inner_scope.setEntry(alloc, "y", y_value, empty_scope);
 
-    // Create a thunk that references :y — captured with inner_scope
-    const y_id = try makeValueLiteral(alloc, .{ .string = "y" });
-    const y_ref = try makeScopeThunk(alloc, y_id);
+    // Create a thunk that references :y, captured with inner_scope
+    const y_id = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "y" });
+    const y_ref = try makeScopeThunk(alloc, Position.synthetic, y_id);
 
     // Create an outer scope where "my-val" is bound to :y with inner_scope as the captured scope
     var outer_scope = Scope{};

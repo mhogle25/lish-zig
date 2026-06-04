@@ -25,10 +25,10 @@ pub const ParserResult = struct {
 /// Closure tracking info for bracket matching.
 const ClosureEntry = struct {
     token_type: TokenType,
-    start: usize,
-    end: usize,
-    line: usize,
-    column: usize,
+    start: u32,
+    end: u32,
+    line: u32,
+    column: u32,
 };
 
 /// Result from single-term parse operations.
@@ -109,6 +109,7 @@ pub const Parser = struct {
         if (thunk_count < 1) {
             return ast.makeExpression(
                 self.allocator,
+                .{ .start = 0, .end = self.token.end },
                 try self.syntaxErr("An expression must have an ID"),
                 &.{},
                 null,
@@ -120,7 +121,7 @@ pub const Parser = struct {
         const args = try self.popNodes(thunk_count - 1);
         const id = self.stackPop();
 
-        return ast.makeExpression(self.allocator, id, args, null, null, .{ .meta_type = .top_level });
+        return ast.makeExpression(self.allocator, .{ .start = 0, .end = self.token.end }, id, args, null, null, .{ .meta_type = .top_level });
     }
 
     fn expression(self: *Parser, nested_count: usize) Allocator.Error!*AstNode {
@@ -132,6 +133,7 @@ pub const Parser = struct {
         if (closure.expr_count < 1) {
             return ast.makeExpression(
                 self.allocator,
+                closure.position,
                 try self.syntaxErr("An expression must have an ID"),
                 &.{},
                 closure.open_err,
@@ -143,7 +145,7 @@ pub const Parser = struct {
         const args = try self.popNodes(closure.expr_count - 1);
         const id = self.stackPop();
 
-        return ast.makeExpression(self.allocator, id, args, closure.open_err, closure.close_err, .{ .meta_type = .standard });
+        return ast.makeExpression(self.allocator, closure.position, id, args, closure.open_err, closure.close_err, .{ .meta_type = .standard });
     }
 
     fn listLiteral(self: *Parser, nested_count: usize) Allocator.Error!*AstNode {
@@ -152,9 +154,9 @@ pub const Parser = struct {
 
         const closure = try self.handleClosure(nested_count);
         const args = try self.popNodes(closure.expr_count);
-        const id = try ast.makeValueLiteral(self.allocator, .{ .string = ast.LIST_ID });
+        const id = try ast.makeValueLiteral(self.allocator, closure.position, .{ .string = ast.LIST_ID });
 
-        return ast.makeExpression(self.allocator, id, args, closure.open_err, closure.close_err, .{ .meta_type = .list_literal });
+        return ast.makeExpression(self.allocator, closure.position, id, args, closure.open_err, closure.close_err, .{ .meta_type = .list_literal });
     }
 
     fn block(self: *Parser, nested_count: usize) Allocator.Error!*AstNode {
@@ -163,12 +165,13 @@ pub const Parser = struct {
 
         const closure = try self.handleClosure(nested_count);
         const args = try self.popNodes(closure.expr_count);
-        const id = try ast.makeValueLiteral(self.allocator, .{ .string = ast.BLOCK_ID });
+        const id = try ast.makeValueLiteral(self.allocator, closure.position, .{ .string = ast.BLOCK_ID });
 
-        return ast.makeExpression(self.allocator, id, args, closure.open_err, closure.close_err, .{ .meta_type = .block_literal });
+        return ast.makeExpression(self.allocator, closure.position, id, args, closure.open_err, closure.close_err, .{ .meta_type = .block_literal });
     }
 
     fn singleTermExpression(self: *Parser, nested_count: usize) Allocator.Error!SingleTermResult {
+        const symbol_token = self.token;
         self.token = self.lexer.nextToken();
 
         if (nested_count > tok.MAX_EXPRESSION_NESTING)
@@ -177,6 +180,7 @@ pub const Parser = struct {
         const term = try self.makeSingleTermNode(nested_count);
         const expr = try ast.makeExpression(
             self.allocator,
+            .{ .start = symbol_token.start, .end = term.node.position.end },
             term.node,
             &.{},
             null,
@@ -191,13 +195,14 @@ pub const Parser = struct {
     }
 
     fn scopeThunk(self: *Parser, nested_count: usize) Allocator.Error!SingleTermResult {
+        const symbol_token = self.token;
         self.token = self.lexer.nextToken();
 
         if (nested_count > tok.MAX_EXPRESSION_NESTING)
             return self.singleTermNestingErr();
 
         const term = try self.makeSingleTermNode(nested_count);
-        const node = try ast.makeScopeThunk(self.allocator, term.node);
+        const node = try ast.makeScopeThunk(self.allocator, .{ .start = symbol_token.start, .end = term.node.position.end }, term.node);
         return .{
             .node = node,
             .saw_closing_bracket = term.saw_closing_bracket,
@@ -219,11 +224,8 @@ pub const Parser = struct {
         if (self.token.hasInvalidEscapes()) {
             return ast.makeSyntaxErr(
                 self.allocator,
+                .{ .start = self.token.start, .end = self.token.end },
                 "Encountered a literal with invalid escape sequences",
-                self.token.line,
-                self.token.column,
-                self.token.start,
-                self.token.end,
             );
         }
 
@@ -243,21 +245,21 @@ pub const Parser = struct {
         }
 
         const owned = try self.allocator.dupe(u8, self.string_buf.items);
-        return ast.makeValueLiteral(self.allocator, .{ .string = owned });
+        return ast.makeValueLiteral(self.allocator, .{ .start = self.token.start, .end = self.token.end }, .{ .string = owned });
     }
 
     fn intLiteral(self: *Parser) Allocator.Error!*AstNode {
         const parsed_int = std.fmt.parseInt(i64, self.token.lexeme, 10) catch {
             return self.logicalErr("An unexpected numeric token was encountered");
         };
-        return ast.makeValueLiteral(self.allocator, .{ .int = parsed_int });
+        return ast.makeValueLiteral(self.allocator, .{ .start = self.token.start, .end = self.token.end }, .{ .int = parsed_int });
     }
 
     fn floatLiteral(self: *Parser) Allocator.Error!*AstNode {
         const parsed_float = std.fmt.parseFloat(f64, self.token.lexeme) catch {
             return self.logicalErr("An unexpected numeric token was encountered");
         };
-        return ast.makeValueLiteral(self.allocator, .{ .float = parsed_float });
+        return ast.makeValueLiteral(self.allocator, .{ .start = self.token.start, .end = self.token.end }, .{ .float = parsed_float });
     }
 
     // ── Top-level loop ──
@@ -326,6 +328,7 @@ pub const Parser = struct {
         expr_count: usize,
         open_err: ?AstBracketError,
         close_err: ?AstBracketError,
+        position: ast.Position,
     };
 
     fn handleClosure(self: *Parser, nested_count_start: usize) Allocator.Error!ClosureInfo {
@@ -350,13 +353,13 @@ pub const Parser = struct {
         while (true) {
             if ((self.pending_closure_depth >= 0 and self.pending_closure_depth < bracket_depth) or self.isEof()) {
                 open_err = try self.missingCloseErr(opening_token);
-                return self.finishClosure(expr_count, open_err, close_err);
+                return self.finishClosure(opening_token, expr_count, open_err, close_err);
             }
 
             if (expr_count > tok.MAX_PARAMETER_COUNT) {
                 try self.stackPush(try self.syntaxErr("Parameter count threshold reached"));
                 expr_count += 1;
-                return self.finishClosure(expr_count, open_err, close_err);
+                return self.finishClosure(opening_token, expr_count, open_err, close_err);
             }
 
             switch (self.token.type) {
@@ -402,7 +405,7 @@ pub const Parser = struct {
                     try self.stackPush(term.node);
                     expr_count += 1;
                     if (try self.tryHandleClosureSingleTermClosing(term, opening_token, &open_err, &close_err))
-                        return self.finishClosure(expr_count, open_err, close_err);
+                        return self.finishClosure(opening_token, expr_count, open_err, close_err);
                 },
                 .call_scope_thunk_symbol => {
                     nested_count += 1;
@@ -410,7 +413,7 @@ pub const Parser = struct {
                     try self.stackPush(term.node);
                     expr_count += 1;
                     if (try self.tryHandleClosureSingleTermClosing(term, opening_token, &open_err, &close_err))
-                        return self.finishClosure(expr_count, open_err, close_err);
+                        return self.finishClosure(opening_token, expr_count, open_err, close_err);
                 },
                 .expression_opening_bracket => {
                     nested_count += 1;
@@ -436,30 +439,24 @@ pub const Parser = struct {
                     if (match_depth == bracket_depth) {
                         if (self.pending_closure_depth == bracket_depth)
                             self.pending_closure_depth = NO_PENDING_CLOSURE;
-                        return self.finishClosure(expr_count, open_err, close_err);
+                        return self.finishClosure(opening_token, expr_count, open_err, close_err);
                     }
 
                     if (match_depth != NO_PENDING_CLOSURE) {
                         self.pending_closure_depth = match_depth;
                         open_err = try self.missingCloseErr(opening_token);
-                        return self.finishClosure(expr_count, open_err, close_err);
+                        return self.finishClosure(opening_token, expr_count, open_err, close_err);
                     }
 
                     open_err = .{
-                        .message      = try self.bracketMsg("Missing {s}", opening_token.type.paired().?),
-                        .token_line   = opening_token.line,
-                        .token_column = opening_token.column,
-                        .token_start  = opening_token.start,
-                        .token_end    = opening_token.end,
+                        .message  = try self.bracketMsg("Missing {s}", opening_token.type.paired().?),
+                        .position = .{ .start = opening_token.start, .end = opening_token.end },
                     };
                     close_err = .{
-                        .message      = try self.bracketMsg("Unexpected {s}", self.token.type),
-                        .token_line   = self.token.line,
-                        .token_column = self.token.column,
-                        .token_start  = self.token.start,
-                        .token_end    = self.token.end,
+                        .message  = try self.bracketMsg("Unexpected {s}", self.token.type),
+                        .position = .{ .start = self.token.start, .end = self.token.end },
                     };
-                    return self.finishClosure(expr_count, open_err, close_err);
+                    return self.finishClosure(opening_token, expr_count, open_err, close_err);
                 },
                 else => {
                     try self.stackPush(try self.logicalErr("An unknown token was encountered within the closure"));
@@ -470,11 +467,11 @@ pub const Parser = struct {
             if (self.pending_closure_depth >= 0) {
                 if (self.pending_closure_depth < bracket_depth) {
                     open_err = try self.missingCloseErr(opening_token);
-                    return self.finishClosure(expr_count, open_err, close_err);
+                    return self.finishClosure(opening_token, expr_count, open_err, close_err);
                 }
                 if (self.pending_closure_depth == bracket_depth) {
                     self.pending_closure_depth = NO_PENDING_CLOSURE;
-                    return self.finishClosure(expr_count, open_err, close_err);
+                    return self.finishClosure(opening_token, expr_count, open_err, close_err);
                 }
             }
 
@@ -491,13 +488,14 @@ pub const Parser = struct {
         return NO_PENDING_CLOSURE;
     }
 
-    fn finishClosure(self: *Parser, expr_count: usize, open_err: ?AstBracketError, close_err: ?AstBracketError) ClosureInfo {
+    fn finishClosure(self: *Parser, opening_token: Token, expr_count: usize, open_err: ?AstBracketError, close_err: ?AstBracketError) ClosureInfo {
         if (self.closure_stack_count > 0)
             self.closure_stack_count -= 1;
         return .{
             .expr_count = expr_count,
             .open_err = open_err,
             .close_err = close_err,
+            .position = .{ .start = opening_token.start, .end = self.token.end },
         };
     }
 
@@ -513,18 +511,12 @@ pub const Parser = struct {
 
         if (result.closing_match_depth == NO_PENDING_CLOSURE) {
             open_err.* = .{
-                .message      = try self.bracketMsg("Missing {s}", opening_token.type.paired().?),
-                .token_line   = opening_token.line,
-                .token_column = opening_token.column,
-                .token_start  = opening_token.start,
-                .token_end    = opening_token.end,
+                .message  = try self.bracketMsg("Missing {s}", opening_token.type.paired().?),
+                .position = .{ .start = opening_token.start, .end = opening_token.end },
             };
             close_err.* = .{
-                .message      = try self.bracketMsg("Unexpected {s}", self.token.type),
-                .token_line   = self.token.line,
-                .token_column = self.token.column,
-                .token_start  = self.token.start,
-                .token_end    = self.token.end,
+                .message  = try self.bracketMsg("Unexpected {s}", self.token.type),
+                .position = .{ .start = self.token.start, .end = self.token.end },
             };
             return true;
         }
@@ -634,16 +626,16 @@ pub const Parser = struct {
     // ── Error node constructors ──
 
     fn syntaxErr(self: *Parser, message: []const u8) Allocator.Error!*AstNode {
-        return ast.makeSyntaxErr(self.allocator, message, self.token.line, self.token.column, self.token.start, self.token.end);
+        return ast.makeSyntaxErr(self.allocator, .{ .start = self.token.start, .end = self.token.end }, message);
     }
 
     fn syntaxErrFmt(self: *Parser, comptime fmt: []const u8, arg: []const u8) Allocator.Error!*AstNode {
         const message = try std.fmt.allocPrint(self.allocator, fmt, .{arg});
-        return ast.makeSyntaxErr(self.allocator, message, self.token.line, self.token.column, self.token.start, self.token.end);
+        return ast.makeSyntaxErr(self.allocator, .{ .start = self.token.start, .end = self.token.end }, message);
     }
 
     fn logicalErr(self: *Parser, message: []const u8) Allocator.Error!*AstNode {
-        return ast.makeLogicalErr(self.allocator, message, self.token.line, self.token.column, self.token.start, self.token.end);
+        return ast.makeLogicalErr(self.allocator, .{ .start = self.token.start, .end = self.token.end }, message);
     }
 
     fn expressionNestingErr(self: *Parser) Allocator.Error!*AstNode {
@@ -656,11 +648,8 @@ pub const Parser = struct {
 
     fn missingCloseErr(self: *Parser, opening_token: Token) Allocator.Error!AstBracketError {
         return .{
-            .message = try self.bracketMsg("Missing {s}", opening_token.type.paired().?),
-            .token_line   = opening_token.line,
-            .token_column = opening_token.column,
-            .token_start  = opening_token.start,
-            .token_end    = opening_token.end,
+            .message  = try self.bracketMsg("Missing {s}", opening_token.type.paired().?),
+            .position = .{ .start = opening_token.start, .end = opening_token.end },
         };
     }
 };
@@ -677,10 +666,10 @@ test "parse simple identifier" {
 
     const node = try parse(arena.allocator(), "hello");
 
-    try std.testing.expect(node.* == .expression);
-    const expr = node.expression;
-    try std.testing.expect(expr.id.* == .value_literal);
-    try std.testing.expectEqualStrings("hello", expr.id.value_literal.string);
+    try std.testing.expect(node.body == .expression);
+    const expr = node.body.expression;
+    try std.testing.expect(expr.id.body == .value_literal);
+    try std.testing.expectEqualStrings("hello", expr.id.body.value_literal.string);
     try std.testing.expectEqual(@as(usize, 0), expr.args.len);
 }
 
@@ -690,12 +679,12 @@ test "parse top-level expression with args" {
 
     const node = try parse(arena.allocator(), "say \"hello\" 42");
 
-    try std.testing.expect(node.* == .expression);
-    const expr = node.expression;
-    try std.testing.expectEqualStrings("say", expr.id.value_literal.string);
+    try std.testing.expect(node.body == .expression);
+    const expr = node.body.expression;
+    try std.testing.expectEqualStrings("say", expr.id.body.value_literal.string);
     try std.testing.expectEqual(@as(usize, 2), expr.args.len);
-    try std.testing.expectEqualStrings("hello", expr.args[0].value_literal.string);
-    try std.testing.expectEqual(@as(i64, 42), expr.args[1].value_literal.int);
+    try std.testing.expectEqualStrings("hello", expr.args[0].body.value_literal.string);
+    try std.testing.expectEqual(@as(i64, 42), expr.args[1].body.value_literal.int);
 }
 
 test "parse parenthesized sub-expression" {
@@ -705,11 +694,11 @@ test "parse parenthesized sub-expression" {
     // At top level, parens create a sub-expression that becomes the ID
     const node = try parse(arena.allocator(), "(+ 1 2)");
 
-    try std.testing.expect(node.* == .expression);
-    const top = node.expression;
-    try std.testing.expect(top.id.* == .expression);
-    const sub = top.id.expression;
-    try std.testing.expectEqualStrings("+", sub.id.value_literal.string);
+    try std.testing.expect(node.body == .expression);
+    const top = node.body.expression;
+    try std.testing.expect(top.id.body == .expression);
+    const sub = top.id.body.expression;
+    try std.testing.expectEqualStrings("+", sub.id.body.value_literal.string);
     try std.testing.expectEqual(@as(usize, 2), sub.args.len);
 }
 
@@ -719,18 +708,18 @@ test "parse nested expression" {
 
     const node = try parse(arena.allocator(), "+ (+ 1 2) 3");
 
-    try std.testing.expect(node.* == .expression);
-    const top = node.expression;
-    try std.testing.expectEqualStrings("+", top.id.value_literal.string);
+    try std.testing.expect(node.body == .expression);
+    const top = node.body.expression;
+    try std.testing.expectEqualStrings("+", top.id.body.value_literal.string);
     try std.testing.expectEqual(@as(usize, 2), top.args.len);
 
-    try std.testing.expect(top.args[0].* == .expression);
-    const sub = top.args[0].expression;
-    try std.testing.expectEqualStrings("+", sub.id.value_literal.string);
-    try std.testing.expectEqual(@as(i64, 1), sub.args[0].value_literal.int);
-    try std.testing.expectEqual(@as(i64, 2), sub.args[1].value_literal.int);
+    try std.testing.expect(top.args[0].body == .expression);
+    const sub = top.args[0].body.expression;
+    try std.testing.expectEqualStrings("+", sub.id.body.value_literal.string);
+    try std.testing.expectEqual(@as(i64, 1), sub.args[0].body.value_literal.int);
+    try std.testing.expectEqual(@as(i64, 2), sub.args[1].body.value_literal.int);
 
-    try std.testing.expectEqual(@as(i64, 3), top.args[1].value_literal.int);
+    try std.testing.expectEqual(@as(i64, 3), top.args[1].body.value_literal.int);
 }
 
 test "parse list literal" {
@@ -739,12 +728,12 @@ test "parse list literal" {
 
     const node = try parse(arena.allocator(), "say [1 2 3]");
 
-    try std.testing.expect(node.* == .expression);
-    const top = node.expression;
-    try std.testing.expectEqualStrings("say", top.id.value_literal.string);
+    try std.testing.expect(node.body == .expression);
+    const top = node.body.expression;
+    try std.testing.expectEqualStrings("say", top.id.body.value_literal.string);
 
-    const list_expr = top.args[0].expression;
-    try std.testing.expectEqualStrings(ast.LIST_ID, list_expr.id.value_literal.string);
+    const list_expr = top.args[0].body.expression;
+    try std.testing.expectEqualStrings(ast.LIST_ID, list_expr.id.body.value_literal.string);
     try std.testing.expectEqual(@as(usize, 3), list_expr.args.len);
 }
 
@@ -754,11 +743,11 @@ test "parse block literal" {
 
     const node = try parse(arena.allocator(), "do {(say 1) (say 2)}");
 
-    try std.testing.expect(node.* == .expression);
-    const top = node.expression;
+    try std.testing.expect(node.body == .expression);
+    const top = node.body.expression;
 
-    const block_expr = top.args[0].expression;
-    try std.testing.expectEqualStrings(ast.BLOCK_ID, block_expr.id.value_literal.string);
+    const block_expr = top.args[0].body.expression;
+    try std.testing.expectEqualStrings(ast.BLOCK_ID, block_expr.id.body.value_literal.string);
     try std.testing.expectEqual(@as(usize, 2), block_expr.args.len);
 }
 
@@ -768,12 +757,12 @@ test "parse single-term expression" {
 
     const node = try parse(arena.allocator(), "say $hello");
 
-    try std.testing.expect(node.* == .expression);
-    const top = node.expression;
+    try std.testing.expect(node.body == .expression);
+    const top = node.body.expression;
     try std.testing.expectEqual(@as(usize, 1), top.args.len);
 
-    const single = top.args[0].expression;
-    try std.testing.expectEqualStrings("hello", single.id.value_literal.string);
+    const single = top.args[0].body.expression;
+    try std.testing.expectEqualStrings("hello", single.id.body.value_literal.string);
     try std.testing.expectEqual(@as(usize, 0), single.args.len);
     try std.testing.expectEqual(AstExpression.MetaType.single_term, single.meta.meta_type);
 }
@@ -784,13 +773,13 @@ test "parse scope thunk" {
 
     const node = try parse(arena.allocator(), "say :myVar");
 
-    try std.testing.expect(node.* == .expression);
-    const top = node.expression;
+    try std.testing.expect(node.body == .expression);
+    const top = node.body.expression;
     try std.testing.expectEqual(@as(usize, 1), top.args.len);
 
-    try std.testing.expect(top.args[0].* == .scope_thunk);
-    const thunk_id = top.args[0].scope_thunk;
-    try std.testing.expectEqualStrings("myVar", thunk_id.value_literal.string);
+    try std.testing.expect(top.args[0].body == .scope_thunk);
+    const thunk_id = top.args[0].body.scope_thunk;
+    try std.testing.expectEqualStrings("myVar", thunk_id.body.value_literal.string);
 }
 
 test "parse empty input produces error" {
@@ -798,8 +787,8 @@ test "parse empty input produces error" {
     defer arena.deinit();
 
     const node = try parse(arena.allocator(), "");
-    try std.testing.expect(node.* == .expression);
-    try std.testing.expect(node.expression.id.* == .err);
+    try std.testing.expect(node.body == .expression);
+    try std.testing.expect(node.body.expression.id.body == .err);
 }
 
 test "parse with eof_at stops at macro bracket" {
@@ -809,9 +798,9 @@ test "parse with eof_at stops at macro bracket" {
     var lexer = Lexer{ .source = "+ 1 2 |next" };
     const result = try parseFromLexer(arena.allocator(), &lexer, &.{.macro_bracket});
 
-    try std.testing.expect(result.node.* == .expression);
-    const expr = result.node.expression;
-    try std.testing.expectEqualStrings("+", expr.id.value_literal.string);
+    try std.testing.expect(result.node.body == .expression);
+    const expr = result.node.body.expression;
+    try std.testing.expectEqualStrings("+", expr.id.body.value_literal.string);
     try std.testing.expectEqual(@as(usize, 2), expr.args.len);
     try std.testing.expectEqual(TokenType.macro_bracket, result.last_token_type);
 }

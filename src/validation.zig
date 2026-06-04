@@ -52,14 +52,14 @@ pub fn validate(allocator: Allocator, ast_root: *const AstNode) Allocator.Error!
     const maybe_thunk = try validateStep(allocator, ast_root, &errors);
 
     if (maybe_thunk == null) {
-        if (ast_root.* != .expression) {
+        if (ast_root.body != .expression) {
             try errors.add(allocator, .{ .message = "Expected the root of the AST to be an expression" });
         }
         return .{ .err = errors.slice() };
     }
 
     const thunk = maybe_thunk.?;
-    if (thunk.* != .expression) {
+    if (thunk.body != .expression) {
         try errors.add(allocator, .{ .message = "Expected the root to produce an expression thunk" });
         return .{ .err = errors.slice() };
     }
@@ -68,7 +68,7 @@ pub fn validate(allocator: Allocator, ast_root: *const AstNode) Allocator.Error!
         return .{ .err = errors.slice() };
     }
 
-    return .{ .ok = thunk.expression };
+    return .{ .ok = thunk.body.expression };
 }
 
 // ── Recursive validation step ──
@@ -76,7 +76,7 @@ pub fn validate(allocator: Allocator, ast_root: *const AstNode) Allocator.Error!
 /// Validate a single AST node into a Thunk, accumulating errors.
 /// Returns null if the node (or any of its children) is invalid.
 pub fn validateStep(allocator: Allocator, node: *const AstNode, errors: *ValidationErrors) Allocator.Error!?*const Thunk {
-    return switch (node.*) {
+    return switch (node.body) {
         .value_literal => |value| {
             const thunk = try allocator.create(Thunk);
             // Deep-copy string values so the Thunk is independent of the source allocator.
@@ -84,23 +84,21 @@ pub fn validateStep(allocator: Allocator, node: *const AstNode, errors: *Validat
                 .string => |s| @as(@TypeOf(value), .{ .string = try allocator.dupe(u8, s) }),
                 else => value,
             };
-            thunk.* = .{ .value_literal = owned_value };
+            thunk.* = .{ .position = node.position, .body = .{ .value_literal = owned_value } };
             return thunk;
         },
         .scope_thunk => |id_node| {
             const id_thunk = try validateStep(allocator, id_node, errors) orelse return null;
             const thunk = try allocator.create(Thunk);
-            thunk.* = .{ .scope_thunk = id_thunk };
+            thunk.* = .{ .position = node.position, .body = .{ .scope_thunk = id_thunk } };
             return thunk;
         },
-        .expression => |expr| try validateExpression(allocator, expr, errors),
+        .expression => |expr| try validateExpression(allocator, node.position, expr, errors),
         .err => |ast_error| {
             try errors.add(allocator, .{
                 .message = ast_error.message,
-                .line = ast_error.token_line,
-                .column = ast_error.token_column,
-                .start = ast_error.token_start,
-                .end = ast_error.token_end,
+                .start   = node.position.start,
+                .end     = node.position.end,
             });
             return null;
         },
@@ -109,6 +107,7 @@ pub fn validateStep(allocator: Allocator, node: *const AstNode, errors: *Validat
 
 fn validateExpression(
     allocator: Allocator,
+    position: exec_mod.Position,
     expr: AstExpression,
     errors: *ValidationErrors,
 ) Allocator.Error!?*const Thunk {
@@ -147,20 +146,18 @@ fn validateExpression(
 
     // Success
     const thunk = try allocator.create(Thunk);
-    thunk.* = .{ .expression = .{
+    thunk.* = .{ .position = position, .body = .{ .expression = .{
         .id   = .{ .dynamic = id_thunk.? },
         .args = valid_args.items,
-    } };
+    } } };
     return thunk;
 }
 
 fn addBracketError(allocator: Allocator, errors: *ValidationErrors, bracket_error: AstBracketError) Allocator.Error!void {
     try errors.add(allocator, .{
         .message = bracket_error.message,
-        .line = bracket_error.token_line,
-        .column = bracket_error.token_column,
-        .start = bracket_error.token_start,
-        .end = bracket_error.token_end,
+        .start   = bracket_error.position.start,
+        .end     = bracket_error.position.end,
     });
 }
 
@@ -182,8 +179,8 @@ test "validate simple expression" {
     switch (result) {
         .ok => |expression| {
             // ID should be a dynamic (unresolved) thunk wrapping a value literal "say"
-            try std.testing.expect(expression.id.dynamic.* == .value_literal);
-            try std.testing.expectEqualStrings("say", expression.id.dynamic.value_literal.?.string);
+            try std.testing.expect(expression.id.dynamic.body == .value_literal);
+            try std.testing.expectEqualStrings("say", expression.id.dynamic.body.value_literal.?.string);
             try std.testing.expectEqual(@as(usize, 1), expression.args.len);
         },
         .err => |errors| {
@@ -207,10 +204,10 @@ test "validate nested expression" {
 
     switch (result) {
         .ok => |expression| {
-            try std.testing.expectEqualStrings("add", expression.id.dynamic.value_literal.?.string);
+            try std.testing.expectEqualStrings("add", expression.id.dynamic.body.value_literal.?.string);
             try std.testing.expectEqual(@as(usize, 2), expression.args.len);
             // First arg should be a nested expression
-            try std.testing.expect(expression.args[0].* == .expression);
+            try std.testing.expect(expression.args[0].body == .expression);
         },
         .err => return error.TestUnexpectedResult,
     }
@@ -227,9 +224,9 @@ test "validate scope thunk" {
 
     switch (result) {
         .ok => |expression| {
-            try std.testing.expectEqualStrings("say", expression.id.dynamic.value_literal.?.string);
+            try std.testing.expectEqualStrings("say", expression.id.dynamic.body.value_literal.?.string);
             try std.testing.expectEqual(@as(usize, 1), expression.args.len);
-            try std.testing.expect(expression.args[0].* == .scope_thunk);
+            try std.testing.expect(expression.args[0].body == .scope_thunk);
         },
         .err => return error.TestUnexpectedResult,
     }
@@ -258,11 +255,12 @@ test "validate accumulates multiple errors" {
     const alloc = arena.allocator();
 
     // Construct an AST with multiple error nodes manually
-    const err_node_1 = try ast.makeSyntaxErr(alloc, "first error", 1, 1, 0, 5);
-    const err_node_2 = try ast.makeSyntaxErr(alloc, "second error", 1, 6, 5, 10);
+    const err_node_1 = try ast.makeSyntaxErr(alloc, .{ .start = 0, .end = 5 }, "first error");
+    const err_node_2 = try ast.makeSyntaxErr(alloc, .{ .start = 5, .end = 10 }, "second error");
 
     const expr_node = try ast.makeExpression(
         alloc,
+        ast.Position.synthetic,
         err_node_1,
         &.{err_node_2},
         null,
@@ -287,18 +285,16 @@ test "validate with bracket errors" {
     const alloc = arena.allocator();
 
     // Construct an expression with a bracket error
-    const id_node = try ast.makeValueLiteral(alloc, .{ .string = "say" });
+    const id_node = try ast.makeValueLiteral(alloc, ast.Position.synthetic, .{ .string = "say" });
 
     const expr_node = try ast.makeExpression(
         alloc,
+        ast.Position.synthetic,
         id_node,
         &.{},
         .{
-            .message = "Missing closing parenthesis",
-            .token_line = 1,
-            .token_column = 1,
-            .token_start = 0,
-            .token_end = 1,
+            .message  = "Missing closing parenthesis",
+            .position = .{ .start = 0, .end = 1 },
         },
         null,
         .{ .meta_type = .standard },
@@ -356,12 +352,12 @@ test "validate list literal" {
     switch (result) {
         .ok => |expression| {
             // Top level: say with one arg (the list expression)
-            try std.testing.expectEqualStrings("say", expression.id.dynamic.value_literal.?.string);
+            try std.testing.expectEqualStrings("say", expression.id.dynamic.body.value_literal.?.string);
             try std.testing.expectEqual(@as(usize, 1), expression.args.len);
 
             // The list arg should be an expression with id "list"
-            const list_expr = expression.args[0].expression;
-            try std.testing.expectEqualStrings("list", list_expr.id.dynamic.value_literal.?.string);
+            const list_expr = expression.args[0].body.expression;
+            try std.testing.expectEqualStrings("list", list_expr.id.dynamic.body.value_literal.?.string);
             try std.testing.expectEqual(@as(usize, 3), list_expr.args.len);
         },
         .err => return error.TestUnexpectedResult,

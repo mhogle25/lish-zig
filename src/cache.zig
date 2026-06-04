@@ -176,7 +176,7 @@ test "cache: basic put and get" {
 
     const cached = cache.get("+ 1 2");
     try std.testing.expect(cached != null);
-    try std.testing.expectEqualStrings("+", cached.?.id.dynamic.value_literal.?.string);
+    try std.testing.expectEqualStrings("+", cached.?.id.dynamic.body.value_literal.?.string);
 }
 
 test "cache: miss returns null" {
@@ -203,7 +203,7 @@ test "cache: update existing key" {
     try std.testing.expectEqual(@as(usize, 1), cache.count());
 
     const cached = cache.get("key").?;
-    try std.testing.expectEqualStrings("*", cached.id.dynamic.value_literal.?.string);
+    try std.testing.expectEqualStrings("*", cached.id.dynamic.body.value_literal.?.string);
 }
 
 test "cache: evicts least recently used" {
@@ -239,7 +239,7 @@ test "cache: access refreshes LRU order" {
     try cache.put("b", try parseAndValidate(alloc, "+ 3 4"));
     try cache.put("c", try parseAndValidate(alloc, "+ 5 6"));
 
-    // Access "a" to refresh it — now "b" is the LRU
+    // Access "a" to refresh it, now "b" is the LRU
     _ = cache.get("a");
 
     try cache.put("d", try parseAndValidate(alloc, "+ 7 8"));
@@ -329,7 +329,7 @@ test "cache: generic with simple values" {
 
     // Evict LRU ("one" was accessed most recently due to get above, "two" next, so
     // after the gets above the order is: three(head), two, one(tail)
-    // Wait — gets move to front, so after get("one"), get("two"), get("three"):
+    // Wait, gets move to front, so after get("one"), get("two"), get("three"):
     // order is three(head), two, one(tail)
     try cache.put("four", 4); // evicts "one" (tail)
 

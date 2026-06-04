@@ -49,10 +49,10 @@ pub const MacroParamType = enum { value, deferred };
 
 pub const MacroError = struct {
     message: []const u8,
-    line: usize,
-    column: usize,
-    start: usize,
-    end: usize,
+    line: u32,
+    column: u32,
+    start: u32,
+    end: u32,
 };
 
 // ── Top-level parse function ──
@@ -117,7 +117,7 @@ const MacroParser = struct {
             self.state = .in_params;
             self.token = self.lexer.nextToken();
         } else {
-            // Unexpected token outside a macro definition — skip
+            // Unexpected token outside a macro definition, skip
             self.token = self.lexer.nextToken();
         }
     }
@@ -139,7 +139,7 @@ const MacroParser = struct {
             self.state = .past_id;
             self.token = self.lexer.nextToken();
         } else if (self.token.type == .macro_bracket) {
-            // Missing ID — still parse the body
+            // Missing ID, still parse the body
             self.current_id = .{ .err = self.errorAtToken("Macro is missing an identifier") };
             try self.parseMacroBody();
         } else {
@@ -361,7 +361,7 @@ fn validateMacro(
 
     // Validate body expression (reuse expression validation)
     const body_thunk = try validation_mod.validateStep(allocator, macro.body, errors) orelse return null;
-    if (body_thunk.* != .expression) {
+    if (body_thunk.body != .expression) {
         try errors.add(allocator, .{ .message = "Macro body must be an expression" });
         return null;
     }
@@ -371,7 +371,7 @@ fn validateMacro(
     return .{
         .id = id,
         .parameters = valid_params.items,
-        .body = body_thunk.expression,
+        .body = body_thunk.body.expression,
     };
 }
 

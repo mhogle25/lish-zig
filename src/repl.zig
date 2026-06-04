@@ -40,7 +40,7 @@ fn autopairInsertOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError
     switch (args.count()) {
         0 => config.autopair_insert = true,
         1 => config.autopair_insert = (try args.at(0).get()) != null,
-        else => return args.env.fail(op_autopair_insert ++ " takes 0 or 1 argument"),
+        else => return args.env.fail(.arity_mismatch, op_autopair_insert ++ " takes 0 or 1 argument"),
     }
     return null;
 }
@@ -49,7 +49,7 @@ fn autopairDeleteOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError
     switch (args.count()) {
         0 => config.autopair_delete = true,
         1 => config.autopair_delete = (try args.at(0).get()) != null,
-        else => return args.env.fail(op_autopair_delete ++ " takes 0 or 1 argument"),
+        else => return args.env.fail(.arity_mismatch, op_autopair_delete ++ " takes 0 or 1 argument"),
     }
     return null;
 }
@@ -57,7 +57,7 @@ fn autopairDeleteOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError
 fn maxCallDepthOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?value_mod.Value {
     const value = try args.single();
     const n = try value.resolveInt();
-    if (n < 1) return args.env.fail(op_max_call_depth ++ " must be a positive integer");
+    if (n < 1) return args.env.fail(.invalid_argument, op_max_call_depth ++ " must be a positive integer");
     config.bounds.max_call_depth = @intCast(n);
     return null;
 }
@@ -68,8 +68,8 @@ fn fuelOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?value_mo
         config.bounds.fuel = null;
         return null;
     }
-    const n = value.?.getI() catch return args.env.fail(op_fuel ++ " expects an integer or $off");
-    if (n < 1) return args.env.fail(op_fuel ++ " must be a positive integer");
+    const n = value.?.getI() catch return args.env.fail(.type_mismatch, op_fuel ++ " expects an integer or $off");
+    if (n < 1) return args.env.fail(.invalid_argument, op_fuel ++ " must be a positive integer");
     config.bounds.fuel = @intCast(n);
     return null;
 }
@@ -80,8 +80,8 @@ fn maxListLengthOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!
         config.bounds.max_list_length = null;
         return null;
     }
-    const n = value.?.getI() catch return args.env.fail(op_max_list_length ++ " expects an integer or $off");
-    if (n < 1) return args.env.fail(op_max_list_length ++ " must be a positive integer");
+    const n = value.?.getI() catch return args.env.fail(.type_mismatch, op_max_list_length ++ " expects an integer or $off");
+    if (n < 1) return args.env.fail(.invalid_argument, op_max_list_length ++ " must be a positive integer");
     config.bounds.max_list_length = @intCast(n);
     return null;
 }
@@ -92,8 +92,8 @@ fn maxStringLengthOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecErro
         config.bounds.max_string_length = null;
         return null;
     }
-    const n = value.?.getI() catch return args.env.fail(op_max_string_length ++ " expects an integer or $off");
-    if (n < 1) return args.env.fail(op_max_string_length ++ " must be a positive integer");
+    const n = value.?.getI() catch return args.env.fail(.type_mismatch, op_max_string_length ++ " expects an integer or $off");
+    if (n < 1) return args.env.fail(.invalid_argument, op_max_string_length ++ " must be a positive integer");
     config.bounds.max_string_length = @intCast(n);
     return null;
 }

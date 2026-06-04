@@ -71,7 +71,7 @@ fn splitOp(args: Args) ExecError!?Value {
     var sep_buf: [256]u8 = undefined;
     const separator = try args.at(0).resolveString(&sep_buf);
     const target = try args.at(1).resolve();
-    if (target != .string) return args.env.fail("'split' expects a string as second argument");
+    if (target != .string) return args.env.fail(.type_mismatch, "'split' expects a string as second argument");
     const string = target.string;
 
     const alloc = args.env.allocator;
@@ -102,7 +102,7 @@ fn splitOp(args: Args) ExecError!?Value {
 fn trimOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
     const value = try args.at(0).resolve();
-    if (value != .string) return args.env.fail("'trim' expects a string");
+    if (value != .string) return args.env.fail(.type_mismatch, "'trim' expects a string");
     const trimmed = std.mem.trim(u8, value.string, " \t\n\r\x0b\x0c");
     const owned = try args.env.allocator.dupe(u8, trimmed);
     return .{ .string = owned };
@@ -111,7 +111,7 @@ fn trimOp(args: Args) ExecError!?Value {
 fn upperOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
     const value = try args.at(0).resolve();
-    if (value != .string) return args.env.fail("'upper' expects a string");
+    if (value != .string) return args.env.fail(.type_mismatch, "'upper' expects a string");
     const result = try args.env.allocator.dupe(u8, value.string);
     for (result) |*char| {
         char.* = std.ascii.toUpper(char.*);
@@ -122,7 +122,7 @@ fn upperOp(args: Args) ExecError!?Value {
 fn lowerOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
     const value = try args.at(0).resolve();
-    if (value != .string) return args.env.fail("'lower' expects a string");
+    if (value != .string) return args.env.fail(.type_mismatch, "'lower' expects a string");
     const result = try args.env.allocator.dupe(u8, value.string);
     for (result) |*char| {
         char.* = std.ascii.toLower(char.*);
@@ -136,7 +136,7 @@ fn replaceOp(args: Args) ExecError!?Value {
     const replacement_val = try args.at(1).resolve();
     const target_val = try args.at(2).resolve();
     if (pattern_val != .string or replacement_val != .string or target_val != .string)
-        return args.env.fail("'replace' expects string arguments");
+        return args.env.fail(.type_mismatch, "'replace' expects string arguments");
 
     const pattern = pattern_val.string;
     const replacement = replacement_val.string;
@@ -161,7 +161,7 @@ fn replaceOp(args: Args) ExecError!?Value {
 fn formatOp(args: Args) ExecError!?Value {
     try args.expectMinCount(1);
     const template_val = try args.at(0).resolve();
-    if (template_val != .string) return args.env.fail("'format' expects a string template as first argument");
+    if (template_val != .string) return args.env.fail(.type_mismatch, "'format' expects a string template as first argument");
 
     const template = template_val.string;
     const alloc = args.env.allocator;
@@ -232,7 +232,7 @@ fn inOp(args: Args) ExecError!?Value {
             }
             return null;
         },
-        else => args.env.fail("'in' expects a string or list as second argument"),
+        else => args.env.fail(.type_mismatch, "'in' expects a string or list as second argument"),
     };
 }
 
@@ -253,7 +253,7 @@ fn findOp(args: Args) ExecError!?Value {
             }
             return null;
         },
-        else => args.env.fail("'find' expects a string or list as second argument"),
+        else => args.env.fail(.type_mismatch, "'find' expects a string or list as second argument"),
     };
 }
 

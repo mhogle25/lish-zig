@@ -12,7 +12,7 @@ const Value = val_mod.Value;
 pub const SerializeError = error{InvalidNode};
 
 /// Serialize an AST node to lish source. The node is treated as a top-level
-/// expression — no surrounding parens are emitted even if it contains nested
+/// expression, no surrounding parens are emitted even if it contains nested
 /// sub-expressions.
 pub fn serializeExpression(node: *const AstNode, writer: anytype) !void {
     try serializeNode(node, writer, false);
@@ -51,13 +51,13 @@ pub fn serializeMacroModule(macros: []const AstMacro, writer: anytype) !void {
 // ── Internal ──
 
 fn serializeNode(node: *const AstNode, writer: anytype, nested: bool) anyerror!void {
-    switch (node.*) {
+    switch (node.body) {
         .value_literal => |v| try serializeValue(v, writer, nested),
         .scope_thunk => |id_node| {
             try writer.writeByte(tok.SCOPE_THUNK);
-            // The id_node is almost always a value_literal.string — emit it bare.
+            // The id_node is almost always a value_literal.string, emit it bare.
             // Fall back to full node serialization for unusual cases.
-            switch (id_node.*) {
+            switch (id_node.body) {
                 .value_literal => |v| switch (v) {
                     .string => |name| try writer.writeAll(name),
                     else => try serializeValue(v, writer, false),
@@ -71,7 +71,7 @@ fn serializeNode(node: *const AstNode, writer: anytype, nested: bool) anyerror!v
 }
 
 fn serializeExprNode(expr: AstExpression, writer: anytype, nested: bool) anyerror!void {
-    // $term — single-term expression, no parens regardless of nesting
+    // $term, single-term expression, no parens regardless of nesting
     if (expr.meta.meta_type == .single_term) {
         try writer.writeByte(tok.EXPRESSION_SINGLE);
         try serializeNode(expr.id, writer, false);
@@ -167,7 +167,7 @@ fn looksLikeNumber(str: []const u8) bool {
         } else if (char == '.' and !has_dot) {
             has_dot = true;
         } else {
-            return false; // non-numeric character — safe bare word
+            return false; // non-numeric character, safe bare word
         }
     }
 
@@ -228,63 +228,63 @@ test "quoting: numbers require quotes" {
 test "serialize: int literal" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const node = try ast_mod.makeValueLiteral(arena.allocator(), .{ .int = 42 });
+    const node = try ast_mod.makeValueLiteral(arena.allocator(), ast_mod.Position.synthetic, .{ .int = 42 });
     try expectSerialized(node, "42");
 }
 
 test "serialize: negative int literal" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const node = try ast_mod.makeValueLiteral(arena.allocator(), .{ .int = -7 });
+    const node = try ast_mod.makeValueLiteral(arena.allocator(), ast_mod.Position.synthetic, .{ .int = -7 });
     try expectSerialized(node, "-7");
 }
 
 test "serialize: float literal" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const node = try ast_mod.makeValueLiteral(arena.allocator(), .{ .float = 3.14 });
+    const node = try ast_mod.makeValueLiteral(arena.allocator(), ast_mod.Position.synthetic, .{ .float = 3.14 });
     try expectSerialized(node, "3.14");
 }
 
 test "serialize: string bare word" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const node = try ast_mod.makeValueLiteral(arena.allocator(), .{ .string = "hello" });
+    const node = try ast_mod.makeValueLiteral(arena.allocator(), ast_mod.Position.synthetic, .{ .string = "hello" });
     try expectSerialized(node, "hello");
 }
 
 test "serialize: string with spaces is quoted" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const node = try ast_mod.makeValueLiteral(arena.allocator(), .{ .string = "hello world" });
+    const node = try ast_mod.makeValueLiteral(arena.allocator(), ast_mod.Position.synthetic, .{ .string = "hello world" });
     try expectSerialized(node, "\"hello world\"");
 }
 
 test "serialize: number-like string is quoted" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const node = try ast_mod.makeValueLiteral(arena.allocator(), .{ .string = "42" });
+    const node = try ast_mod.makeValueLiteral(arena.allocator(), ast_mod.Position.synthetic, .{ .string = "42" });
     try expectSerialized(node, "\"42\"");
 }
 
 test "serialize: empty string is quoted" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const node = try ast_mod.makeValueLiteral(arena.allocator(), .{ .string = "" });
+    const node = try ast_mod.makeValueLiteral(arena.allocator(), ast_mod.Position.synthetic, .{ .string = "" });
     try expectSerialized(node, "\"\"");
 }
 
 test "serialize: string with escape chars" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const node = try ast_mod.makeValueLiteral(arena.allocator(), .{ .string = "line1\nline2" });
+    const node = try ast_mod.makeValueLiteral(arena.allocator(), ast_mod.Position.synthetic, .{ .string = "line1\nline2" });
     try expectSerialized(node, "\"line1\\nline2\"");
 }
 
 test "serialize: string with backslash and quote" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const node = try ast_mod.makeValueLiteral(arena.allocator(), .{ .string = "say \"hi\"" });
+    const node = try ast_mod.makeValueLiteral(arena.allocator(), ast_mod.Position.synthetic, .{ .string = "say \"hi\"" });
     try expectSerialized(node, "\"say \\\"hi\\\"\"");
 }
 
@@ -294,11 +294,11 @@ test "serialize: simple expression" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
-    const id = try ast_mod.makeValueLiteral(alloc, .{ .string = "+" });
-    const arg1 = try ast_mod.makeValueLiteral(alloc, .{ .int = 1 });
-    const arg2 = try ast_mod.makeValueLiteral(alloc, .{ .int = 2 });
+    const id = try ast_mod.makeValueLiteral(alloc, ast_mod.Position.synthetic, .{ .string = "+" });
+    const arg1 = try ast_mod.makeValueLiteral(alloc, ast_mod.Position.synthetic, .{ .int = 1 });
+    const arg2 = try ast_mod.makeValueLiteral(alloc, ast_mod.Position.synthetic, .{ .int = 2 });
     const args = try alloc.dupe(*const AstNode, &.{ arg1, arg2 });
-    const node = try ast_mod.makeExpression(alloc, id, args, null, null, .{ .meta_type = .top_level });
+    const node = try ast_mod.makeExpression(alloc, ast_mod.Position.synthetic, id, args, null, null, .{ .meta_type = .top_level });
     try expectSerialized(node, "+ 1 2");
 }
 
@@ -308,20 +308,20 @@ test "serialize: nested expression" {
     const alloc = arena.allocator();
 
     // Inner: + 1 2
-    const inner_id = try ast_mod.makeValueLiteral(alloc, .{ .string = "+" });
+    const inner_id = try ast_mod.makeValueLiteral(alloc, ast_mod.Position.synthetic, .{ .string = "+" });
     const inner_args = try alloc.dupe(*const AstNode, &.{
-        try ast_mod.makeValueLiteral(alloc, .{ .int = 1 }),
-        try ast_mod.makeValueLiteral(alloc, .{ .int = 2 }),
+        try ast_mod.makeValueLiteral(alloc, ast_mod.Position.synthetic, .{ .int = 1 }),
+        try ast_mod.makeValueLiteral(alloc, ast_mod.Position.synthetic, .{ .int = 2 }),
     });
-    const inner = try ast_mod.makeExpression(alloc, inner_id, inner_args, null, null, .{ .meta_type = .standard });
+    const inner = try ast_mod.makeExpression(alloc, ast_mod.Position.synthetic, inner_id, inner_args, null, null, .{ .meta_type = .standard });
 
     // Outer: + <inner> 3
-    const outer_id = try ast_mod.makeValueLiteral(alloc, .{ .string = "+" });
+    const outer_id = try ast_mod.makeValueLiteral(alloc, ast_mod.Position.synthetic, .{ .string = "+" });
     const outer_args = try alloc.dupe(*const AstNode, &.{
         inner,
-        try ast_mod.makeValueLiteral(alloc, .{ .int = 3 }),
+        try ast_mod.makeValueLiteral(alloc, ast_mod.Position.synthetic, .{ .int = 3 }),
     });
-    const outer = try ast_mod.makeExpression(alloc, outer_id, outer_args, null, null, .{ .meta_type = .top_level });
+    const outer = try ast_mod.makeExpression(alloc, ast_mod.Position.synthetic, outer_id, outer_args, null, null, .{ .meta_type = .top_level });
     try expectSerialized(outer, "+ (+ 1 2) 3");
 }
 
@@ -329,8 +329,8 @@ test "serialize: scope thunk" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
-    const id_node = try ast_mod.makeValueLiteral(alloc, .{ .string = "x" });
-    const node = try ast_mod.makeScopeThunk(alloc, id_node);
+    const id_node = try ast_mod.makeValueLiteral(alloc, ast_mod.Position.synthetic, .{ .string = "x" });
+    const node = try ast_mod.makeScopeThunk(alloc, ast_mod.Position.synthetic, id_node);
     try expectSerialized(node, ":x");
 }
 
@@ -338,8 +338,8 @@ test "serialize: single term" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
-    const id = try ast_mod.makeValueLiteral(alloc, .{ .string = val_mod.NONE_ID });
-    const node = try ast_mod.makeExpression(alloc, id, &.{}, null, null, .{ .meta_type = .single_term });
+    const id = try ast_mod.makeValueLiteral(alloc, ast_mod.Position.synthetic, .{ .string = val_mod.NONE_ID });
+    const node = try ast_mod.makeExpression(alloc, ast_mod.Position.synthetic, id, &.{}, null, null, .{ .meta_type = .single_term });
     try expectSerialized(node, "$none");
 }
 
@@ -348,11 +348,11 @@ test "serialize: expression with scope thunk arg" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    const id = try ast_mod.makeValueLiteral(alloc, .{ .string = "*" });
-    const scope_id = try ast_mod.makeValueLiteral(alloc, .{ .string = "x" });
-    const scope = try ast_mod.makeScopeThunk(alloc, scope_id);
-    const args = try alloc.dupe(*const AstNode, &.{ scope, try ast_mod.makeValueLiteral(alloc, .{ .int = 2 }) });
-    const node = try ast_mod.makeExpression(alloc, id, args, null, null, .{ .meta_type = .top_level });
+    const id = try ast_mod.makeValueLiteral(alloc, ast_mod.Position.synthetic, .{ .string = "*" });
+    const scope_id = try ast_mod.makeValueLiteral(alloc, ast_mod.Position.synthetic, .{ .string = "x" });
+    const scope = try ast_mod.makeScopeThunk(alloc, ast_mod.Position.synthetic, scope_id);
+    const args = try alloc.dupe(*const AstNode, &.{ scope, try ast_mod.makeValueLiteral(alloc, ast_mod.Position.synthetic, .{ .int = 2 }) });
+    const node = try ast_mod.makeExpression(alloc, ast_mod.Position.synthetic, id, args, null, null, .{ .meta_type = .top_level });
     try expectSerialized(node, "* :x 2");
 }
 
@@ -360,7 +360,7 @@ test "serialize: list value literal at top level" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const items = [_]?Value{ .{ .int = 1 }, .{ .int = 2 }, .{ .int = 3 } };
-    const node = try ast_mod.makeValueLiteral(arena.allocator(), .{ .list = &items });
+    const node = try ast_mod.makeValueLiteral(arena.allocator(), ast_mod.Position.synthetic, .{ .list = &items });
     try expectSerialized(node, "list 1 2 3");
 }
 
@@ -371,10 +371,10 @@ test "serialize: list value literal nested" {
 
     // length (list 1 2 3)
     const items = [_]?Value{ .{ .int = 1 }, .{ .int = 2 }, .{ .int = 3 } };
-    const list_node = try ast_mod.makeValueLiteral(alloc, .{ .list = &items });
-    const id = try ast_mod.makeValueLiteral(alloc, .{ .string = "length" });
+    const list_node = try ast_mod.makeValueLiteral(alloc, ast_mod.Position.synthetic, .{ .list = &items });
+    const id = try ast_mod.makeValueLiteral(alloc, ast_mod.Position.synthetic, .{ .string = "length" });
     const args = try alloc.dupe(*const AstNode, &.{list_node});
-    const node = try ast_mod.makeExpression(alloc, id, args, null, null, .{ .meta_type = .top_level });
+    const node = try ast_mod.makeExpression(alloc, ast_mod.Position.synthetic, id, args, null, null, .{ .meta_type = .top_level });
     try expectSerialized(node, "length (list 1 2 3)");
 }
 

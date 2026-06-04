@@ -227,7 +227,7 @@ pub const LineEditor = struct {
         }
     }
 
-    /// Fallback for piped/non-terminal input — reads line byte-by-byte in cooked mode.
+    /// Fallback for piped/non-terminal input, reads line byte-by-byte in cooked mode.
     fn readLineFallback(self: *LineEditor) ReadLineResult {
         var pos: usize = 0;
         while (pos < self.line_buffer.len) {
@@ -264,36 +264,36 @@ pub const LineEditor = struct {
             '\r', '\n' => return .submit_line,
             0x03 => return .cancel_line, // Ctrl+C
             0x04 => return .eof_signal, // Ctrl+D
-            0x01 => { // Ctrl+A — beginning of line
+            0x01 => { // Ctrl+A, beginning of line
                 self.moveCursorToBeginning();
                 return .continue_reading;
             },
-            0x05 => { // Ctrl+E — end of line
+            0x05 => { // Ctrl+E, end of line
                 self.moveCursorToEnd();
                 return .continue_reading;
             },
-            0x0b => { // Ctrl+K — kill to end of line
+            0x0b => { // Ctrl+K, kill to end of line
                 self.killToEnd();
                 return .continue_reading;
             },
-            0x15 => { // Ctrl+U — kill whole line
+            0x15 => { // Ctrl+U, kill whole line
                 self.killLine();
                 return .continue_reading;
             },
-            0x17 => { // Ctrl+W — delete word backward
+            0x17 => { // Ctrl+W, delete word backward
                 self.deleteWordBackward();
                 return .continue_reading;
             },
-            0x0c => { // Ctrl+L — clear screen
+            0x0c => { // Ctrl+L, clear screen
                 self.stdout.writeAll("\x1b[2J\x1b[H") catch {};
                 self.refreshLine();
                 return .continue_reading;
             },
-            0x7f => { // DEL — backspace on macOS
+            0x7f => { // DEL, backspace on macOS
                 self.deleteBackward();
                 return .continue_reading;
             },
-            0x08 => { // BS — backspace on some terminals
+            0x08 => { // BS, backspace on some terminals
                 self.deleteBackward();
                 return .continue_reading;
             },
@@ -355,7 +355,7 @@ pub const LineEditor = struct {
                     return .consumed;
                 }
                 self.escape_state = .ground;
-                // ESC b / ESC f — Alt+Left / Alt+Right (readline/emacs style)
+                // ESC b / ESC f, Alt+Left / Alt+Right (readline/emacs style)
                 if (byte == 'b') return .{ .action = .move_word_left };
                 if (byte == 'f') return .{ .action = .move_word_right };
                 return .consumed;
@@ -419,7 +419,7 @@ pub const LineEditor = struct {
                     },
                 }
             },
-            // ESC [ 1 ; 3 C / ESC [ 1 ; 3 D — Alt+Right / Alt+Left (xterm style)
+            // ESC [ 1 ; 3 C / ESC [ 1 ; 3 D, Alt+Right / Alt+Left (xterm style)
             .csi_subparam => {
                 switch (byte) {
                     '0'...'9' => {
@@ -708,13 +708,13 @@ pub const LineEditor = struct {
         if (self.history_count == 0) return;
 
         if (self.history_browse_index == null) {
-            // First press — save current line and start browsing from most recent
+            // First press, save current line and start browsing from most recent
             @memcpy(self.saved_line_buffer[0..self.line_length], self.line_buffer[0..self.line_length]);
             self.saved_line_length = self.line_length;
 
             self.history_browse_index = if (self.history_write_index == 0) MAX_HISTORY - 1 else self.history_write_index - 1;
         } else {
-            // Already browsing — move to previous entry
+            // Already browsing, move to previous entry
             const oldest_index = if (self.history_count < MAX_HISTORY) 0 else self.history_write_index;
             if (self.history_browse_index.? == oldest_index) return; // At oldest entry
 
@@ -730,7 +730,7 @@ pub const LineEditor = struct {
         const newest_index = if (self.history_write_index == 0) MAX_HISTORY - 1 else self.history_write_index - 1;
 
         if (self.history_browse_index.? == newest_index) {
-            // Past newest — restore saved line
+            // Past newest, restore saved line
             self.history_browse_index = null;
             @memcpy(self.line_buffer[0..self.saved_line_length], self.saved_line_buffer[0..self.saved_line_length]);
             self.line_length = self.saved_line_length;
@@ -846,7 +846,7 @@ test "escape parser: unknown CSI param sequence" {
     var editor = LineEditor.testInit();
     defer editor.deinit();
 
-    // ESC [ 5 ~ — not mapped, should be consumed without action
+    // ESC [ 5 ~, not mapped, should be consumed without action
     try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
     try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('['));
     try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('5'));
@@ -858,12 +858,12 @@ test "escape parser: Alt+Left and Alt+Right (ESC b / ESC f)" {
     var editor = LineEditor.testInit();
     defer editor.deinit();
 
-    // ESC b — Alt+Left
+    // ESC b, Alt+Left
     try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
     try expectAction(.move_word_left, editor.processEscape('b'));
     try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
 
-    // ESC f — Alt+Right
+    // ESC f, Alt+Right
     try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
     try expectAction(.move_word_right, editor.processEscape('f'));
     try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
@@ -873,7 +873,7 @@ test "escape parser: Alt+Left and Alt+Right (xterm ESC [ 1 ; 3 D/C)" {
     var editor = LineEditor.testInit();
     defer editor.deinit();
 
-    // ESC [ 1 ; 3 D — Alt+Left
+    // ESC [ 1 ; 3 D, Alt+Left
     try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
     try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('['));
     try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('1'));
@@ -883,7 +883,7 @@ test "escape parser: Alt+Left and Alt+Right (xterm ESC [ 1 ; 3 D/C)" {
     try expectAction(.move_word_left, editor.processEscape('D'));
     try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
 
-    // ESC [ 1 ; 3 C — Alt+Right
+    // ESC [ 1 ; 3 C, Alt+Right
     try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape(0x1b));
     try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('['));
     try std.testing.expectEqual(EscapeStep.consumed, editor.processEscape('1'));
@@ -908,7 +908,7 @@ test "escape parser: ground state passes ordinary bytes through" {
     var editor = LineEditor.testInit();
     defer editor.deinit();
 
-    // 'a' in ground state is not part of a sequence — caller must handle it.
+    // 'a' in ground state is not part of a sequence, caller must handle it.
     try std.testing.expectEqual(EscapeStep.not_escape, editor.processEscape('a'));
     try std.testing.expectEqual(EscapeState.ground, editor.escape_state);
 }
@@ -1162,27 +1162,27 @@ test "history: add and navigate" {
 
     try std.testing.expectEqual(@as(usize, 3), editor.history_count);
 
-    // Navigate up — should load "third"
+    // Navigate up, should load "third"
     editor.historyUp();
     try std.testing.expectEqualStrings("third", editor.getLineSlice());
 
-    // Navigate up — should load "second"
+    // Navigate up, should load "second"
     editor.historyUp();
     try std.testing.expectEqualStrings("second", editor.getLineSlice());
 
-    // Navigate up — should load "first"
+    // Navigate up, should load "first"
     editor.historyUp();
     try std.testing.expectEqualStrings("first", editor.getLineSlice());
 
-    // Navigate down — should load "second"
+    // Navigate down, should load "second"
     editor.historyDown();
     try std.testing.expectEqualStrings("second", editor.getLineSlice());
 
-    // Navigate down — should load "third"
+    // Navigate down, should load "third"
     editor.historyDown();
     try std.testing.expectEqualStrings("third", editor.getLineSlice());
 
-    // Navigate down — should restore saved (empty) line
+    // Navigate down, should restore saved (empty) line
     editor.historyDown();
     try std.testing.expectEqualStrings("", editor.getLineSlice());
     try std.testing.expect(editor.history_browse_index == null);
@@ -1208,11 +1208,11 @@ test "history: saves current line when browsing" {
     // Type something
     editor.testInsertString("in progress");
 
-    // Navigate up — should save "in progress"
+    // Navigate up, should save "in progress"
     editor.historyUp();
     try std.testing.expectEqualStrings("old command", editor.getLineSlice());
 
-    // Navigate down — should restore "in progress"
+    // Navigate down, should restore "in progress"
     editor.historyDown();
     try std.testing.expectEqualStrings("in progress", editor.getLineSlice());
 }

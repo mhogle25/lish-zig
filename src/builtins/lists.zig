@@ -21,7 +21,6 @@ pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void 
     try registry.registerOperation(allocator, "sort",     Operation.fromFn(sortOp));
     try registry.registerOperation(allocator, "sortby",   Operation.fromFn(sortbyOp));
     try registry.registerOperation(allocator, "sortwith", Operation.fromFn(sortwithOp));
-    try registry.registerOperation(allocator, "fill",     Operation.fromFn(fillOp));
     try registry.registerOperation(allocator, "fillby",   Operation.fromFn(fillbyOp));
 
     // Collection access
@@ -424,23 +423,6 @@ fn sortwithOp(args: Args) ExecError!?Value {
     return .{ .list = sorted };
 }
 
-fn fillOp(args: Args) ExecError!?Value {
-    const count = args.count();
-    if (count < 1 or count > 2) return args.env.fail(.arity_mismatch, "'fill' expects  or 2 arguments");
-
-    const n_value = try args.at(0).resolve();
-    const n = n_value.getI() catch return args.env.fail(.type_mismatch, "'fill' expects an integer count");
-    if (n < 0) return args.env.fail(.invalid_argument, "'fill' count cannot be negative");
-
-    const fill_value: ?Value = if (count == 2) try args.at(1).get() else null;
-
-    try helpers.checkListLength(args, @intCast(n));
-    const alloc = args.env.allocator;
-    const items = try alloc.alloc(?Value, @intCast(n));
-    for (items) |*slot| slot.* = fill_value;
-    return .{ .list = items };
-}
-
 fn fillbyOp(args: Args) ExecError!?Value {
     const count = args.count();
     if (count != 2 and count != 3) return args.env.fail(.arity_mismatch, "'fillby' expects  or 3 arguments");
@@ -816,31 +798,6 @@ test "sortwith: wrong arg count fails" {
     defer arena.deinit();
     const result = testing.evalWithBuiltins(arena.allocator(), "sortwith a b [1 2 3]");
     try std.testing.expectError(error.RuntimeError, result);
-}
-
-test "list: fill default nulls" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try testing.evalWithBuiltins(arena.allocator(), "fill 3");
-    const items = result.?.list;
-    try std.testing.expectEqual(@as(usize, 3), items.len);
-    for (items) |item| try std.testing.expect(item == null);
-}
-
-test "list: fill with value" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try testing.evalWithBuiltins(arena.allocator(), "fill 4 7");
-    const items = result.?.list;
-    try std.testing.expectEqual(@as(usize, 4), items.len);
-    for (items) |item| try std.testing.expectEqual(@as(i64, 7), item.?.int);
-}
-
-test "list: fill zero count" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try testing.evalWithBuiltins(arena.allocator(), "fill 0");
-    try std.testing.expectEqual(@as(usize, 0), result.?.list.len);
 }
 
 test "list: fillby length" {

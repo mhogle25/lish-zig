@@ -24,6 +24,7 @@ pub const random = @import("random.zig");
 pub const serializer = @import("serializer.zig");
 pub const ast_builder = @import("ast_builder.zig");
 pub const line_editor = @import("line_editor.zig");
+pub const highlight = @import("highlight.zig");
 pub const repl = @import("repl.zig");
 
 pub const Lexer = lexer.Lexer;
@@ -87,5 +88,7 @@ test {
     _ = serializer;
     _ = ast_builder;
     _ = line_editor;
+    _ = highlight;
     _ = repl;
+    _ = @import("stdlib_test.zig");
 }

@@ -31,6 +31,9 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
 
 /// Register all pure built-in operations. Safe for any context, including
 /// config loading, since none of these produce visible side effects.
+///
+/// Also auto-loads the bundled stdlib macros at the end so consumers get
+/// macros like `clamp` / `sign` / `pi` / `fill` without an extra setup step.
 pub fn registerCore(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     try constants.register(registry, allocator);
     try arithmetic.register(registry, allocator);
@@ -45,6 +48,9 @@ pub fn registerCore(registry: *Registry, allocator: Allocator) Allocator.Error!v
     try types.register(registry, allocator);
     try sequencing.register(registry, allocator);
     try binding.register(registry, allocator);
+
+    const process = @import("process.zig");
+    _ = try process.loadStdlib(registry);
 }
 
 /// Register output operations (say, error). These write to stdout/stderr and

@@ -29,3 +29,23 @@ pub fn evalWithBuiltins(alloc: Allocator, source: []const u8) ExecError!?Value {
         .err => error.RuntimeError,
     };
 }
+
+/// Like `evalWithBuiltins` but also loads the bundled stdlib macros. Used by
+/// tests that exercise stdlib macros built on top of the builtin ops.
+pub fn evalWithStdlib(alloc: Allocator, source: []const u8) ExecError!?Value {
+    const process_mod = @import("../process.zig");
+    var registry = Registry.init(alloc);
+    builtins.registerAll(&registry, alloc) catch return error.OutOfMemory;
+    _ = process_mod.loadStdlib(&registry) catch return error.OutOfMemory;
+
+    var env = makeTestEnv(alloc, &registry);
+    const scope = exec.Scope.EMPTY;
+
+    const ast_root = try parser.parse(alloc, source);
+    const result = try validation.validate(alloc, ast_root);
+
+    return switch (result) {
+        .ok => |expression| try env.processExpression(expression, &scope),
+        .err => error.RuntimeError,
+    };
+}

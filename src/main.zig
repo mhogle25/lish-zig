@@ -53,6 +53,7 @@ pub fn main(init: std.process.Init) !void {
     var editor = line_editor_mod.LineEditor.init(allocator, stdout);
     editor.autopair_insert = repl_config.autopair_insert;
     editor.autopair_delete = repl_config.autopair_delete;
+    editor.renderer.highlight_enabled = repl_config.highlight;
     defer editor.deinit();
 
     repl_mod.runRepl(&session, &editor, stdout, stderr);

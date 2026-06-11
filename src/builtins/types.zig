@@ -10,10 +10,11 @@ const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
-    try registry.registerOperation(allocator, "type",   Operation.fromFn(typeOp));
-    try registry.registerOperation(allocator, "int",    Operation.fromFn(intOp));
-    try registry.registerOperation(allocator, "float",  Operation.fromFn(floatOp));
-    try registry.registerOperation(allocator, "string", Operation.fromFn(stringOp));
+    try registry.registerOperation(allocator, "type",    Operation.fromFn(typeOp));
+    try registry.registerOperation(allocator, "int",     Operation.fromFn(intOp));
+    try registry.registerOperation(allocator, "float",   Operation.fromFn(floatOp));
+    try registry.registerOperation(allocator, "string",  Operation.fromFn(stringOp));
+    try registry.registerOperation(allocator, "inspect", Operation.fromFn(inspectOp));
 }
 
 fn intOp(args: Args) ExecError!?Value {
@@ -59,6 +60,59 @@ fn stringOp(args: Args) ExecError!?Value {
             return .{ .string = owned };
         },
     };
+}
+
+/// Debug representation of any value. Distinct from `string` which gives
+/// value-as-text; `inspect` gives parseable-back syntax:
+///   strings → "quoted" with escapes
+///   lists   → [a b c] (lish list syntax)
+///   none    → $none
+///   ints/floats → same as `string`
+fn inspectOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const maybe_value = try args.at(0).get();
+
+    var buf: [4096]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+    writeInspect(&writer, maybe_value) catch return args.env.fail(.string_too_large, "'inspect' output exceeded buffer");
+
+    const owned = try args.env.allocator.dupe(u8, writer.buffered());
+    return .{ .string = owned };
+}
+
+fn writeInspect(writer: *std.Io.Writer, maybe_value: ?Value) !void {
+    const value = maybe_value orelse {
+        try writer.writeAll("$none");
+        return;
+    };
+    switch (value) {
+        .string => |s| try writeQuoted(writer, s),
+        .int => |n| try writer.print("{d}", .{n}),
+        .float => |x| try writer.print("{d}", .{x}),
+        .list => |items| {
+            try writer.writeByte('[');
+            for (items, 0..) |item, i| {
+                if (i > 0) try writer.writeByte(' ');
+                try writeInspect(writer, item);
+            }
+            try writer.writeByte(']');
+        },
+    }
+}
+
+fn writeQuoted(writer: *std.Io.Writer, s: []const u8) !void {
+    try writer.writeByte('"');
+    for (s) |c| {
+        switch (c) {
+            '"'  => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => try writer.writeByte(c),
+        }
+    }
+    try writer.writeByte('"');
 }
 
 fn typeOp(args: Args) ExecError!?Value {
@@ -166,5 +220,68 @@ test "type inspection: none" {
     defer arena.deinit();
     const result = try testing.evalWithBuiltins(arena.allocator(), "type $none");
     try std.testing.expect(result == null);
+}
+
+test "inspect: int" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "inspect 42");
+    try std.testing.expectEqualStrings("42", result.?.string);
+}
+
+test "inspect: string gets quoted" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "inspect \"hello\"");
+    try std.testing.expectEqualStrings("\"hello\"", result.?.string);
+}
+
+test "inspect: string with newline escapes" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "inspect \"a\\nb\"");
+    try std.testing.expectEqualStrings("\"a\\nb\"", result.?.string);
+}
+
+test "inspect: string with embedded quote escapes" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "inspect \"a\\\"b\"");
+    try std.testing.expectEqualStrings("\"a\\\"b\"", result.?.string);
+}
+
+test "inspect: list uses lish syntax" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "inspect [1 2 3]");
+    try std.testing.expectEqualStrings("[1 2 3]", result.?.string);
+}
+
+test "inspect: nested list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "inspect [\"a\" 1 [2 3]]");
+    try std.testing.expectEqualStrings("[\"a\" 1 [2 3]]", result.?.string);
+}
+
+test "inspect: none renders as $none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "inspect $none");
+    try std.testing.expectEqualStrings("$none", result.?.string);
+}
+
+test "inspect: empty list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "inspect []");
+    try std.testing.expectEqualStrings("[]", result.?.string);
+}
+
+test "inspect: wrong arity fails" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = testing.evalWithBuiltins(arena.allocator(), "inspect 1 2");
+    try std.testing.expectError(error.RuntimeError, result);
 }
 

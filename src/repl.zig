@@ -11,6 +11,7 @@ const LineEditor = line_editor_mod.LineEditor;
 
 const op_autopair_insert   = "autopair-insert";
 const op_autopair_delete   = "autopair-delete";
+const op_highlight         = "highlight";
 const op_max_call_depth    = "max-call-depth";
 const op_fuel              = "fuel";
 const op_max_list_length   = "max-list-length";
@@ -22,6 +23,7 @@ const CONFIG_FILE_MAX_SIZE = 64 * 1024;
 pub const ReplConfig = struct {
     autopair_insert: bool = true,
     autopair_delete: bool = true,
+    highlight: bool = true,
     macro_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
     bounds: exec_mod.Bounds = .{},
     allocator: Allocator,
@@ -50,6 +52,15 @@ fn autopairDeleteOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError
         0 => config.autopair_delete = true,
         1 => config.autopair_delete = (try args.at(0).get()) != null,
         else => return args.env.fail(.arity_mismatch, op_autopair_delete ++ " takes 0 or 1 argument"),
+    }
+    return null;
+}
+
+fn highlightOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?value_mod.Value {
+    switch (args.count()) {
+        0 => config.highlight = true,
+        1 => config.highlight = (try args.at(0).get()) != null,
+        else => return args.env.fail(.arity_mismatch, op_highlight ++ " takes 0 or 1 argument"),
     }
     return null;
 }
@@ -133,6 +144,7 @@ pub fn loadConfig(io: std.Io, environ: std.process.Environ, config: *ReplConfig,
     builtins_mod.registerCore(&registry, allocator) catch return;
     registry.registerOperation(allocator, op_autopair_insert,   exec_mod.Operation.fromBoundFn(ReplConfig, autopairInsertOp,   config)) catch return;
     registry.registerOperation(allocator, op_autopair_delete,   exec_mod.Operation.fromBoundFn(ReplConfig, autopairDeleteOp,   config)) catch return;
+    registry.registerOperation(allocator, op_highlight,         exec_mod.Operation.fromBoundFn(ReplConfig, highlightOp,        config)) catch return;
     registry.registerOperation(allocator, op_max_call_depth,    exec_mod.Operation.fromBoundFn(ReplConfig, maxCallDepthOp,    config)) catch return;
     registry.registerOperation(allocator, op_fuel,              exec_mod.Operation.fromBoundFn(ReplConfig, fuelOp,            config)) catch return;
     registry.registerOperation(allocator, op_max_list_length,   exec_mod.Operation.fromBoundFn(ReplConfig, maxListLengthOp,   config)) catch return;
@@ -197,8 +209,8 @@ pub fn runRepl(
                             stderr.print("\x1b[31mValidation error: {s}\x1b[0m\n", .{validation_error.message}) catch {};
                         }
                     },
-                    .runtime_err => |message| {
-                        stderr.print("\x1b[31mRuntime error: {s}\x1b[0m\n", .{message}) catch {};
+                    .runtime_err => |re| {
+                        stderr.print("\x1b[31mRuntime error: {s}\x1b[0m\n", .{re.message}) catch {};
                     },
                 }
             },

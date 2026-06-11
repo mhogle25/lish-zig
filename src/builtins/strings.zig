@@ -15,6 +15,8 @@ pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void 
     try registry.registerOperation(allocator, "concat",  Operation.fromFn(concatOp));
     try registry.registerOperation(allocator, "join",    Operation.fromFn(joinOp));
     try registry.registerOperation(allocator, "split",   Operation.fromFn(splitOp));
+    try registry.registerOperation(allocator, "chars",   Operation.fromFn(charsOp));
+    try registry.registerOperation(allocator, "lines",   Operation.fromFn(linesOp));
     try registry.registerOperation(allocator, "trim",    Operation.fromFn(trimOp));
     try registry.registerOperation(allocator, "upper",   Operation.fromFn(upperOp));
     try registry.registerOperation(allocator, "lower",   Operation.fromFn(lowerOp));
@@ -96,6 +98,52 @@ fn splitOp(args: Args) ExecError!?Value {
         try parts.append(alloc, .{ .string = last_part });
     }
 
+    return .{ .list = parts.items };
+}
+
+fn charsOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const value = try args.at(0).resolve();
+    if (value != .string) return args.env.fail(.type_mismatch, "'chars' expects a string");
+    const string = value.string;
+
+    const alloc = args.env.allocator;
+    var parts = std.ArrayListUnmanaged(?Value).empty;
+    for (0..string.len) |i| {
+        try helpers.checkListLength(args, parts.items.len + 1);
+        const char = try alloc.dupe(u8, string[i .. i + 1]);
+        try parts.append(alloc, .{ .string = char });
+    }
+    return .{ .list = parts.items };
+}
+
+fn linesOp(args: Args) ExecError!?Value {
+    try args.expectCount(1);
+    const value = try args.at(0).resolve();
+    if (value != .string) return args.env.fail(.type_mismatch, "'lines' expects a string");
+    const string = value.string;
+
+    const alloc = args.env.allocator;
+    var parts = std.ArrayListUnmanaged(?Value).empty;
+
+    var remaining = string;
+    while (std.mem.indexOfScalar(u8, remaining, '\n')) |idx| {
+        try helpers.checkListLength(args, parts.items.len + 1);
+        // Strip trailing \r so CRLF input produces clean lines.
+        const raw = remaining[0..idx];
+        const trimmed = if (raw.len > 0 and raw[raw.len - 1] == '\r') raw[0 .. raw.len - 1] else raw;
+        const part = try alloc.dupe(u8, trimmed);
+        try parts.append(alloc, .{ .string = part });
+        remaining = remaining[idx + 1 ..];
+    }
+    // Emit the final segment only if non-empty so a trailing newline doesn't
+    // produce a phantom empty line.
+    if (remaining.len > 0) {
+        try helpers.checkListLength(args, parts.items.len + 1);
+        const trimmed = if (remaining[remaining.len - 1] == '\r') remaining[0 .. remaining.len - 1] else remaining;
+        const part = try alloc.dupe(u8, trimmed);
+        try parts.append(alloc, .{ .string = part });
+    }
     return .{ .list = parts.items };
 }
 
@@ -273,6 +321,77 @@ test "string: join" {
     defer arena.deinit();
     const result = try testing.evalWithBuiltins(arena.allocator(), "join \",\" \"a\" \"b\" \"c\"");
     try std.testing.expectEqualStrings("a,b,c", result.?.string);
+}
+
+test "string: chars splits to single-char strings" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "chars \"abc\"");
+    const list = result.?.list;
+    try std.testing.expectEqual(@as(usize, 3), list.len);
+    try std.testing.expectEqualStrings("a", list[0].?.string);
+    try std.testing.expectEqualStrings("b", list[1].?.string);
+    try std.testing.expectEqualStrings("c", list[2].?.string);
+}
+
+test "string: chars on empty string returns empty list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "chars \"\"");
+    try std.testing.expectEqual(@as(usize, 0), result.?.list.len);
+}
+
+test "string: lines splits on newlines" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "lines \"a\\nb\\nc\"");
+    const list = result.?.list;
+    try std.testing.expectEqual(@as(usize, 3), list.len);
+    try std.testing.expectEqualStrings("a", list[0].?.string);
+    try std.testing.expectEqualStrings("b", list[1].?.string);
+    try std.testing.expectEqualStrings("c", list[2].?.string);
+}
+
+test "string: lines strips trailing CR (CRLF input)" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "lines \"a\\r\\nb\\r\\nc\"");
+    const list = result.?.list;
+    try std.testing.expectEqual(@as(usize, 3), list.len);
+    try std.testing.expectEqualStrings("a", list[0].?.string);
+    try std.testing.expectEqualStrings("b", list[1].?.string);
+    try std.testing.expectEqualStrings("c", list[2].?.string);
+}
+
+test "string: lines on empty string returns empty list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "lines \"\"");
+    try std.testing.expectEqual(@as(usize, 0), result.?.list.len);
+}
+
+test "string: lines with trailing newline doesn't produce phantom empty line" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "lines \"a\\nb\\n\"");
+    const list = result.?.list;
+    try std.testing.expectEqual(@as(usize, 2), list.len);
+    try std.testing.expectEqualStrings("a", list[0].?.string);
+    try std.testing.expectEqualStrings("b", list[1].?.string);
+}
+
+test "string: chars wrong arity fails" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = testing.evalWithBuiltins(arena.allocator(), "chars \"a\" \"b\"");
+    try std.testing.expectError(error.RuntimeError, result);
+}
+
+test "string: lines on non-string fails with type_mismatch" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = testing.evalWithBuiltins(arena.allocator(), "lines 42");
+    try std.testing.expectError(error.RuntimeError, result);
 }
 
 test "string predicate: prefix returns remainder" {

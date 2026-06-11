@@ -12,15 +12,12 @@ const Allocator = std.mem.Allocator;
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     try registry.registerOperation(allocator, "min",   Operation.fromFn(minOp));
     try registry.registerOperation(allocator, "max",   Operation.fromFn(maxOp));
-    try registry.registerOperation(allocator, "clamp", Operation.fromFn(clampOp));
     try registry.registerOperation(allocator, "abs",   Operation.fromFn(absOp));
     try registry.registerOperation(allocator, "floor", Operation.fromFn(floorOp));
     try registry.registerOperation(allocator, "ceil",  Operation.fromFn(ceilOp));
     try registry.registerOperation(allocator, "round", Operation.fromFn(roundOp));
     try registry.registerOperation(allocator, "even",  Operation.fromFn(evenOp));
     try registry.registerOperation(allocator, "odd",   Operation.fromFn(oddOp));
-    try registry.registerOperation(allocator, "sign",  Operation.fromFn(signOp));
-    try registry.registerOperation(allocator, "pi",    Operation.fromFn(piOp));
     try registry.registerOperation(allocator, "sqrt",  Operation.fromFn(sqrtOp));
     try registry.registerOperation(allocator, "sin",   Operation.fromFn(sinOp));
     try registry.registerOperation(allocator, "cos",   Operation.fromFn(cosOp));
@@ -71,27 +68,6 @@ fn maxOp(args: Args) ExecError!?Value {
         }
     }
     return result;
-}
-
-fn clampOp(args: Args) ExecError!?Value {
-    try args.expectCount(3);
-    const value = try args.at(0).resolve();
-    const min_val = try args.at(1).resolve();
-    const max_val = try args.at(2).resolve();
-    if (!value.isNumber() or !min_val.isNumber() or !max_val.isNumber())
-        return args.env.fail(.type_mismatch, "Expected a number");
-
-    if (value == .float or min_val == .float or max_val == .float) {
-        const val_f = value.getF() catch unreachable;
-        const min_f = min_val.getF() catch unreachable;
-        const max_f = max_val.getF() catch unreachable;
-        return .{ .float = @max(min_f, @min(val_f, max_f)) };
-    } else {
-        const val_i = value.getI() catch unreachable;
-        const min_i = min_val.getI() catch unreachable;
-        const max_i = max_val.getI() catch unreachable;
-        return .{ .int = @max(min_i, @min(val_i, max_i)) };
-    }
 }
 
 fn absOp(args: Args) ExecError!?Value {
@@ -146,24 +122,6 @@ fn oddOp(args: Args) ExecError!?Value {
     const value = try args.at(0).resolve();
     const n = value.getI() catch return args.env.fail(.type_mismatch, "'odd' expects an integer");
     return val.toCondition(@mod(n, 2) != 0);
-}
-
-fn signOp(args: Args) ExecError!?Value {
-    try args.expectCount(1);
-    const value = try args.at(0).resolve();
-    if (value == .int) {
-        const n = value.int;
-        return .{ .int = if (n < 0) -1 else if (n > 0) 1 else 0 };
-    }
-    if (value == .float) {
-        const f = value.float;
-        return .{ .int = if (f < 0) -1 else if (f > 0) 1 else 0 };
-    }
-    return args.env.fail(.type_mismatch, "'sign' expects a number");
-}
-
-fn piOp(_: Args) ExecError!?Value {
-    return .{ .float = std.math.pi };
 }
 
 fn sqrtOp(args: Args) ExecError!?Value {
@@ -226,27 +184,6 @@ test "math: max" {
     defer arena.deinit();
     const result = try testing.evalWithBuiltins(arena.allocator(), "max 3 1 2");
     try std.testing.expectEqual(@as(i64, 3), result.?.int);
-}
-
-test "math: clamp within range" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try testing.evalWithBuiltins(arena.allocator(), "clamp 5 0 10");
-    try std.testing.expectEqual(@as(i64, 5), result.?.int);
-}
-
-test "math: clamp above max" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try testing.evalWithBuiltins(arena.allocator(), "clamp 15 0 10");
-    try std.testing.expectEqual(@as(i64, 10), result.?.int);
-}
-
-test "math: clamp below min" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try testing.evalWithBuiltins(arena.allocator(), "clamp (- 0 5) 0 10");
-    try std.testing.expectEqual(@as(i64, 0), result.?.int);
 }
 
 test "math: abs positive" {
@@ -338,41 +275,6 @@ test "math: odd false" {
     defer arena.deinit();
     const result = try testing.evalWithBuiltins(arena.allocator(), "odd 4");
     try std.testing.expect(result == null);
-}
-
-test "math: sign positive" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try testing.evalWithBuiltins(arena.allocator(), "sign 42");
-    try std.testing.expectEqual(@as(i64, 1), result.?.int);
-}
-
-test "math: sign negative" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try testing.evalWithBuiltins(arena.allocator(), "sign (- 0 5)");
-    try std.testing.expectEqual(@as(i64, -1), result.?.int);
-}
-
-test "math: sign zero" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try testing.evalWithBuiltins(arena.allocator(), "sign 0");
-    try std.testing.expectEqual(@as(i64, 0), result.?.int);
-}
-
-test "math: sign float" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try testing.evalWithBuiltins(arena.allocator(), "sign -3.5");
-    try std.testing.expectEqual(@as(i64, -1), result.?.int);
-}
-
-test "math: pi constant" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try testing.evalWithBuiltins(arena.allocator(), "pi");
-    try std.testing.expectApproxEqAbs(@as(f64, std.math.pi), result.?.float, 1e-12);
 }
 
 test "math: sqrt" {

@@ -23,7 +23,6 @@ fn noneOp(_: Args) ExecError!?Value {
 }
 
 
-// ── Tests ──
 
 const testing = @import("testing.zig");
 

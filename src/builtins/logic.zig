@@ -40,7 +40,6 @@ fn notOp(args: Args) ExecError!?Value {
     return if (result != null) null else val.some();
 }
 
-// ── Tests ──
 
 const testing = @import("testing.zig");
 

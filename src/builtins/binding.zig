@@ -61,7 +61,6 @@ fn pipeOp(args: Args) ExecError!?Value {
     return current;
 }
 
-// ── Tests ──
 
 const testing = @import("testing.zig");
 

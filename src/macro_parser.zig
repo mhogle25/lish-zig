@@ -13,7 +13,6 @@ const TokenType = tok.TokenType;
 const Lexer = lex_mod.Lexer;
 const AstNode = ast_mod.AstNode;
 
-// ── Macro AST types ──
 
 pub const AstMacroModule = struct {
     macros: []const AstMacroNode,
@@ -55,14 +54,12 @@ pub const MacroError = struct {
     end: u32,
 };
 
-// ── Top-level parse function ──
 
 pub fn parseMacroModule(allocator: Allocator, source: []const u8) Allocator.Error!AstMacroModule {
     var parser = MacroParser.init(allocator, source);
     return parser.parse();
 }
 
-// ── Macro parser (state machine) ──
 
 const MacroParser = struct {
     allocator: Allocator,
@@ -110,7 +107,6 @@ const MacroParser = struct {
         return .{ .macros = self.macros.items };
     }
 
-    // ── State handlers ──
 
     fn handleInit(self: *MacroParser) void {
         if (self.token.type == .macro_bracket) {
@@ -204,7 +200,6 @@ const MacroParser = struct {
         }
     }
 
-    // ── Body parsing (hands off to expression parser) ──
 
     fn parseMacroBody(self: *MacroParser) Allocator.Error!void {
         const result = try expr_parser.parseFromLexer(
@@ -254,7 +249,6 @@ const MacroParser = struct {
         self.parameters.clearRetainingCapacity();
     }
 
-    // ── Helpers ──
 
     fn processIdentifier(self: *MacroParser) Allocator.Error!?[]const u8 {
         if (self.token.hasInvalidEscapes()) return null;
@@ -294,7 +288,6 @@ const MacroParser = struct {
     }
 };
 
-// ── Macro validation ──
 
 pub const MacroValidationResult = union(enum) {
     ok: []const exec.Macro,
@@ -385,7 +378,6 @@ fn macroErrToValidationErr(macro_error: MacroError) validation_mod.ValidationErr
     };
 }
 
-// ── Tests ──
 
 const builtins = @import("builtins.zig");
 

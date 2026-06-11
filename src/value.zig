@@ -131,7 +131,6 @@ pub fn toCondition(condition: bool) ?Value {
     return if (condition) some() else NONE;
 }
 
-// ── Tests ──
 
 test "value int" {
     const val: Value = .{ .int = 42 };

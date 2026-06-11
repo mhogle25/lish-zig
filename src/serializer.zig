@@ -48,7 +48,6 @@ pub fn serializeMacroModule(macros: []const AstMacro, writer: anytype) !void {
     }
 }
 
-// ── Internal ──
 
 fn serializeNode(node: *const AstNode, writer: anytype, nested: bool) anyerror!void {
     switch (node.body) {
@@ -176,7 +175,6 @@ fn looksLikeNumber(str: []const u8) bool {
     return true;
 }
 
-// ── Tests ──
 
 const parser_mod = @import("parser.zig");
 const Allocator = std.mem.Allocator;
@@ -195,7 +193,6 @@ fn expectSerializedMacro(macro: AstMacro, expected: []const u8) !void {
     try std.testing.expectEqualStrings(expected, writer.buffered());
 }
 
-// ── needsQuoting / looksLikeNumber ──
 
 test "quoting: bare words don't need quotes" {
     try std.testing.expect(!needsQuoting("hello"));
@@ -223,7 +220,6 @@ test "quoting: numbers require quotes" {
     try std.testing.expect(!needsQuoting("1abc")); // not a pure number
 }
 
-// ── Value literals ──
 
 test "serialize: int literal" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -288,7 +284,6 @@ test "serialize: string with backslash and quote" {
     try expectSerialized(node, "\"say \\\"hi\\\"\"");
 }
 
-// ── Expressions ──
 
 test "serialize: simple expression" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -378,7 +373,6 @@ test "serialize: list value literal nested" {
     try expectSerialized(node, "length (list 1 2 3)");
 }
 
-// ── Macro serialization ──
 
 test "serialize: simple macro" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -448,7 +442,6 @@ test "serialize: macro module" {
     );
 }
 
-// ── Round-trip: parse → serialize ──
 
 test "round-trip: expression" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

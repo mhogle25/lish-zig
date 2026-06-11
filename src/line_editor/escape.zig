@@ -178,7 +178,6 @@ pub const Parser = struct {
     }
 };
 
-// -- Tests --
 
 fn expectAction(expected: Action, step: Step) !void {
     try std.testing.expect(step == .action);

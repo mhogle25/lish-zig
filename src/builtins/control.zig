@@ -86,7 +86,6 @@ fn assertOp(args: Args) ExecError!?Value {
     return args.env.fail(.user, "Assertion failed");
 }
 
-// ── Tests ──
 
 const testing = @import("testing.zig");
 

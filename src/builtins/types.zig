@@ -63,11 +63,14 @@ fn stringOp(args: Args) ExecError!?Value {
 }
 
 /// Debug representation of any value. Distinct from `string` which gives
-/// value-as-text; `inspect` gives parseable-back syntax:
+/// value-as-text:
 ///   strings → "quoted" with escapes
-///   lists   → [a b c] (lish list syntax)
+///   lists   → [a b c] (sub-expression sugar; not a top-level form)
 ///   none    → $none
 ///   ints/floats → same as `string`
+///
+/// Intended for logs and REPL inspection, not programmatic round-trip.
+/// For AST → source → AST use the `serializer` module.
 fn inspectOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
     const maybe_value = try args.at(0).get();
@@ -127,7 +130,6 @@ fn typeOp(args: Args) ExecError!?Value {
     } };
 }
 
-// ── Tests ──
 
 const testing = @import("testing.zig");
 

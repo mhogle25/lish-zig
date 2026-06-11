@@ -176,7 +176,6 @@ fn isBracket(c: u8) bool {
         c == tok.BLOCK_OPEN or c == tok.BLOCK_CLOSE;
 }
 
-// -- Tests --
 
 const testing = std.testing;
 

@@ -206,7 +206,6 @@ fn findbyOp(args: Args) ExecError!?Value {
     return null;
 }
 
-// ── Tests ──
 
 const testing = @import("testing.zig");
 

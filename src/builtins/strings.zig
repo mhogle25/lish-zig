@@ -237,7 +237,6 @@ fn formatOp(args: Args) ExecError!?Value {
     return .{ .string = result.items };
 }
 
-// ── Predicates ──
 
 fn prefixOp(args: Args) ExecError!?Value {
     try args.expectCount(2);
@@ -305,7 +304,6 @@ fn findOp(args: Args) ExecError!?Value {
     };
 }
 
-// ── Tests ──
 
 const testing = @import("testing.zig");
 

@@ -136,7 +136,6 @@ pub const Session = struct {
     }
 };
 
-// -- Tests --
 
 const builtins = @import("builtins.zig");
 

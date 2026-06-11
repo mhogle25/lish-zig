@@ -108,7 +108,6 @@ pub fn LruCache(comptime V: type) type {
             return self.map.count();
         }
 
-        // -- Internal linked list operations --
 
         fn moveToFront(self: *Self, index: usize) void {
             if (self.head == index) return;
@@ -149,7 +148,6 @@ pub fn LruCache(comptime V: type) type {
 /// used for parsing must outlive the cache (e.g. use a session-scoped arena).
 pub const ExpressionCache = LruCache(Expression);
 
-// -- Tests --
 
 const expr_parser = @import("parser.zig");
 const validation_mod = @import("validation.zig");

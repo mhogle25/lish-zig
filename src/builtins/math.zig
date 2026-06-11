@@ -161,7 +161,6 @@ fn expOp(args: Args) ExecError!?Value {
     return .{ .float = @exp(x) };
 }
 
-// ── Tests ──
 
 const testing = @import("testing.zig");
 

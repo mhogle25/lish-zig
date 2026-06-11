@@ -9,7 +9,6 @@ const AstBracketError = ast_mod.AstBracketError;
 const Thunk = exec_mod.Thunk;
 const Expression = exec_mod.Expression;
 
-// ── Validation error ──
 
 pub const ValidationError = struct {
     message: []const u8,
@@ -35,14 +34,12 @@ pub const ValidationErrors = struct {
     }
 };
 
-// ── Validation result ──
 
 pub const ValidationResult = union(enum) {
     ok: Expression,
     err: []const ValidationError,
 };
 
-// ── Top-level validate ──
 
 /// Validate an AST root node into an executable Expression.
 /// The root must be an expression node; all errors are accumulated.
@@ -71,7 +68,6 @@ pub fn validate(allocator: Allocator, ast_root: *const AstNode) Allocator.Error!
     return .{ .ok = thunk.body.expression };
 }
 
-// ── Recursive validation step ──
 
 /// Validate a single AST node into a Thunk, accumulating errors.
 /// Returns null if the node (or any of its children) is invalid.
@@ -161,7 +157,6 @@ fn addBracketError(allocator: Allocator, errors: *ValidationErrors, bracket_erro
     });
 }
 
-// ── Tests ──
 
 const parser = @import("parser.zig");
 const ast = ast_mod;

@@ -12,7 +12,7 @@ lish borrows Lisp's prefix notation and parenthesized sub-expressions, but diver
 - **Call-by-name, not call-by-value.** Arguments are not evaluated before the call. They are re-evaluated each time the callee accesses them. This applies uniformly to all operations, not just special forms.
 - **No cons cells.** Lists are flat arrays. There is no `car`, `cdr`, or dotted pair notation.
 - **No first-class functions.** There is no `lambda` and no closures. Macros are named parameter-substitution patterns evaluated at call time, not compile-time code transformers.
-- **No mutable state.** There is no `set`, `define`, or `setq`. Host state flows in through scope thunks and is read-only from within lish. The one existing binding form is `let`, which introduces an immutable, lexically-scoped name for a value. The binding evaporates at the end of its body and cannot be reassigned.
+- **No mutable state.** There is no `set`, `define`, or `setq`. Host state flows in through scope thunks and is read-only from within lish. Bindings exist (`let`, `pipe`, and the iterative ops like `map`/`filter`/`reduce` all introduce a name for the duration of a body expression) but every binding is immutable, lexically scoped, and evaporates at the end of its body — none of them can be reassigned, and they don't leak into sibling expressions or called macros.
 
 ## Features
 
@@ -21,8 +21,8 @@ lish borrows Lisp's prefix notation and parenthesized sub-expressions, but diver
 - **Existential truthiness** — no booleans; values either exist (`?Value`) or they don't (`null`)
 - **Arena allocation** — parse and execute within a single arena lifecycle
 - **Expression caching** — generic LRU cache avoids redundant parsing
-- **93 built-in operations** — arithmetic, comparison, logic, control flow, string, list, higher-order, type, math, binding, and meta functions
-- **Binding form for iteration** — `map`, `filter`, `reduce`, etc. take a binding name and a sub-expression body, so transforms live inline at the call site
+- **91 built-in operations** — arithmetic, comparison, logic, control flow, string, list, higher-order, type, math, binding, and meta functions, plus a small bundled stdlib of macros (`clamp`, `sign`, `pi`, `fill`, kv-list helpers, etc.) loaded automatically
+- **Bindings everywhere** — `let` and `pipe` introduce names, and the iterative ops (`map`, `filter`, `reduce`, `loop`, etc.) all take a binding name and a body expression, so transforms live inline at the call site
 - **Session API** — backend-agnostic REPL core
 - **AST builder** — fluent Zig API for constructing lish expressions and macro definitions programmatically
 - **AST serializer** — convert any AST node back to lish source text
@@ -110,17 +110,19 @@ Macros (params accessed with `:`):
 | Comparison        | `<`, `<=`, `>`, `>=`, `is`, `isnt`, `compare`                                                                                    |
 | Logic             | `and`, `or`, `not`                                                                                                               |
 | Control Flow      | `if`, `when`, `match`, `assert`                                                                                                  |
-| String            | `concat`, `join`, `split`, `trim`, `upper`, `lower`, `replace`, `format`                                                         |
+| String            | `concat`, `join`, `split`, `chars`, `lines`, `trim`, `upper`, `lower`, `replace`, `format`                                       |
 | String Predicates | `prefix`, `suffix`, `in`, `find`                                                                                                 |
 | Output            | `say`, `error`                                                                                                                   |
-| List              | `list`, `flat`, `flatten`, `range`, `until`, `sort`, `sortby`, `sortwith`, `fill`, `fillby`                                      |
+| List              | `list`, `flat`, `flatten`, `range`, `until`, `sort`, `sortby`, `sortwith`, `fillby`                                              |
 | Collection        | `length`, `first`, `last`, `rest`, `at`, `reverse`, `take`, `drop`, `slice`, `zip`                                               |
 | Higher-Order      | `map`, `foreach`, `filter`, `reduce`, `any`, `all`, `count`, `findby`                                                            |
 | Meta              | `apply`, `known`, `ops`                                                                                                          |
-| Math              | `min`, `max`, `clamp`, `abs`, `floor`, `ceil`, `round`, `even`, `odd`, `sign`, `pi`, `sqrt`, `sin`, `cos`, `atan2`, `log`, `exp` |
-| Type              | `type`, `int`, `float`, `string`                                                                                                 |
+| Math              | `min`, `max`, `abs`, `floor`, `ceil`, `round`, `even`, `odd`, `sqrt`, `sin`, `cos`, `log`, `exp`                                 |
+| Type              | `type`, `int`, `float`, `string`, `inspect`                                                                                      |
 | Sequencing        | `proc`, `loop`, `while`                                                                                                          |
 | Binding           | `let`, `pipe`                                                                                                                    |
+
+The bundled stdlib (`src/stdlib.lishmacro`) loaded automatically by `registerCore` adds math helpers (`clamp`, `clamp01`, `pi`, `sign`, `lerp`, `smoothstep`, `square`, `cube`, `negate`), list helpers (`fill`, `head`, `tail`, `init`, `repeat`), string helpers (`repeatstr`, `padleft`, `padright`), predicates (`positive`, `negative`, `zero`, `between`, `numeric`, `blank`), `panic`, and a kv-list family (`kvget`, `kvhas`, `kvkeys`, `kvvalues`, `kvset`, `kvmerge`) for working with flat alternating key/value lists.
 
 `proc` takes its name from three overlapping meanings: **procedure** (execute a sequence of steps), **procure** (retrieve a value), and **process** (transform a sequence). With one argument it returns that argument's value; with multiple arguments it evaluates each in order and returns the last.
 
@@ -286,9 +288,11 @@ zig build run -- -m macros/
 zig build run -- -m macros/math.lishmacro
 ```
 
-### Loading the bundled stdlib
+### The bundled stdlib
 
-lish ships a small standard-library macro file (`src/stdlib.lishmacro`) compiled into the binary via `@embedFile`. The REPL loads it by default. Library consumers can opt in with a single call after session init:
+lish ships a small standard-library macro file (`src/stdlib.lishmacro`) compiled into the binary via `@embedFile`. `builtins.registerCore` (and therefore `builtins.registerAll`) loads it automatically — consumers calling those functions get the stdlib macros without any extra setup.
+
+For consumers wiring up a custom registry that doesn't go through `registerCore`, load it explicitly:
 
 ```zig
 _ = try lish.loadStdlib(&session.registry);
@@ -419,7 +423,7 @@ try registry.registerOperation(
 
 ## Building
 
-Requires **Zig 0.15.2** or later.
+Requires **Zig 0.16.0** or later.
 
 ```sh
 # Run all tests
@@ -444,7 +448,14 @@ zig build run -- --macros macros/math --macros macros/utils
 | `exit`, `quit`| Exit the REPL       |
 | `clear`       | Clear the screen    |
 
-The line editor supports history navigation (↑/↓), cursor movement (←/→, Home, End), word movement (Alt+←/→), and standard readline-style shortcuts (Ctrl+A/E/K/U/W/L).
+The line editor supports:
+
+- **History navigation** (↑/↓ or Ctrl+P/N) with new-line-aware behavior — pressing ↑ from inside a multi-line buffer moves up a visual row first, then recalls the previous history entry once the cursor reaches the top.
+- **Cursor movement** (←/→, Home, End) and **word movement** (Alt+←/→).
+- **Multi-line input.** Enter always submits. Alt+Enter inserts a newline and copies the leading whitespace of the previous line, so block bodies stay aligned.
+- **Indent control.** Tab inserts two spaces at the cursor; Shift+Tab removes up to two leading spaces from the current line.
+- **Bracketed paste.** Pasted text is inserted verbatim — no autopairing, no submit-on-newline — so multi-line pastes round-trip cleanly.
+- **Standard readline shortcuts:** Ctrl+A/E/K/U/W/L.
 
 ### REPL Configuration
 
@@ -516,25 +527,32 @@ Defaults are permissive (recursion depth aside) so existing scripts and library 
 
 ## Architecture
 
-| File               | Purpose                                              |
-|--------------------|------------------------------------------------------|
-| `root.zig`         | Public API re-exports                                |
-| `value.zig`        | Value tagged union (string, int, float, list)         |
-| `token.zig`        | Token types, syntax constants, escape sequences      |
-| `lexer.zig`        | Tokenizer with line/column tracking                  |
-| `ast.zig`          | AST node types and construction helpers              |
-| `parser.zig`       | Recursive descent expression parser                  |
-| `validation.zig`   | AST to executable transformation with error checking |
-| `exec.zig`         | Runtime: Thunk, Expression, Scope, Env, Registry     |
-| `builtins.zig`     | 93 built-in operations                               |
-| `macro_parser.zig` | Macro definition parser and validator                |
-| `cache.zig`        | Generic LRU cache (`LruCache(V)`)                    |
-| `process.zig`      | Convenience API: processRaw, macro file loading      |
-| `session.zig`      | Session struct (backend-agnostic REPL core)          |
-| `ast_builder.zig`  | Fluent builder for AST nodes and macro definitions   |
-| `serializer.zig`   | AST to lish source text serializer                   |
-| `line_editor.zig`  | Terminal line editor: raw mode, history, keybindings |
-| `main.zig`         | Terminal REPL entry point                            |
+| File                       | Purpose                                                                                  |
+|----------------------------|------------------------------------------------------------------------------------------|
+| `root.zig`                 | Public API re-exports                                                                    |
+| `value.zig`                | Value tagged union (string, int, float, list)                                            |
+| `token.zig`                | Token types, syntax constants, escape sequences                                          |
+| `lexer.zig`                | Tokenizer with line/column tracking                                                      |
+| `ast.zig`                  | AST node types and construction helpers                                                  |
+| `parser.zig`               | Recursive descent expression parser                                                      |
+| `validation.zig`           | AST to executable transformation with error checking                                     |
+| `exec.zig`                 | Runtime: Thunk, Expression, Scope, Env, Registry                                         |
+| `builtins.zig`             | Registration entry point for the 91 built-in operations                                  |
+| `builtins/`                | One module per category (arithmetic, lists, strings, higher_order, binding, types, ...)  |
+| `macro_parser.zig`         | Macro definition parser and validator                                                    |
+| `cache.zig`                | Generic LRU cache (`LruCache(V)`)                                                        |
+| `process.zig`              | Convenience API: processRaw, macro file loading                                          |
+| `session.zig`              | Session struct (backend-agnostic REPL core)                                              |
+| `ast_builder.zig`          | Fluent builder for AST nodes and macro definitions                                       |
+| `serializer.zig`           | AST to lish source text serializer (canonical desugared form)                            |
+| `highlight.zig`            | Source token categorization for syntax highlighting (REPL + LSP)                         |
+| `line_editor.zig`          | Re-exports for the line editor module                                                    |
+| `line_editor/`             | Terminal line editor split: `buffer`, `renderer`, `escape`, `history`, `editor`          |
+| `random.zig`               | Random-number ops (`?`, `?<`, `??`) wired through the session's Io context               |
+| `repl.zig`                 | REPL config registry: autopair toggles, bounds, macro path loader                        |
+| `stdlib.lishmacro`         | Bundled standard library macros, embedded via `@embedFile` and loaded by `registerCore`  |
+| `stdlib_test.zig`          | Tests for the bundled stdlib macros                                                      |
+| `main.zig`                 | Terminal REPL entry point                                                                |
 
 ## License
 

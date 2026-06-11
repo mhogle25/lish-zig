@@ -115,7 +115,6 @@ pub const History = struct {
     }
 };
 
-// -- Tests --
 
 fn testInsertString(buffer: *LineBuffer, string: []const u8) void {
     for (string) |byte| {

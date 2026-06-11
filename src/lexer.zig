@@ -297,7 +297,6 @@ fn isWhitespace(char: u8) bool {
     return std.ascii.isWhitespace(char);
 }
 
-// ── Tests ──
 
 test "lex simple expression" {
     var lex = Lexer{ .source = "say \"hello\" 42" };

@@ -109,7 +109,6 @@ pub const Token = struct {
     }
 };
 
-// ── Syntax constants ──
 
 pub const EXPRESSION_SINGLE = '$';
 pub const SCOPE_THUNK = ':';
@@ -186,7 +185,6 @@ pub fn idenEscSymToChar(symbol: u8) ?u8 {
     return escSymToChar(symbol);
 }
 
-// ── Tests ──
 
 test "token type pairing" {
     try std.testing.expect(TokenType.expression_opening_bracket.pairsWith(.expression_closing_bracket));

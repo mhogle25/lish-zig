@@ -19,7 +19,6 @@ pub const AstBuilder = struct {
         return .{ .allocator = allocator };
     }
 
-    // ── Leaf node constructors ──
 
     pub fn int(self: AstBuilder, value: i64) Allocator.Error!*const AstNode {
         return ast_mod.makeValueLiteral(self.allocator, ast_mod.Position.synthetic, .{ .int = value });
@@ -46,7 +45,6 @@ pub const AstBuilder = struct {
             .{ .meta_type = .single_term });
     }
 
-    // ── Expression builder factories ──
 
     /// Start building a standard expression. Chain `.arg()`, finish with `.build()`.
     /// Use `.asTopLevel()` before `.build()` to set top-level metadata.
@@ -84,7 +82,6 @@ pub const AstBuilder = struct {
         };
     }
 
-    // ── Macro builder factory ──
 
     /// Start building a macro definition with the given name.
     /// Chain `.param()` / `.deferredParam()`, finish with `.body()`.
@@ -174,7 +171,6 @@ pub const MacroBuilder = struct {
     }
 };
 
-// ── Tests ──
 
 const serializer_mod = @import("serializer.zig");
 

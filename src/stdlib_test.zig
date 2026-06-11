@@ -3,7 +3,6 @@
 const std = @import("std");
 const testing = @import("builtins/testing.zig");
 
-// -- kv-list helpers --
 
 test "stdlib: kvget returns value for present key" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -114,7 +113,6 @@ test "stdlib: kvkeys on empty list returns empty" {
     try std.testing.expectEqual(@as(usize, 0), result.?.list.len);
 }
 
-// -- pi / clamp / sign / fill --
 
 test "stdlib: pi returns ~3.14159" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -181,7 +179,6 @@ test "stdlib: fill zero count gives empty list" {
     try std.testing.expectEqual(@as(usize, 0), result.?.list.len);
 }
 
-// -- Math helpers --
 
 test "stdlib: square" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -260,7 +257,6 @@ test "stdlib: smoothstep above edge1 = 1" {
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.?.float, 1e-9);
 }
 
-// -- List helpers --
 
 test "stdlib: head returns first element" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -298,7 +294,6 @@ test "stdlib: repeat is fill alias" {
     try std.testing.expectEqualStrings("x", items[0].?.string);
 }
 
-// -- String helpers --
 
 test "stdlib: repeatstr concatenates n copies" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -328,7 +323,6 @@ test "stdlib: padright pads short string" {
     try std.testing.expectEqualStrings("hi...", result.?.string);
 }
 
-// -- Predicates --
 
 test "stdlib: positive on positive number" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -421,7 +415,6 @@ test "stdlib: blank on non-empty is false" {
     try std.testing.expect(result == null);
 }
 
-// -- Control --
 
 test "stdlib: panic raises runtime error" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

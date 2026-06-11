@@ -440,7 +440,6 @@ pub const LineEditor = struct {
     }
 
 
-    // -- Tests --
 
     // Helpers for testing: expose internal state without needing a terminal
 
@@ -467,7 +466,6 @@ pub const LineEditor = struct {
     }
 };
 
-// -- Escape parser tests --
 
 fn expectAction(expected: EscapeAction, step: EscapeStep) !void {
     try std.testing.expect(step == .action);
@@ -822,7 +820,6 @@ test "processInput: unknown CSI terminator does not leak into the line" {
 }
 
 
-// -- Input processing tests --
 
 test "processInput: printable characters" {
     var editor = LineEditor.testInit();

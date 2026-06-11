@@ -98,7 +98,6 @@ pub const Parser = struct {
         };
     }
 
-    // ── Top-level and expression parsing ──
 
     fn topLevelExpression(self: *Parser, nested_count: usize) Allocator.Error!*AstNode {
         if (nested_count > tok.MAX_EXPRESSION_NESTING)
@@ -210,7 +209,6 @@ pub const Parser = struct {
         };
     }
 
-    // ── Literal parsing ──
 
     fn identifierLiteral(self: *Parser) Allocator.Error!*AstNode {
         return self.textLiteral(tok.idenEscSymToChar);
@@ -262,7 +260,6 @@ pub const Parser = struct {
         return ast.makeValueLiteral(self.allocator, .{ .start = self.token.start, .end = self.token.end }, .{ .float = parsed_float });
     }
 
-    // ── Top-level loop ──
 
     fn handleTopLevel(self: *Parser, nested_count_start: usize) Allocator.Error!usize {
         var expr_count: usize = 0;
@@ -322,7 +319,6 @@ pub const Parser = struct {
         return expr_count;
     }
 
-    // ── Closure handling (brackets) ──
 
     const ClosureInfo = struct {
         expr_count: usize,
@@ -525,7 +521,6 @@ pub const Parser = struct {
         return false;
     }
 
-    // ── Single-term node creation ──
 
     fn makeSingleTermNode(self: *Parser, nested_count_start: usize) Allocator.Error!SingleTermResult {
         var nested_count = nested_count_start;
@@ -581,7 +576,6 @@ pub const Parser = struct {
         };
     }
 
-    // ── EOF check ──
 
     fn isEof(self: *const Parser) bool {
         if (self.token.type == .eof) return true;
@@ -601,7 +595,6 @@ pub const Parser = struct {
         return false;
     }
 
-    // ── Node stack helpers ──
 
     fn stackPush(self: *Parser, node: *AstNode) Allocator.Error!void {
         return self.node_stack.append(self.allocator, node);
@@ -623,7 +616,6 @@ pub const Parser = struct {
         return args;
     }
 
-    // ── Error node constructors ──
 
     fn syntaxErr(self: *Parser, message: []const u8) Allocator.Error!*AstNode {
         return ast.makeSyntaxErr(self.allocator, .{ .start = self.token.start, .end = self.token.end }, message);
@@ -658,7 +650,6 @@ fn singleTermResult(node: *AstNode) SingleTermResult {
     return .{ .node = node };
 }
 
-// ── Tests ──
 
 test "parse simple identifier" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

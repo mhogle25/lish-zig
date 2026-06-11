@@ -9,7 +9,6 @@ const Registry = exec.Registry;
 const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
-// ── Registration ──
 
 pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     try registry.registerOperation(allocator, "?",  Operation.fromFn(randInclusiveOp));
@@ -17,7 +16,6 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
     try registry.registerOperation(allocator, "??", Operation.fromFn(randPickOp));
 }
 
-// ── Random source ──
 // Each op pulls bytes from io and converts to the needed type.
 
 fn randomU64(io: std.Io) u64 {
@@ -47,7 +45,6 @@ fn requireIo(args: Args) ExecError!std.Io {
     return args.env.io orelse args.env.fail(.internal, "random ops require an Io context");
 }
 
-// ── Operations ──
 
 /// `? x y`, random value in [x, y] (both inclusive).
 /// For integers, both endpoints are reachable.
@@ -107,7 +104,6 @@ fn randPickOp(args: Args) ExecError!?Value {
     return args.at(index).get();
 }
 
-// ── Tests ──
 
 const builtins = @import("builtins.zig");
 const process = @import("process.zig");

@@ -75,7 +75,6 @@ fn opsOp(args: Args) ExecError!?Value {
     return .{ .list = names.items };
 }
 
-// ── Tests ──
 
 const testing = @import("testing.zig");
 

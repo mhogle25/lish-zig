@@ -6,7 +6,6 @@ const Value = val.Value;
 const Args = exec.Args;
 const ExecError = exec.ExecError;
 
-// ── Resource bound checks ──
 
 /// Fail if `n` exceeds env.bounds.max_list_length.
 /// No-op when the bound is null (unlimited).
@@ -28,7 +27,6 @@ pub fn checkStringLength(args: Args, n: usize) ExecError!void {
     }
 }
 
-// ── Numeric folds ──
 
 pub fn numericFold(
     args: Args,
@@ -80,7 +78,6 @@ pub fn numericComparison(
     return val.some();
 }
 
-// ── Natural ordering for sort ──
 
 pub fn naturalLessThan(_: void, left: ?Value, right: ?Value) bool {
     if (left == null and right == null) return false;

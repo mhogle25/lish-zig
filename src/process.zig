@@ -28,7 +28,6 @@ pub const MACRO_FILE_MAX_SIZE = 1024 * 1024;
 /// from disk. Larger files fail with an IO error.
 pub const LISH_FILE_MAX_SIZE = 1024 * 1024;
 
-// ── Result types ──
 
 /// Result of processing a raw expression string.
 pub const ProcessResult = union(enum) {
@@ -68,7 +67,6 @@ pub const MacroDirResult = struct {
 /// Allows modular operation registration.
 pub const RegistryFragment = *const fn (*Registry, Allocator) Allocator.Error!void;
 
-// ── Convenience API ──
 
 /// Parse, validate, and execute a raw expression string in one call.
 pub fn processRaw(
@@ -247,7 +245,6 @@ pub fn loadMacroDir(
     };
 }
 
-// ── Tests ──
 
 const builtins = @import("builtins.zig");
 
@@ -572,7 +569,6 @@ test "processRawCached: validation errors are not cached" {
     try std.testing.expectEqual(@as(usize, 0), expression_cache.count());
 }
 
-// ── let × macros: isolation and visibility ──
 
 test "let: let-binding does not leak into a called macro's body" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -687,7 +683,6 @@ test "loadStdlib: loads bundled stdlib without error" {
     }
 }
 
-// ── Bounds: recursion depth + fuel ──
 
 test "bounds: recursion depth halts runaway macro" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

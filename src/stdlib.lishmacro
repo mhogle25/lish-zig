@@ -2,7 +2,6 @@
 ## Bundled into the compiled lish binary and loaded by `process.loadStdlib`.
 ## Library consumers can choose to include these by calling the same helper.
 
-## ──────────────────────────────────────────────────────────────
 ## kv-list helpers
 ##
 ## A kv-list is a flat list of alternating keys and values:
@@ -10,7 +9,6 @@
 ##
 ## Keys live at even indices, values at odd indices. Lookup is O(n);
 ## the host can provide named getters for hot paths.
-## ──────────────────────────────────────────────────────────────
 
 ## kvget: return the value paired with key, or $none if absent.
 ##
@@ -47,9 +45,7 @@
    reduce result :a i (until 0 (length :b) 2)
       (kvset :result (at :i :b) (at (+ :i 1) :b))
 
-## ──────────────────────────────────────────────────────────────
 ## Math helpers
-## ──────────────────────────────────────────────────────────────
 
 ## pi: floating-point pi.
 | pi | proc 3.141592653589793
@@ -63,9 +59,7 @@
    if (< :v 0) -1
       (if (> :v 0) 1 0)
 
-## ──────────────────────────────────────────────────────────────
 ## List helpers
-## ──────────────────────────────────────────────────────────────
 
 ## fill: list of n copies of v. For null-filled lists use $none as the value.
 | fill n v |
@@ -104,9 +98,7 @@
 ## repeat: list of n copies of v. Alias for `fill`.
 | repeat n v | fill :n :v
 
-## ──────────────────────────────────────────────────────────────
 ## String helpers
-## ──────────────────────────────────────────────────────────────
 
 ## repeatstr: string concatenated with itself n times.
 | repeatstr s n |
@@ -124,9 +116,7 @@
    if (>= (length :s) :width) :s
       (concat :s (repeatstr :filler (- :width (length :s))))
 
-## ──────────────────────────────────────────────────────────────
 ## Predicates (value-preserving: return the value when true, $none otherwise)
-## ──────────────────────────────────────────────────────────────
 
 ## positive: $some when v > 0.
 | positive v | > :v 0
@@ -149,9 +139,7 @@
 | blank s |
    is (length (trim :s)) 0
 
-## ──────────────────────────────────────────────────────────────
 ## Control-flow helpers
-## ──────────────────────────────────────────────────────────────
 
 ## panic: unconditional failure with a message. Reads more naturally at call
 ## sites than `assert $none :msg`.

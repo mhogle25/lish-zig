@@ -250,7 +250,6 @@ pub fn offsetAt(content: []const u8, row: usize, col: usize) usize {
     return row_start + @min(col, row_end - row_start);
 }
 
-// -- Tests --
 
 fn testInsertString(buffer: *LineBuffer, string: []const u8) void {
     for (string) |byte| {
@@ -440,7 +439,6 @@ test "line buffer: delete word backward at beginning does nothing" {
     try std.testing.expectEqual(@as(usize, 0), buffer.cursor);
 }
 
-// -- Row/col helper tests --
 
 test "rowOf: counts newlines before offset" {
     try std.testing.expectEqual(@as(usize, 0), rowOf("abc", 2));

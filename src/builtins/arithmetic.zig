@@ -91,7 +91,6 @@ fn powerOp(args: Args) ExecError!?Value {
     return accumulator;
 }
 
-// ── Tests ──
 
 const testing = @import("testing.zig");
 

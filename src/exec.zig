@@ -1,5 +1,6 @@
 const std = @import("std");
 const val = @import("value.zig");
+const token = @import("token.zig");
 
 const Value = val.Value;
 const Allocator = std.mem.Allocator;
@@ -325,13 +326,32 @@ pub const Args = struct {
 pub const Operation = struct {
     context: ?*anyopaque,
     callFn: *const fn (?*anyopaque, Args) ExecError!?Value,
+    signature: []const u8,
+    description: []const u8,
+
+    /// Group this op belongs to (e.g. "arithmetic"), or null if registered
+    /// outside a group. Not part of `Meta`: it is a property of the group doing
+    /// the registering, stamped by `GroupRegistrar.register`, so call sites name
+    /// the category once per group rather than once per op. Surfaced by
+    /// introspection.
+    category: ?[]const u8 = null,
+
+    /// Documentation required for every operation at construction. Surfaced by
+    /// the LSP (hover) and by `lish.introspect` (`lish --dump-ops`). Required,
+    /// not optional: an op you cannot describe is an op nobody can discover.
+    pub const Meta = struct {
+        /// Call shape, e.g. "+ a b ... -> number".
+        signature: []const u8,
+        /// One-line human summary.
+        description: []const u8,
+    };
 
     pub fn call(self: Operation, args: Args) ExecError!?Value {
         return self.callFn(self.context, args);
     }
 
     /// Wrap a stateless function as an Operation.
-    pub fn fromFn(comptime func: fn (Args) ExecError!?Value) Operation {
+    pub fn fromFn(comptime func: fn (Args) ExecError!?Value, meta: Meta) Operation {
         return .{
             .context = null,
             .callFn = struct {
@@ -339,6 +359,8 @@ pub const Operation = struct {
                     return func(args);
                 }
             }.call,
+            .signature = meta.signature,
+            .description = meta.description,
         };
     }
 
@@ -348,6 +370,7 @@ pub const Operation = struct {
         comptime Context: type,
         comptime func: fn (*Context, Args) ExecError!?Value,
         context: *Context,
+        meta: Meta,
     ) Operation {
         return .{
             .context = context,
@@ -357,6 +380,8 @@ pub const Operation = struct {
                     return func(typed, args);
                 }
             }.call,
+            .signature = meta.signature,
+            .description = meta.description,
         };
     }
 };
@@ -381,6 +406,20 @@ pub const Macro = struct {
     /// during execution so positions captured by env.fail resolve to the right
     /// file. Defaults to `.none` for macros constructed in tests.
     source: SourceId = .none,
+
+    /// Write the macro's call signature, e.g. `clamp lo hi x`. Deferred
+    /// parameters are prefixed with the source's deferred symbol (`~`), matching
+    /// how they are written in a `.lishmacro` head. Unlike an operation, a macro's
+    /// signature is fully recoverable from its structure, so no metadata is
+    /// required of the author; introspection derives it here.
+    pub fn writeSignature(self: *const Macro, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.writeAll(self.id);
+        for (self.parameters) |param| {
+            try writer.writeByte(' ');
+            if (param.param_type == .deferred) try writer.writeByte(token.DEFERRED);
+            try writer.writeAll(param.id);
+        }
+    }
 
     /// Execute the macro: bind arguments to parameters, evaluate body.
     pub fn run(
@@ -426,6 +465,22 @@ pub const Macro = struct {
 
 // Registry
 
+/// Registers operations into a registry under a fixed category, carrying the
+/// registry and allocator so neither is repeated per call. Obtain one from
+/// `Registry.group`; this is how an op gets its `category` stamped (the category
+/// is a property of the group doing the registering, not of each call site).
+pub const GroupRegistrar = struct {
+    registry: *Registry,
+    allocator: Allocator,
+    category: []const u8,
+
+    pub fn register(self: GroupRegistrar, id: []const u8, operation: Operation) Allocator.Error!void {
+        var op = operation;
+        op.category = self.category;
+        try self.registry.registerOperation(self.allocator, id, op);
+    }
+};
+
 pub const Registry = struct {
     operations: std.StringHashMapUnmanaged(Operation) = .{},
     macros: std.StringHashMapUnmanaged(*const Macro) = .{},
@@ -451,8 +506,15 @@ pub const Registry = struct {
         return self.macros.get(id);
     }
 
+    /// Register an op with no category (test ops, ad-hoc registration). Grouped
+    /// builtins go through `group(...).register(...)` so their category is set.
     pub fn registerOperation(self: *Registry, allocator: Allocator, id: []const u8, operation: Operation) Allocator.Error!void {
         try self.operations.put(allocator, id, operation);
+    }
+
+    /// A registrar that stamps everything it registers with `category`.
+    pub fn group(self: *Registry, allocator: Allocator, category: []const u8) GroupRegistrar {
+        return .{ .registry = self, .allocator = allocator, .category = category };
     }
 
     pub fn registerMacro(self: *Registry, id: []const u8, macro: *const Macro) Allocator.Error!void {
@@ -667,7 +729,22 @@ pub fn resolveRegistryMacros(registry: *Registry) void {
     }
 }
 
-// Tests 
+// Tests
+
+test "Macro.writeSignature renders params, marking deferred with ~" {
+    const params = [_]MacroParameter{
+        .{ .id = "lo", .param_type = .value },
+        .{ .id = "hi", .param_type = .value },
+        .{ .id = "body", .param_type = .deferred },
+    };
+    // writeSignature reads only id + parameters, never the body.
+    const macro = Macro{ .id = "guard", .parameters = &params, .body = undefined };
+
+    var buf: [64]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+    try macro.writeSignature(&writer);
+    try std.testing.expectEqualStrings("guard lo hi ~body", writer.buffered());
+}
 
 test "value literal thunk returns stored value" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -743,7 +820,7 @@ test "expression evaluates operation" {
     const alloc = arena.allocator();
 
     var registry = Registry.init(alloc);
-    try registry.registerOperation(alloc, "double", Operation.fromFn(testDoubleOp));
+    try registry.registerOperation(alloc, "double", Operation.fromFn(testDoubleOp, .{ .signature = "double n -> int", .description = "Test op: double an integer." }));
 
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
@@ -835,7 +912,7 @@ test "nested expression evaluation" {
     const alloc = arena.allocator();
 
     var registry = Registry.init(alloc);
-    try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp));
+    try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp, .{ .signature = "add a b -> int", .description = "Test op: add two integers." }));
 
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
@@ -866,7 +943,7 @@ test "macro with value parameters" {
     const alloc = arena.allocator();
 
     var registry = Registry.init(alloc);
-    try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp));
+    try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp, .{ .signature = "add a b -> int", .description = "Test op: add two integers." }));
 
     // Define macro: |add-one x| add :x 1
     const params = [_]MacroParameter{
@@ -907,7 +984,7 @@ test "macro with deferred parameter" {
     const alloc = arena.allocator();
 
     var registry = Registry.init(alloc);
-    try registry.registerOperation(alloc, "passthrough", Operation.fromFn(testPassthroughOp));
+    try registry.registerOperation(alloc, "passthrough", Operation.fromFn(testPassthroughOp, .{ .signature = "passthrough x -> any", .description = "Test op: return its argument unchanged." }));
 
     // Define macro: |run-deferred ~thunk| passthrough :thunk
     // The deferred parameter means the thunk is not evaluated until :thunk is referenced
@@ -1008,7 +1085,7 @@ test "scope entry closure captures scope" {
     const alloc = arena.allocator();
 
     var registry = Registry.init(alloc);
-    try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp));
+    try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp, .{ .signature = "add a b -> int", .description = "Test op: add two integers." }));
 
     var env = Env{ .registry = &registry, .allocator = alloc };
 

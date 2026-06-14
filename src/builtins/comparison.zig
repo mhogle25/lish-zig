@@ -11,13 +11,14 @@ const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
-    try registry.registerOperation(allocator, "<",       Operation.fromFn(lessThanOp));
-    try registry.registerOperation(allocator, "<=",      Operation.fromFn(lessThanOrEqualOp));
-    try registry.registerOperation(allocator, ">",       Operation.fromFn(greaterThanOp));
-    try registry.registerOperation(allocator, ">=",      Operation.fromFn(greaterThanOrEqualOp));
-    try registry.registerOperation(allocator, "is",      Operation.fromFn(isOp));
-    try registry.registerOperation(allocator, "isnt",    Operation.fromFn(isntOp));
-    try registry.registerOperation(allocator, "compare", Operation.fromFn(compareOp));
+    const g = registry.group(allocator, "comparison");
+    try g.register("<",       Operation.fromFn(lessThanOp,           .{ .signature = "< a b ... -> $some|$none",  .description = "True when the arguments are strictly increasing." }));
+    try g.register("<=",      Operation.fromFn(lessThanOrEqualOp,    .{ .signature = "<= a b ... -> $some|$none", .description = "True when the arguments are non-decreasing." }));
+    try g.register(">",       Operation.fromFn(greaterThanOp,        .{ .signature = "> a b ... -> $some|$none",  .description = "True when the arguments are strictly decreasing." }));
+    try g.register(">=",      Operation.fromFn(greaterThanOrEqualOp, .{ .signature = ">= a b ... -> $some|$none", .description = "True when the arguments are non-increasing." }));
+    try g.register("is",      Operation.fromFn(isOp,                 .{ .signature = "is a b ... -> value|$none", .description = "Equality test; returns the first value when all arguments are equal, else $none." }));
+    try g.register("isnt",    Operation.fromFn(isntOp,               .{ .signature = "isnt a b -> value|$none",   .description = "Inequality test; returns the left value when the two differ, else $none." }));
+    try g.register("compare", Operation.fromFn(compareOp,            .{ .signature = "compare a b -> int",        .description = "Three-way compare; returns -1, 0, or 1 ordering two numbers or strings." }));
 }
 
 fn lessThanOp(args: Args) ExecError!?Value {

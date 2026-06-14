@@ -258,40 +258,14 @@ test "stdlib: smoothstep above edge1 = 1" {
 }
 
 
-test "stdlib: head returns first element" {
+test "stdlib: pop drops last element" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const result = try testing.evalWithStdlib(arena.allocator(), "head [10 20 30]");
-    try std.testing.expectEqual(@as(i64, 10), result.?.int);
-}
-
-test "stdlib: tail returns rest" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try testing.evalWithStdlib(arena.allocator(), "tail [10 20 30]");
-    const items = result.?.list;
-    try std.testing.expectEqual(@as(usize, 2), items.len);
-    try std.testing.expectEqual(@as(i64, 20), items[0].?.int);
-    try std.testing.expectEqual(@as(i64, 30), items[1].?.int);
-}
-
-test "stdlib: init drops last element" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try testing.evalWithStdlib(arena.allocator(), "init [10 20 30]");
+    const result = try testing.evalWithStdlib(arena.allocator(), "pop [10 20 30]");
     const items = result.?.list;
     try std.testing.expectEqual(@as(usize, 2), items.len);
     try std.testing.expectEqual(@as(i64, 10), items[0].?.int);
     try std.testing.expectEqual(@as(i64, 20), items[1].?.int);
-}
-
-test "stdlib: repeat is fill alias" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = try testing.evalWithStdlib(arena.allocator(), "repeat 3 \"x\"");
-    const items = result.?.list;
-    try std.testing.expectEqual(@as(usize, 3), items.len);
-    try std.testing.expectEqualStrings("x", items[0].?.string);
 }
 
 

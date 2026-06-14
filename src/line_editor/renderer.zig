@@ -184,6 +184,7 @@ fn emitRange(
 
         const color = ansiFor(span.category);
         const span_end = @min(span.end, to);
+
         if (color.len > 0) writer.writeAll(color) catch return;
         writer.writeAll(content[span.start..span_end]) catch return;
         if (color.len > 0) writer.writeAll(ANSI_RESET) catch return;

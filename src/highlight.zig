@@ -98,6 +98,7 @@ pub const Highlighter = struct {
             const was_scope_ref = self.after_scope_thunk;
             self.scanIdentifier();
             self.after_scope_thunk = false;
+
             return .{
                 .category = if (was_scope_ref) .scope_ref else .identifier,
                 .start    = start,
@@ -113,11 +114,14 @@ pub const Highlighter = struct {
         // Comments end at newline, EOF, or matching `##`.
         while (self.pos < self.source.len) {
             const c = self.source[self.pos];
+
             if (c == tok.NEWLINE or c == tok.CARRIAGE_RETURN) break;
+            
             if (c == tok.COMMENT and self.pos + 1 < self.source.len and self.source[self.pos + 1] == tok.COMMENT) {
                 self.pos += 2;
                 return;
             }
+
             self.pos += 1;
         }
     }
@@ -126,15 +130,19 @@ pub const Highlighter = struct {
         self.pos += 1; // opening quote
         while (self.pos < self.source.len) {
             const c = self.source[self.pos];
+
             if (c == tok.BACKSLASH and self.pos + 1 < self.source.len) {
                 self.pos += 2;
                 continue;
             }
+
             if (c == quote) {
                 self.pos += 1;
                 return;
             }
+
             if (c == tok.NEWLINE) return; // unterminated string ends at newline
+                                          //
             self.pos += 1;
         }
     }
@@ -143,7 +151,9 @@ pub const Highlighter = struct {
         if (self.source[self.pos] == tok.NEGATIVE_SIGN) self.pos += 1;
         while (self.pos < self.source.len) {
             const c = self.source[self.pos];
+
             if (!isDigit(c) and c != tok.DECIMAL_POINT) break;
+
             self.pos += 1;
         }
     }
@@ -151,12 +161,16 @@ pub const Highlighter = struct {
     fn scanIdentifier(self: *Highlighter) void {
         while (self.pos < self.source.len) {
             const c = self.source[self.pos];
-            if (isWhitespace(c) or isBracket(c) or c == tok.MACRO_BRACKET or
-                c == tok.EXPRESSION_SINGLE or c == tok.SCOPE_THUNK or c == tok.DEFERRED or
-                c == tok.QUOTE_DOUBLE or c == tok.QUOTE_SINGLE)
-            {
-                break;
-            }
+
+            if (isWhitespace(c) 
+                or isBracket(c) 
+                or c == tok.MACRO_BRACKET 
+                or c == tok.EXPRESSION_SINGLE 
+                or c == tok.SCOPE_THUNK 
+                or c == tok.DEFERRED 
+                or c == tok.QUOTE_DOUBLE
+                or c == tok.QUOTE_SINGLE) break;
+            
             self.pos += 1;
         }
     }
@@ -171,9 +185,12 @@ fn isDigit(c: u8) bool {
 }
 
 fn isBracket(c: u8) bool {
-    return c == tok.EXPRESSION_OPEN or c == tok.EXPRESSION_CLOSE or
-        c == tok.LIST_OPEN or c == tok.LIST_CLOSE or
-        c == tok.BLOCK_OPEN or c == tok.BLOCK_CLOSE;
+    return c == tok.EXPRESSION_OPEN 
+        or c == tok.EXPRESSION_CLOSE 
+        or c == tok.LIST_OPEN 
+        or c == tok.LIST_CLOSE 
+        or c == tok.BLOCK_OPEN 
+        or c == tok.BLOCK_CLOSE;
 }
 
 
@@ -181,12 +198,14 @@ const testing = std.testing;
 
 fn expectSpans(source: []const u8, expected: []const Span) !void {
     var hl = Highlighter.init(source);
+
     for (expected) |exp| {
         const got = hl.next() orelse return error.TestExpectedSpan;
         try testing.expectEqual(exp.category, got.category);
         try testing.expectEqual(exp.start, got.start);
         try testing.expectEqual(exp.end, got.end);
     }
+
     try testing.expect(hl.next() == null);
 }
 

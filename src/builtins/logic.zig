@@ -10,9 +10,10 @@ const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
-    try registry.registerOperation(allocator, "and", Operation.fromFn(andOp));
-    try registry.registerOperation(allocator, "or",  Operation.fromFn(orOp));
-    try registry.registerOperation(allocator, "not", Operation.fromFn(notOp));
+    const g = registry.group(allocator, "logic");
+    try g.register("and", Operation.fromFn(andOp, .{ .signature = "and a b ... -> value|$none", .description = "Returns the last argument when all are truthy, else $none." }));
+    try g.register("or",  Operation.fromFn(orOp,  .{ .signature = "or a b ... -> value|$none",  .description = "Returns the first truthy argument, else $none." }));
+    try g.register("not", Operation.fromFn(notOp, .{ .signature = "not x -> $some|$none",       .description = "Returns $some when the argument is $none, else $none." }));
 }
 
 fn andOp(args: Args) ExecError!?Value {

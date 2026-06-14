@@ -10,9 +10,10 @@ const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
-    try registry.registerOperation(allocator, "proc",  Operation.fromFn(procOp));
-    try registry.registerOperation(allocator, "loop",  Operation.fromFn(loopOp));
-    try registry.registerOperation(allocator, "while", Operation.fromFn(whileOp));
+    const g = registry.group(allocator, "sequencing");
+    try g.register("proc",  Operation.fromFn(procOp,  .{ .signature = "proc expr ... -> value",      .description = "Evaluate each argument in order and return the last result." }));
+    try g.register("loop",  Operation.fromFn(loopOp,  .{ .signature = "loop [name] n body -> $none", .description = "Evaluate the body n times; the 3-arg form binds the iteration index to a name." }));
+    try g.register("while", Operation.fromFn(whileOp, .{ .signature = "while cond body -> $none",    .description = "Evaluate the body repeatedly while the condition stays truthy." }));
 }
 
 fn procOp(args: Args) ExecError!?Value {

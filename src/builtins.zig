@@ -21,7 +21,28 @@ const sequencing   = @import("builtins/sequencing.zig");
 const binding      = @import("builtins/binding.zig");
 const output       = @import("builtins/output.zig");
 
-// Registration 
+// Registration
+
+const RegisterFn = *const fn (*Registry, Allocator) Allocator.Error!void;
+
+/// Pure operation groups, in registration order. Each `register` names its own
+/// category (via `registry.group`); this list only fixes ordering. Excludes
+/// `output` (side-effecting) and the stdlib macros (loaded separately).
+const core_groups = [_]RegisterFn{
+    constants.register,
+    arithmetic.register,
+    comparison.register,
+    logic.register,
+    control.register,
+    strings.register,
+    lists.register,
+    higher_order.register,
+    meta.register,
+    math.register,
+    types.register,
+    sequencing.register,
+    binding.register,
+};
 
 /// Register all built-in operations including output ops (say, error).
 pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!void {
@@ -35,19 +56,7 @@ pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!vo
 /// Also auto-loads the bundled stdlib macros at the end so consumers get
 /// macros like `clamp` / `sign` / `pi` / `fill` without an extra setup step.
 pub fn registerCore(registry: *Registry, allocator: Allocator) Allocator.Error!void {
-    try constants.register(registry, allocator);
-    try arithmetic.register(registry, allocator);
-    try comparison.register(registry, allocator);
-    try logic.register(registry, allocator);
-    try control.register(registry, allocator);
-    try strings.register(registry, allocator);
-    try lists.register(registry, allocator);
-    try higher_order.register(registry, allocator);
-    try meta.register(registry, allocator);
-    try math.register(registry, allocator);
-    try types.register(registry, allocator);
-    try sequencing.register(registry, allocator);
-    try binding.register(registry, allocator);
+    for (core_groups) |register| try register(registry, allocator);
 
     const process = @import("process.zig");
     _ = try process.loadStdlib(registry);

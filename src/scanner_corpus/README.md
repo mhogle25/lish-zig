@@ -47,34 +47,38 @@ boundary is its own business.
 ## Why this exists
 
 When lish gained `##...##` inline comments, every embedder needed to learn
-"skip `\|` inside a comment." Some did, some didn't (see folio-zig commit fixing
-`scanBraceContent`). The duplication of "what lish considers a string / comment
-/ escape" across multiple scanners is genuine: tree-sitter scanners are C,
-folio's lexer is Zig, lish-zig is the source of truth — they can't share code
-directly without a C ABI bridge.
+"skip `\|` inside a comment." Some did, some didn't (see the folio-zig commit
+fixing `scanBraceContent`). Boundary finding is now shared where it can be:
+`lish-zig/src/boundary.zig` (`findExpressionBoundary`) is the single Zig
+implementation, and Zig embedders call it directly — folio no longer reimplements
+anything. But not every embedder can share that code: tree-sitter external
+scanners read input one codepoint at a time (no buffer to pass) and ship as
+portable C/WASM (can't link Zig), so they keep their own scan.
 
-This corpus is the cheap-but-effective middle ground: shared contract, no
-shared code, mechanical drift detection.
+This corpus is what holds the two together: it pins `boundary.zig` to the
+canonical lexer, and it holds tree-sitter's irreducible copy to the same
+contract. Shared contract, mechanical drift detection.
 
 ## Verified consumers
 
-- `lish-zig/test/scanner_corpus_test.zig` — runs every `|` case through
-  `Lexer.nextToken` and asserts the first `.macro_bracket` token is at the
-  declared offset.
-- `folio-zig/test/scanner_corpus_test.zig` — synthesizes a folio source
-  wrapping each `}` case in a `{...}` lish-inline region, tokenizes, and
-  asserts `scanBraceContent` returns the expected content slice.
-- (Future) tree-sitter scanners — will consume the same module via a small
-  Zig program that emits the cases as JSON for the shell-script runner.
+- `lish-zig/test/scanner_corpus_test.zig` — two runners: `Lexer.nextToken` on
+  the `|` cases (the canonical tokenizer), and `boundary.findExpressionBoundary`
+  on **every** case (`|` and `}`), which is what pins the shared function.
+- `folio-zig/test/scanner_corpus_test.zig` — wraps each `}` case in a `{...}`
+  lish-inline region and asserts `scanBraceContent` returns the expected slice.
+  Since that function now delegates to `findExpressionBoundary`, this is an
+  integration smoke test of folio's call into lish.
+- `tree-sitter-lish/test/scanner-corpus.test.js` — runs the `|` cases against
+  the lishmacro external scanner (which keeps its own streaming copy).
 
-## Future: shared C ABI scanner
+## Future: shared C ABI
 
-The ideal end state is `lish-zig` exporting an `extern "C"` function like
+A non-Zig embedder that *does* have a buffer (not tree-sitter) could call a thin
+`extern "C"` wrapper over `findExpressionBoundary`:
 
 ```c
-size_t lish_find_expression_boundary(const char *source, size_t len, char terminator);
+size_t lish_find_expression_boundary(const char *source, size_t len, char open, char terminator);
 ```
 
-Every embedder would call into it instead of reimplementing the logic. That
-removes the corpus's job entirely (since there's no drift to detect). Tracked
-as a roadmap item; this corpus is what we use until then.
+None exists today, so the wrapper is deferred. It would not help tree-sitter
+(streaming, no buffer); that scanner stays corpus-guarded by design.

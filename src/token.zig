@@ -74,11 +74,11 @@ pub const TokenType = enum {
         return switch (self) {
             .expression_opening_bracket => other == .expression_closing_bracket,
             .expression_closing_bracket => other == .expression_opening_bracket,
-            .list_opening_bracket => other == .list_closing_bracket,
-            .list_closing_bracket => other == .list_opening_bracket,
-            .block_opening_bracket => other == .block_closing_bracket,
-            .block_closing_bracket => other == .block_opening_bracket,
-            else => false,
+            .list_opening_bracket       => other == .list_closing_bracket,
+            .list_closing_bracket       => other == .list_opening_bracket,
+            .block_opening_bracket      => other == .block_closing_bracket,
+            .block_closing_bracket      => other == .block_opening_bracket,
+            else                        => false,
         };
     }
 
@@ -86,10 +86,10 @@ pub const TokenType = enum {
         return switch (self) {
             .expression_opening_bracket => .expression_closing_bracket,
             .expression_closing_bracket => .expression_opening_bracket,
-            .list_opening_bracket => .list_closing_bracket,
-            .list_closing_bracket => .list_opening_bracket,
-            .block_opening_bracket => .block_closing_bracket,
-            .block_closing_bracket => .block_opening_bracket,
+            .list_opening_bracket       => .list_closing_bracket,
+            .list_closing_bracket       => .list_opening_bracket,
+            .block_opening_bracket      => .block_closing_bracket,
+            .block_closing_bracket      => .block_opening_bracket,
             else => null,
         };
     }
@@ -110,16 +110,18 @@ pub const Token = struct {
 };
 
 
-// Cross-language sync contract.
+// Source of truth for cross-language constants.
 //
-// The character constants below are mirrored in tree-sitter-lish. If you add,
-// rename, or change the value of any constant in this block, also update both:
+// `tools/gen.zig` reflects over the integer constants below and emits the
+// mirrors non-Zig consumers vendor in:
 //
-//   tree-sitter-lish/common/constants.js   (used by the grammar JS)
-//   tree-sitter-lish/common/constants.h    (used by external C scanners)
+//   generated/constants.js   (used by the tree-sitter grammar JS)
+//   generated/constants.h    (used by external C scanners)
 //
-// The sync is enforced by tree-sitter-lish/test/constants-sync.test.js, which
-// will fail in tree-sitter-lish CI until all three files agree.
+// Printable values (0x20..0x7E) become source-character literals; values >= 256
+// become numeric limits. Control characters (the escape targets below) are not
+// mirrored here. After changing a constant, run `zig build gen`; consumers pull
+// the regenerated files via their own sync step (see tree-sitter-lish).
 pub const EXPRESSION_SINGLE = '$';
 pub const SCOPE_THUNK = ':';
 pub const EXPRESSION_OPEN = '(';

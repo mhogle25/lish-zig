@@ -49,9 +49,10 @@ pub fn validate(allocator: Allocator, ast_root: *const AstNode) Allocator.Error!
     const maybe_thunk = try validateStep(allocator, ast_root, &errors);
 
     if (maybe_thunk == null) {
-        if (ast_root.body != .expression) {
+        if (ast_root.body != .expression) { 
             try errors.add(allocator, .{ .message = "Expected the root of the AST to be an expression" });
         }
+
         return .{ .err = errors.slice() };
     }
 
@@ -61,11 +62,9 @@ pub fn validate(allocator: Allocator, ast_root: *const AstNode) Allocator.Error!
         return .{ .err = errors.slice() };
     }
 
-    if (errors.count() > 0) {
-        return .{ .err = errors.slice() };
-    }
-
-    return .{ .ok = thunk.body.expression };
+    return if (errors.count() > 0) 
+        .{ .err = errors.slice() } else 
+        .{ .ok = thunk.body.expression };
 }
 
 
@@ -75,27 +74,38 @@ pub fn validateStep(allocator: Allocator, node: *const AstNode, errors: *Validat
     return switch (node.body) {
         .value_literal => |value| {
             const thunk = try allocator.create(Thunk);
+
             // Deep-copy string values so the Thunk is independent of the source allocator.
             const owned_value = switch (value) {
                 .string => |s| @as(@TypeOf(value), .{ .string = try allocator.dupe(u8, s) }),
                 else => value,
             };
+
             thunk.* = .{ .position = node.position, .body = .{ .value_literal = owned_value } };
             return thunk;
         },
+
         .scope_thunk => |id_node| {
             const id_thunk = try validateStep(allocator, id_node, errors) orelse return null;
             const thunk = try allocator.create(Thunk);
-            thunk.* = .{ .position = node.position, .body = .{ .scope_thunk = id_thunk } };
+
+            thunk.* = .{ 
+                .position = node.position, 
+                .body = .{ .scope_thunk = id_thunk } 
+            };
+
             return thunk;
         },
+        
         .expression => |expr| try validateExpression(allocator, node.position, expr, errors),
+
         .err => |ast_error| {
             try errors.add(allocator, .{
                 .message = ast_error.message,
                 .start   = node.position.start,
                 .end     = node.position.end,
             });
+
             return null;
         },
     };
@@ -313,7 +323,7 @@ test "validate end-to-end with execution" {
 
     // Register an "echo" operation that returns its argument
     var registry = exec_mod.Registry.init(alloc);
-    try registry.registerOperation(alloc, "echo", exec_mod.Operation.fromFn(testEchoOp));
+    try registry.registerOperation(alloc, "echo", exec_mod.Operation.fromFn(testEchoOp, .{ .signature = "echo x -> any", .description = "Test op: return its argument unchanged." }));
 
     var env = exec_mod.Env{ .registry = &registry, .allocator = alloc };
     const scope = exec_mod.Scope.EMPTY;

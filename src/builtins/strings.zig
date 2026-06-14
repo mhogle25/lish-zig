@@ -11,23 +11,24 @@ const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
+    const g = registry.group(allocator, "strings");
     // String
-    try registry.registerOperation(allocator, "concat",  Operation.fromFn(concatOp));
-    try registry.registerOperation(allocator, "join",    Operation.fromFn(joinOp));
-    try registry.registerOperation(allocator, "split",   Operation.fromFn(splitOp));
-    try registry.registerOperation(allocator, "chars",   Operation.fromFn(charsOp));
-    try registry.registerOperation(allocator, "lines",   Operation.fromFn(linesOp));
-    try registry.registerOperation(allocator, "trim",    Operation.fromFn(trimOp));
-    try registry.registerOperation(allocator, "upper",   Operation.fromFn(upperOp));
-    try registry.registerOperation(allocator, "lower",   Operation.fromFn(lowerOp));
-    try registry.registerOperation(allocator, "replace", Operation.fromFn(replaceOp));
-    try registry.registerOperation(allocator, "format",  Operation.fromFn(formatOp));
+    try g.register("concat",  Operation.fromFn(concatOp,  .{ .signature = "concat a b ... -> string",                     .description = "Concatenate all arguments into one string." }));
+    try g.register("join",    Operation.fromFn(joinOp,    .{ .signature = "join separator a b ... -> string",             .description = "Join the remaining arguments into a string separated by the first." }));
+    try g.register("split",   Operation.fromFn(splitOp,   .{ .signature = "split separator string -> list",               .description = "Split a string on a separator into a list of pieces." }));
+    try g.register("chars",   Operation.fromFn(charsOp,   .{ .signature = "chars string -> list",                         .description = "Split a string into a list of its single-character strings." }));
+    try g.register("lines",   Operation.fromFn(linesOp,   .{ .signature = "lines string -> list",                         .description = "Split a string into a list of its lines." }));
+    try g.register("trim",    Operation.fromFn(trimOp,    .{ .signature = "trim string -> string",                        .description = "Strip leading and trailing whitespace." }));
+    try g.register("upper",   Operation.fromFn(upperOp,   .{ .signature = "upper string -> string",                       .description = "Convert to uppercase." }));
+    try g.register("lower",   Operation.fromFn(lowerOp,   .{ .signature = "lower string -> string",                       .description = "Convert to lowercase." }));
+    try g.register("replace", Operation.fromFn(replaceOp, .{ .signature = "replace pattern replacement target -> string", .description = "Replace every occurrence of a pattern with a replacement in the target string." }));
+    try g.register("format",  Operation.fromFn(formatOp,  .{ .signature = "format template arg ... -> string",            .description = "Fill each <> placeholder in the template with the following arguments in order." }));
 
     // Predicates
-    try registry.registerOperation(allocator, "prefix",  Operation.fromFn(prefixOp));
-    try registry.registerOperation(allocator, "suffix",  Operation.fromFn(suffixOp));
-    try registry.registerOperation(allocator, "in",      Operation.fromFn(inOp));
-    try registry.registerOperation(allocator, "find",    Operation.fromFn(findOp));
+    try g.register("prefix",  Operation.fromFn(prefixOp, .{ .signature = "prefix pattern target -> string|$none", .description = "When the target starts with the pattern, returns the remainder, else $none." }));
+    try g.register("suffix",  Operation.fromFn(suffixOp, .{ .signature = "suffix pattern target -> string|$none", .description = "When the target ends with the pattern, returns the remainder, else $none." }));
+    try g.register("in",      Operation.fromFn(inOp,     .{ .signature = "in needle haystack -> value|$none",     .description = "Membership test; returns the needle when found in the string or list, else $none." }));
+    try g.register("find",    Operation.fromFn(findOp,   .{ .signature = "find needle haystack -> int|$none",     .description = "Index of the needle within the string or list, else $none." }));
 }
 
 fn concatOp(args: Args) ExecError!?Value {

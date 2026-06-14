@@ -11,14 +11,15 @@ const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
-    try registry.registerOperation(allocator, "map",     Operation.fromFn(mapOp));
-    try registry.registerOperation(allocator, "foreach", Operation.fromFn(foreachOp));
-    try registry.registerOperation(allocator, "filter",  Operation.fromFn(filterOp));
-    try registry.registerOperation(allocator, "reduce",  Operation.fromFn(reduceOp));
-    try registry.registerOperation(allocator, "any",     Operation.fromFn(anyOp));
-    try registry.registerOperation(allocator, "all",     Operation.fromFn(allOp));
-    try registry.registerOperation(allocator, "count",   Operation.fromFn(countOp));
-    try registry.registerOperation(allocator, "findby",  Operation.fromFn(findbyOp));
+    const g = registry.group(allocator, "higher_order");
+    try g.register("map",     Operation.fromFn(mapOp,    .{ .signature = "map name list body -> list",              .description = "Apply the body to each element bound to name, collecting the results into a list." }));
+    try g.register("for",     Operation.fromFn(forOp,    .{ .signature = "for name list body -> $none",             .description = "Evaluate the body for each element bound to name, discarding the results." }));
+    try g.register("filter",  Operation.fromFn(filterOp, .{ .signature = "filter name list body -> list",           .description = "Keep the elements for which the body bound to name is truthy." }));
+    try g.register("reduce",  Operation.fromFn(reduceOp, .{ .signature = "reduce acc init item list body -> value", .description = "Fold the list into a single value, binding the accumulator and each item by name." }));
+    try g.register("any",     Operation.fromFn(anyOp,    .{ .signature = "any name list body -> $some|$none",       .description = "True when the body bound to name is truthy for at least one element." }));
+    try g.register("all",     Operation.fromFn(allOp,    .{ .signature = "all name list body -> $some|$none",       .description = "True when the body bound to name is truthy for every element." }));
+    try g.register("count",   Operation.fromFn(countOp,  .{ .signature = "count name list body -> int",             .description = "Number of elements for which the body bound to name is truthy." }));
+    try g.register("findby",  Operation.fromFn(findbyOp, .{ .signature = "findby name list body -> value|$none",    .description = "First element for which the body bound to name is truthy, else $none." }));
 }
 
 fn mapOp(args: Args) ExecError!?Value {
@@ -44,7 +45,7 @@ fn mapOp(args: Args) ExecError!?Value {
     return .{ .list = results };
 }
 
-fn foreachOp(args: Args) ExecError!?Value {
+fn forOp(args: Args) ExecError!?Value {
     try args.expectCount(3);
 
     var iter_scope = exec.Scope{ .parent = args.scope };

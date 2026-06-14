@@ -6,21 +6,16 @@ const TokenType = tok.TokenType;
 
 // This file is the canonical source of truth for lish's lexical rules:
 // what counts as a string, a comment, an escape sequence, a token boundary.
-// Several embedders re-implement these rules in their own languages because
-// tree-sitter scanners are C, folio's lexer is Zig, and we don't yet have a
-// shared C ABI bridge. The lexical contract those embedders are held to lives
-// in src/scanner_corpus/, with the runners verifying every embedder's scanner
-// agrees with this lexer.
+//
+// `boundary.zig` distills the subset of these rules an embedder needs to find
+// where an embedded lish expression ends, as a plain Zig function. Zig embedders
+// (folio) call it directly. Streaming embedders that can't call it (tree-sitter
+// scanners: no buffer, ship as portable C/WASM) keep their own copy, held to the
+// shared lexical contract in src/scanner_corpus/ so they can't drift.
 //
 // If you change tokenization here in a way that affects boundary detection
-// (new sigil, new string form, new comment shape), add cases to
-// src/scanner_corpus/ — embedder CI will fail until they're updated.
-//
-// TODO: replace the duplication with a real `extern "C"` function
-// `lish_find_expression_boundary(source, terminator) -> usize` exported from
-// this module. Tree-sitter scanners and folio's lexer would call into it,
-// removing the scanner_corpus's job entirely. See lish-zig roadmap, "lish
-// embedders" section.
+// (new sigil, new string form, new comment shape), update boundary.zig and add
+// cases to src/scanner_corpus/ — embedder CI will fail until they're updated.
 
 pub const Lexer = struct {
     source: []const u8,
@@ -64,6 +59,7 @@ pub const Lexer = struct {
                     tok.NEWLINE => self.handleNewline(),
                     else => self.column += 1,
                 }
+
                 self.idx += 1;
             }
 

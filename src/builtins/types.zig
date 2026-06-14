@@ -10,11 +10,12 @@ const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
-    try registry.registerOperation(allocator, "type",    Operation.fromFn(typeOp));
-    try registry.registerOperation(allocator, "int",     Operation.fromFn(intOp));
-    try registry.registerOperation(allocator, "float",   Operation.fromFn(floatOp));
-    try registry.registerOperation(allocator, "string",  Operation.fromFn(stringOp));
-    try registry.registerOperation(allocator, "inspect", Operation.fromFn(inspectOp));
+    const g = registry.group(allocator, "types");
+    try g.register("type",    Operation.fromFn(typeOp,    .{ .signature = "type x -> string",    .description = "Name of a value's type: int, float, string, list, or none." }));
+    try g.register("int",     Operation.fromFn(intOp,     .{ .signature = "int x -> int",        .description = "Convert a number or string to an integer." }));
+    try g.register("float",   Operation.fromFn(floatOp,   .{ .signature = "float x -> float",    .description = "Convert a number or string to a float." }));
+    try g.register("string",  Operation.fromFn(stringOp,  .{ .signature = "string x -> string",  .description = "Render a value as its plain text form." }));
+    try g.register("inspect", Operation.fromFn(inspectOp, .{ .signature = "inspect x -> string", .description = "Debug representation of a value with quoted strings and list sugar; for logs and the REPL, not round-trip." }));
 }
 
 fn intOp(args: Args) ExecError!?Value {

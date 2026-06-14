@@ -34,8 +34,9 @@ pub const LineBuffer = struct {
     }
 
     pub fn peek(self: *const LineBuffer, pos: usize) ?u8 {
-        if (pos >= self.length) return null;
-        return self.data[pos];
+        return if (pos >= self.length) 
+            null else 
+            self.data[pos];
     }
 
     pub fn reset(self: *LineBuffer) void {
@@ -46,6 +47,7 @@ pub const LineBuffer = struct {
     /// Insert a byte at cursor. Returns false if buffer is full.
     pub fn insertChar(self: *LineBuffer, byte: u8) bool {
         if (self.length >= BUFFER_SIZE) return false;
+
         if (self.cursor < self.length) {
             std.mem.copyBackwards(
                 u8,
@@ -53,9 +55,11 @@ pub const LineBuffer = struct {
                 self.data[self.cursor .. self.length],
             );
         }
+
         self.data[self.cursor] = byte;
         self.cursor += 1;
         self.length += 1;
+
         return true;
     }
 
@@ -64,15 +68,18 @@ pub const LineBuffer = struct {
     /// caller may choose to insert just the open instead.
     pub fn insertPair(self: *LineBuffer, open: u8, close: u8) bool {
         if (self.length + 2 > BUFFER_SIZE) return false;
+
         _ = self.insertChar(open);
         _ = self.insertChar(close);
         self.cursor -= 1;
+
         return true;
     }
 
     /// Delete one byte before cursor.
     pub fn deleteCharBefore(self: *LineBuffer) void {
         if (self.cursor == 0) return;
+
         if (self.cursor < self.length) {
             std.mem.copyForwards(
                 u8,
@@ -80,6 +87,7 @@ pub const LineBuffer = struct {
                 self.data[self.cursor .. self.length],
             );
         }
+
         self.cursor -= 1;
         self.length -= 1;
     }
@@ -91,7 +99,9 @@ pub const LineBuffer = struct {
         if (self.cursor == 0 or self.cursor >= self.length) return false;
         const prev = self.data[self.cursor - 1];
         const next = self.data[self.cursor];
+
         if (!isMatchedPair(prev, next)) return false;
+
         if (self.cursor + 1 < self.length) {
             std.mem.copyForwards(
                 u8,
@@ -99,14 +109,17 @@ pub const LineBuffer = struct {
                 self.data[self.cursor + 1 .. self.length],
             );
         }
+
         self.cursor -= 1;
         self.length -= 2;
+
         return true;
     }
 
     /// Delete one byte at cursor (forward delete).
     pub fn deleteCharAt(self: *LineBuffer) void {
         if (self.cursor >= self.length) return;
+
         if (self.cursor + 1 < self.length) {
             std.mem.copyForwards(
                 u8,
@@ -114,6 +127,7 @@ pub const LineBuffer = struct {
                 self.data[self.cursor + 1 .. self.length],
             );
         }
+
         self.length -= 1;
     }
 
@@ -137,6 +151,7 @@ pub const LineBuffer = struct {
         var pos = self.cursor;
         while (pos < self.length and !isWordChar(self.data[pos])) pos += 1;
         while (pos < self.length and isWordChar(self.data[pos])) pos += 1;
+
         self.cursor = pos;
     }
 
@@ -144,6 +159,7 @@ pub const LineBuffer = struct {
         var pos = self.cursor;
         while (pos > 0 and !isWordChar(self.data[pos - 1])) pos -= 1;
         while (pos > 0 and isWordChar(self.data[pos - 1])) pos -= 1;
+
         self.cursor = pos;
     }
 
@@ -158,11 +174,15 @@ pub const LineBuffer = struct {
 
     pub fn deleteWordBefore(self: *LineBuffer) void {
         if (self.cursor == 0) return;
+        
         var target = self.cursor;
         while (target > 0 and !isWordChar(self.data[target - 1])) target -= 1;
         while (target > 0 and isWordChar(self.data[target - 1])) target -= 1;
+
         const chars_deleted = self.cursor - target;
+       
         if (chars_deleted == 0) return;
+        
         if (self.cursor < self.length) {
             std.mem.copyForwards(
                 u8,
@@ -170,6 +190,7 @@ pub const LineBuffer = struct {
                 self.data[self.cursor .. self.length],
             );
         }
+
         self.length -= chars_deleted;
         self.cursor = target;
     }
@@ -199,7 +220,9 @@ pub const LineBuffer = struct {
 
         if (self.cursor >= end) {
             self.cursor -= removed;
-        } else if (self.cursor > start) {
+        } 
+        else 
+        if (self.cursor > start) {
             self.cursor = start;
         }
     }
@@ -213,9 +236,11 @@ pub fn rowOf(content: []const u8, offset: usize) usize {
     var row: usize = 0;
     const limit = @min(offset, content.len);
     var i: usize = 0;
+
     while (i < limit) : (i += 1) {
         if (content[i] == '\n') row += 1;
     }
+
     return row;
 }
 
@@ -224,10 +249,12 @@ pub fn rowOf(content: []const u8, offset: usize) usize {
 pub fn colOf(content: []const u8, offset: usize) usize {
     var last_newline: ?usize = null;
     const limit = @min(offset, content.len);
+
     var i: usize = 0;
     while (i < limit) : (i += 1) {
         if (content[i] == '\n') last_newline = i;
     }
+
     return if (last_newline) |ln| offset - ln - 1 else offset;
 }
 
@@ -236,6 +263,7 @@ pub fn colOf(content: []const u8, offset: usize) usize {
 pub fn offsetAt(content: []const u8, row: usize, col: usize) usize {
     var current_row: usize = 0;
     var row_start: usize = 0;
+
     var i: usize = 0;
     while (i < content.len and current_row < row) : (i += 1) {
         if (content[i] == '\n') {
@@ -243,10 +271,12 @@ pub fn offsetAt(content: []const u8, row: usize, col: usize) usize {
             row_start = i + 1;
         }
     }
+
     if (current_row < row) return content.len;
 
     var row_end: usize = row_start;
     while (row_end < content.len and content[row_end] != '\n') : (row_end += 1) {}
+
     return row_start + @min(col, row_end - row_start);
 }
 

@@ -14,26 +14,26 @@ pub const Value = union(enum) {
 
     pub fn getI(self: Value) error{TypeMismatch}!i64 {
         return switch (self) {
-            .int => |int_val| int_val,
+            .int   => |int_val| int_val,
             .float => |float_val| @intFromFloat(float_val),
-            else => error.TypeMismatch,
+            else   => error.TypeMismatch,
         };
     }
 
     pub fn getF(self: Value) error{TypeMismatch}!f64 {
         return switch (self) {
             .float => |float_val| float_val,
-            .int => |int_val| @floatFromInt(int_val),
-            else => error.TypeMismatch,
+            .int   => |int_val| @floatFromInt(int_val),
+            else   => error.TypeMismatch,
         };
     }
 
     pub fn getS(self: Value, buf: []u8) []const u8 {
         return switch (self) {
             .string => |str| str,
-            .int => |int_val| std.fmt.bufPrint(buf, "{d}", .{int_val}) catch "?",
-            .float => |float_val| std.fmt.bufPrint(buf, "{d}", .{float_val}) catch "?",
-            .list => {
+            .int    => |int_val| std.fmt.bufPrint(buf, "{d}", .{int_val}) catch "?",
+            .float  => |float_val| std.fmt.bufPrint(buf, "{d}", .{float_val}) catch "?",
+            .list   => {
                 var writer = std.Io.Writer.fixed(buf);
                 self.writeTo(&writer) catch return "?";
                 return writer.buffered();
@@ -44,9 +44,9 @@ pub const Value = union(enum) {
     pub fn writeTo(self: Value, writer: anytype) !void {
         switch (self) {
             .string => |str| try writer.writeAll(str),
-            .int => |int_val| try writer.print("{d}", .{int_val}),
-            .float => |float_val| try writer.print("{d}", .{float_val}),
-            .list => |items| {
+            .int    => |int_val| try writer.print("{d}", .{int_val}),
+            .float  => |float_val| try writer.print("{d}", .{float_val}),
+            .list   => |items| {
                 try writer.writeAll("[ ");
                 for (items, 0..) |item, i| {
                     if (i > 0) try writer.writeAll(", ");
@@ -64,7 +64,7 @@ pub const Value = union(enum) {
     pub fn getL(self: Value) error{TypeMismatch}![]const ?Value {
         return switch (self) {
             .list => |items| items,
-            else => error.TypeMismatch,
+            else  => error.TypeMismatch,
         };
     }
 
@@ -77,9 +77,9 @@ pub const Value = union(enum) {
 
         return switch (lhs) {
             .string => |lhs_str| std.mem.eql(u8, lhs_str, rhs.string),
-            .int => |lhs_int| lhs_int == rhs.int,
-            .float => |lhs_float| lhs_float == rhs.float,
-            .list => |lhs_items| {
+            .int    => |lhs_int| lhs_int == rhs.int,
+            .float  => |lhs_float| lhs_float == rhs.float,
+            .list   => |lhs_items| {
                 const rhs_items = rhs.list;
                 if (lhs_items.len != rhs_items.len) return false;
                 for (lhs_items, rhs_items) |lhs_item, rhs_item| {
@@ -98,9 +98,9 @@ pub const Value = union(enum) {
     pub fn format(self: Value, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self) {
             .string => |str| try writer.writeAll(str),
-            .int => |int_val| try writer.print("{d}", .{int_val}),
-            .float => |float_val| try writer.print("{d}", .{float_val}),
-            .list => |items| {
+            .int    => |int_val| try writer.print("{d}", .{int_val}),
+            .float  => |float_val| try writer.print("{d}", .{float_val}),
+            .list   => |items| {
                 try writer.writeAll("[ ");
                 for (items, 0..) |item, i| {
                     if (i > 0) try writer.writeAll(", ");

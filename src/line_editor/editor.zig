@@ -19,7 +19,7 @@ const EscapeStep = escape_mod.Step;
 const EscapeMode = escape_mod.Mode;
 const History = history_mod.History;
 
-const INDENT_WIDTH = 2;
+const INDENT_WIDTH = 4;
 
 pub const ReadLineResult = union(enum) {
     line: []const u8,
@@ -55,6 +55,11 @@ pub const LineEditor = struct {
     autopair_insert: bool = true,
     /// When true, pressing backspace between a matched pair deletes both brackets.
     autopair_delete: bool = true,
+    /// When true, pressing Alt+Enter with the cursor between a matched pair of
+    /// brackets `()`, `[]`, or `{}` expands the pair across two lines with the
+    /// cursor on an indented middle line. When false, Alt+Enter inserts the
+    /// usual newline with copied indent regardless of surrounding brackets.
+    bracket_expand: bool = true,
     /// True while a bracketed paste is in progress (between ESC[200~ and ESC[201~).
     /// Bytes received during paste are inserted literally and autopair is disabled.
     paste_mode: bool = false,
@@ -277,6 +282,7 @@ pub const LineEditor = struct {
             0x09 => self.insertTab(),                // Tab
             0x10 => self.history.up(&self.buffer),                // Ctrl+P
             0x0e => self.history.down(&self.buffer),              // Ctrl+N
+
             tok.EXPRESSION_OPEN  => self.handleOpenBracket(tok.EXPRESSION_OPEN, tok.EXPRESSION_CLOSE),
             tok.EXPRESSION_CLOSE => self.handleCloseBracket(tok.EXPRESSION_CLOSE),
             tok.LIST_OPEN        => self.handleOpenBracket(tok.LIST_OPEN, tok.LIST_CLOSE),
@@ -285,6 +291,7 @@ pub const LineEditor = struct {
             tok.BLOCK_CLOSE      => self.handleCloseBracket(tok.BLOCK_CLOSE),
             tok.QUOTE_DOUBLE     => self.handleQuote(tok.QUOTE_DOUBLE),
             tok.QUOTE_SINGLE     => self.handleQuote(tok.QUOTE_SINGLE),
+
             else => {
                 if (byte >= 0x20 and byte < 0x7f) {
                     _ = self.buffer.insertChar(byte);
@@ -359,8 +366,59 @@ pub const LineEditor = struct {
 
     fn handleDeleteBackward(self: *LineEditor) void {
         if (self.buffer.cursor == 0) return;
+        if (self.bracket_expand and self.collapseExpandedPairIfApplicable()) return;
         if (self.autopair_delete and self.buffer.deleteMatchedPair()) return;
         self.buffer.deleteCharBefore();
+    }
+
+    /// Inverse of `expandPairAcrossLines`: if the cursor sits on a
+    /// whitespace-only line between an open bracket (last char of the previous
+    /// line) and its matching close bracket (first char of the next line),
+    /// collapse the three lines back into `<open><close>` with the cursor
+    /// between them. Returns true on collapse.
+    fn collapseExpandedPairIfApplicable(self: *LineEditor) bool {
+        var line_start = self.buffer.cursor;
+        while (line_start > 0 and self.buffer.data[line_start - 1] != '\n') : (line_start -= 1) {}
+
+        var line_end = self.buffer.cursor;
+        while (line_end < self.buffer.length and self.buffer.data[line_end] != '\n') : (line_end += 1) {}
+
+        // Current line must consist only of whitespace.
+        var i = line_start;
+        while (i < line_end) : (i += 1) {
+            const c = self.buffer.data[i];
+            if (c != ' ' and c != '\t') return false;
+        }
+
+        // Must have a previous line ending in an open bracket and a next
+        // line starting with the matching close bracket.
+        if (line_start < 2) return false;
+        if (line_end >= self.buffer.length) return false;
+
+        const open = self.buffer.data[line_start - 2];
+        const close = self.buffer.data[line_end + 1];
+        const matches = switch (open) {
+            '(' => close == ')',
+            '[' => close == ']',
+            '{' => close == '}',
+            else => false,
+        };
+        if (!matches) return false;
+
+        // Splice out [line_start - 1, line_end + 1): the prev `\n`, the
+        // whitespace, and the trailing `\n`. Cursor lands right after the
+        // open bracket.
+        const delete_from = line_start - 1;
+        const delete_to = line_end + 1;
+        const delete_len = delete_to - delete_from;
+
+        var j = delete_to;
+        while (j < self.buffer.length) : (j += 1) {
+            self.buffer.data[j - delete_len] = self.buffer.data[j];
+        }
+        self.buffer.length -= delete_len;
+        self.buffer.cursor = delete_from;
+        return true;
     }
 
     fn handleClearScreen(self: *LineEditor) void {
@@ -420,6 +478,11 @@ pub const LineEditor = struct {
     /// Alt+Enter: insert a `\n` followed by the leading whitespace of the
     /// current logical line (truncated at the cursor, so the new indent
     /// never exceeds what was actually before the cursor).
+    ///
+    /// Special case when `bracket_expand` is set: if the cursor sits between
+    /// a matched pair of paired brackets (`()`, `[]`, or `{}`), expand the
+    /// pair across two lines — `\n + indent + INDENT_WIDTH spaces + \n + indent`
+    /// — and position the cursor on the indented middle line.
     fn insertNewlineWithIndent(self: *LineEditor) void {
         var line_start = self.buffer.cursor;
         while (line_start > 0 and self.buffer.data[line_start - 1] != '\n') : (line_start -= 1) {}
@@ -433,10 +496,60 @@ pub const LineEditor = struct {
             indent_len += 1;
         }
 
+        if (self.bracket_expand and self.cursorInsideMatchedPair()) {
+            self.expandPairAcrossLines(indent_buf[0..indent_len]);
+            return;
+        }
+
         if (!self.buffer.insertChar('\n')) return;
         for (indent_buf[0..indent_len]) |c| {
             if (!self.buffer.insertChar(c)) break;
         }
+    }
+
+    /// True when the byte at the cursor is a closing bracket whose matching
+    /// opener sits immediately before the cursor — i.e., the cursor is at
+    /// `(|)`, `[|]`, or `{|}`. Quotes are deliberately excluded; lish strings
+    /// can't span lines so expanding `"|"` would create invalid syntax.
+    fn cursorInsideMatchedPair(self: *LineEditor) bool {
+        if (self.buffer.cursor == 0) return false;
+        if (self.buffer.cursor >= self.buffer.length) return false;
+        const before = self.buffer.data[self.buffer.cursor - 1];
+        const at = self.buffer.data[self.buffer.cursor];
+        return switch (before) {
+            '(' => at == ')',
+            '[' => at == ']',
+            '{' => at == '}',
+            else => false,
+        };
+    }
+
+    /// Expand `(|)` (or equivalent) into:
+    ///     (
+    ///         |
+    ///     )
+    /// where `indent` is the leading whitespace of the current logical line
+    /// and the cursor lands on the middle (indented) line.
+    fn expandPairAcrossLines(self: *LineEditor, indent: []const u8) void {
+        if (!self.buffer.insertChar('\n')) return;
+        for (indent) |c| {
+            if (!self.buffer.insertChar(c)) return;
+        }
+        var i: usize = 0;
+        while (i < INDENT_WIDTH) : (i += 1) {
+            if (!self.buffer.insertChar(' ')) return;
+        }
+
+        // Remember the cursor position — the middle indented line — then
+        // insert the closing newline + indent and restore.
+        const cursor_after_middle = self.buffer.cursor;
+
+        if (!self.buffer.insertChar('\n')) return;
+        for (indent) |c| {
+            if (!self.buffer.insertChar(c)) return;
+        }
+
+        self.buffer.cursor = cursor_after_middle;
     }
 
 
@@ -619,17 +732,39 @@ test "Tab inserts INDENT_WIDTH spaces at cursor" {
 
     editor.testInsertString("foo");
     editor.insertTab();
-    try std.testing.expectEqualStrings("foo  ", editor.buffer.slice());
-    try std.testing.expectEqual(@as(usize, 5), editor.buffer.cursor);
+    var expected_buf: [16]u8 = undefined;
+    var len: usize = 3;
+    @memcpy(expected_buf[0..3], "foo");
+    var i: usize = 0;
+    while (i < INDENT_WIDTH) : (i += 1) {
+        expected_buf[len] = ' ';
+        len += 1;
+    }
+    try std.testing.expectEqualStrings(expected_buf[0..len], editor.buffer.slice());
+    try std.testing.expectEqual(@as(usize, 3 + INDENT_WIDTH), editor.buffer.cursor);
 }
 
 test "Shift+Tab removes leading spaces from current line" {
     var editor = LineEditor.testInit();
     defer editor.deinit();
 
-    editor.testInsertString("    foo");
+    // Start with INDENT_WIDTH * 2 leading spaces; one dedent should leave INDENT_WIDTH.
+    var leading_buf: [32]u8 = undefined;
+    var total: usize = 0;
+    while (total < INDENT_WIDTH * 2) : (total += 1) {
+        leading_buf[total] = ' ';
+    }
+    @memcpy(leading_buf[total..][0..3], "foo");
+    editor.testInsertString(leading_buf[0 .. total + 3]);
     editor.dedentCurrentLine();
-    try std.testing.expectEqualStrings("  foo", editor.buffer.slice());
+
+    var expected: [32]u8 = undefined;
+    var elen: usize = 0;
+    while (elen < INDENT_WIDTH) : (elen += 1) {
+        expected[elen] = ' ';
+    }
+    @memcpy(expected[elen..][0..3], "foo");
+    try std.testing.expectEqualStrings(expected[0 .. elen + 3], editor.buffer.slice());
 }
 
 test "Shift+Tab on line with no leading spaces is a no-op" {
@@ -645,10 +780,168 @@ test "Shift+Tab dedents the current line in a multi-line buffer" {
     var editor = LineEditor.testInit();
     defer editor.deinit();
 
-    editor.testInsertString("foo\n    bar");
-    // Cursor at end (position 11), on line "    bar".
+    var head: [64]u8 = undefined;
+    @memcpy(head[0..4], "foo\n");
+    var pos: usize = 4;
+    var i: usize = 0;
+    while (i < INDENT_WIDTH * 2) : (i += 1) {
+        head[pos] = ' ';
+        pos += 1;
+    }
+    @memcpy(head[pos..][0..3], "bar");
+    editor.testInsertString(head[0 .. pos + 3]);
+
     editor.dedentCurrentLine();
-    try std.testing.expectEqualStrings("foo\n  bar", editor.buffer.slice());
+
+    var expected: [64]u8 = undefined;
+    @memcpy(expected[0..4], "foo\n");
+    var epos: usize = 4;
+    var j: usize = 0;
+    while (j < INDENT_WIDTH) : (j += 1) {
+        expected[epos] = ' ';
+        epos += 1;
+    }
+    @memcpy(expected[epos..][0..3], "bar");
+    try std.testing.expectEqualStrings(expected[0 .. epos + 3], editor.buffer.slice());
+}
+
+test "Alt+Enter inside `(|)` expands the pair across two lines" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    editor.testInsertString("()");
+    editor.buffer.cursor = 1; // between ( and )
+    editor.insertNewlineWithIndent();
+
+    // Expected: `(\n    \n)` with cursor on the indented middle line.
+    var expected: [16]u8 = undefined;
+    var len: usize = 0;
+    expected[len] = '(';     len += 1;
+    expected[len] = '\n';    len += 1;
+    var i: usize = 0;
+    while (i < INDENT_WIDTH) : (i += 1) { expected[len] = ' '; len += 1; }
+    const middle_cursor = len;
+    expected[len] = '\n';    len += 1;
+    expected[len] = ')';     len += 1;
+
+    try std.testing.expectEqualStrings(expected[0..len], editor.buffer.slice());
+    try std.testing.expectEqual(middle_cursor, editor.buffer.cursor);
+}
+
+test "Alt+Enter inside `[|]` also expands" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    editor.testInsertString("[]");
+    editor.buffer.cursor = 1;
+    editor.insertNewlineWithIndent();
+
+    try std.testing.expect(std.mem.indexOfScalar(u8, editor.buffer.slice(), '[') == 0);
+    try std.testing.expect(std.mem.indexOfScalar(u8, editor.buffer.slice(), ']') != null);
+    try std.testing.expect(editor.buffer.cursor > 1);
+    try std.testing.expect(editor.buffer.cursor < editor.buffer.length);
+}
+
+test "Alt+Enter outside paired brackets stays as plain newline+indent" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    editor.testInsertString("  foo");
+    editor.insertNewlineWithIndent();
+    try std.testing.expectEqualStrings("  foo\n  ", editor.buffer.slice());
+}
+
+test "Alt+Enter inside `\"|\"` does NOT expand (strings are single-line)" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    editor.testInsertString("\"\"");
+    editor.buffer.cursor = 1;
+    editor.insertNewlineWithIndent();
+    // Should be plain newline behavior: `"\n"` — quotes themselves don't expand.
+    try std.testing.expectEqualStrings("\"\n\"", editor.buffer.slice());
+}
+
+test "Backspace on indented middle line of expanded pair collapses it" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    editor.testInsertString("()");
+    editor.buffer.cursor = 1;
+    editor.insertNewlineWithIndent();
+    // We're now at `(\n    |\n)`. Hit backspace.
+    editor.handleDeleteBackward();
+    try std.testing.expectEqualStrings("()", editor.buffer.slice());
+    try std.testing.expectEqual(@as(usize, 1), editor.buffer.cursor);
+}
+
+test "Backspace collapses expanded pair in the middle of larger content" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    editor.testInsertString("say (");
+    editor.testInsertString(")");
+    editor.buffer.cursor = 5; // between ( and )
+    editor.insertNewlineWithIndent();
+    editor.handleDeleteBackward();
+    try std.testing.expectEqualStrings("say ()", editor.buffer.slice());
+    try std.testing.expectEqual(@as(usize, 5), editor.buffer.cursor);
+}
+
+test "Backspace does NOT collapse if the indented line has content" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    editor.testInsertString("()");
+    editor.buffer.cursor = 1;
+    editor.insertNewlineWithIndent();
+    editor.testInsertString("x"); // now `(\n    x|\n)`
+    editor.handleDeleteBackward(); // should just delete the 'x'
+    var expected: [16]u8 = undefined;
+    var len: usize = 0;
+    expected[len] = '('; len += 1;
+    expected[len] = '\n'; len += 1;
+    var i: usize = 0;
+    while (i < INDENT_WIDTH) : (i += 1) { expected[len] = ' '; len += 1; }
+    expected[len] = '\n'; len += 1;
+    expected[len] = ')'; len += 1;
+    try std.testing.expectEqualStrings(expected[0..len], editor.buffer.slice());
+}
+
+test "Backspace collapse disabled when bracket_expand is off" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+    editor.bracket_expand = true;
+
+    editor.testInsertString("()");
+    editor.buffer.cursor = 1;
+    editor.insertNewlineWithIndent();
+    // Now turn off bracket_expand — backspace should fall through to autopair-delete or plain.
+    editor.bracket_expand = false;
+    editor.handleDeleteBackward();
+    // bracket_expand off + autopair_delete on: the autopair_delete won't fire here
+    // because we're on a whitespace line, not directly between matched brackets.
+    // We should get plain backspace — one space deleted.
+    var expected: [16]u8 = undefined;
+    var len: usize = 0;
+    expected[len] = '('; len += 1;
+    expected[len] = '\n'; len += 1;
+    var i: usize = 0;
+    while (i < INDENT_WIDTH - 1) : (i += 1) { expected[len] = ' '; len += 1; }
+    expected[len] = '\n'; len += 1;
+    expected[len] = ')'; len += 1;
+    try std.testing.expectEqualStrings(expected[0..len], editor.buffer.slice());
+}
+
+test "Alt+Enter inside `(|)` with bracket_expand disabled is plain newline" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+    editor.bracket_expand = false;
+
+    editor.testInsertString("()");
+    editor.buffer.cursor = 1;
+    editor.insertNewlineWithIndent();
+    try std.testing.expectEqualStrings("(\n)", editor.buffer.slice());
 }
 
 test "Up arrow on row 0 falls through to history" {

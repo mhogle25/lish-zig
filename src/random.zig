@@ -11,9 +11,10 @@ const Allocator = std.mem.Allocator;
 
 
 pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!void {
-    try registry.registerOperation(allocator, "?",  Operation.fromFn(randInclusiveOp));
-    try registry.registerOperation(allocator, "?<", Operation.fromFn(randExclusiveOp));
-    try registry.registerOperation(allocator, "??", Operation.fromFn(randPickOp));
+    const g = registry.group(allocator, "random");
+    try g.register("?",  Operation.fromFn(randInclusiveOp, .{ .signature = "? x y -> number",     .description = "Random number in the inclusive range [x, y]." }));
+    try g.register("?<", Operation.fromFn(randExclusiveOp, .{ .signature = "?< x y -> number",    .description = "Random number in the upper-exclusive range [x, y)." }));
+    try g.register("??", Operation.fromFn(randPickOp,      .{ .signature = "?? a b ... -> value", .description = "Pick one argument at random; only the chosen argument is evaluated." }));
 }
 
 // Each op pulls bytes from io and converts to the needed type.

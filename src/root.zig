@@ -10,6 +10,7 @@ pub const toCondition = value.toCondition;
 
 pub const Token = token.Token;
 pub const TokenType = token.TokenType;
+pub const findExpressionBoundary = boundary.findExpressionBoundary;
 
 pub const lexer = @import("lexer.zig");
 pub const ast = @import("ast.zig");
@@ -17,6 +18,8 @@ pub const parser = @import("parser.zig");
 pub const exec = @import("exec.zig");
 pub const validation = @import("validation.zig");
 pub const builtins = @import("builtins.zig");
+pub const introspect = @import("introspect.zig");
+pub const boundary = @import("boundary.zig");
 pub const macro_parser = @import("macro_parser.zig");
 pub const cache = @import("cache.zig");
 pub const process = @import("process.zig");
@@ -81,6 +84,8 @@ test {
     _ = exec;
     _ = validation;
     _ = builtins;
+    _ = introspect;
+    _ = boundary;
     _ = macro_parser;
     _ = cache;
     _ = process;

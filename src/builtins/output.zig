@@ -10,8 +10,9 @@ const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
-    try registry.registerOperation(allocator, "say",   Operation.fromFn(sayOp));
-    try registry.registerOperation(allocator, "error", Operation.fromFn(errorOp));
+    const g = registry.group(allocator, "output");
+    try g.register("say",   Operation.fromFn(sayOp,   .{ .signature = "say x ... -> $none",   .description = "Write the arguments to stdout followed by a newline." }));
+    try g.register("error", Operation.fromFn(errorOp, .{ .signature = "error x ... -> $none", .description = "Write the arguments to stderr followed by a newline." }));
 }
 
 fn sayOp(args: Args) ExecError!?Value {

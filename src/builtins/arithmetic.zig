@@ -11,12 +11,13 @@ const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
-    try registry.registerOperation(allocator, "+", Operation.fromFn(addOp));
-    try registry.registerOperation(allocator, "-", Operation.fromFn(subtractOp));
-    try registry.registerOperation(allocator, "*", Operation.fromFn(multiplyOp));
-    try registry.registerOperation(allocator, "/", Operation.fromFn(divideOp));
-    try registry.registerOperation(allocator, "%", Operation.fromFn(moduloOp));
-    try registry.registerOperation(allocator, "^", Operation.fromFn(powerOp));
+    const g = registry.group(allocator, "arithmetic");
+    try g.register("+", Operation.fromFn(addOp,      .{ .signature = "+ a b ... -> number",      .description = "Sum all arguments." }));
+    try g.register("-", Operation.fromFn(subtractOp, .{ .signature = "- a b ... -> number",      .description = "Subtract the remaining arguments from the first." }));
+    try g.register("*", Operation.fromFn(multiplyOp, .{ .signature = "* a b ... -> number",      .description = "Multiply all arguments." }));
+    try g.register("/", Operation.fromFn(divideOp,   .{ .signature = "/ a b ... -> number",      .description = "Divide the first argument by the rest; integer division truncates and division by zero yields 0." }));
+    try g.register("%", Operation.fromFn(moduloOp,   .{ .signature = "% a b ... -> number",      .description = "Modulo of the first argument by the rest; modulo by zero yields 0." }));
+    try g.register("^", Operation.fromFn(powerOp,    .{ .signature = "^ base exp ... -> number", .description = "Raise the first argument to each subsequent power, left to right." }));
 }
 
 fn addOp(args: Args) ExecError!?Value {

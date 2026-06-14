@@ -91,6 +91,7 @@ pub const Parser = struct {
         self.lexer = lexer.*;
         self.token = self.lexer.nextToken();
         const node = try self.topLevelExpression(1);
+
         return .{
             .node = node,
             .lexer_state = self.lexer.getState(),
@@ -186,6 +187,7 @@ pub const Parser = struct {
             null,
             .{ .meta_type = .single_term },
         );
+
         return .{
             .node = expr,
             .saw_closing_bracket = term.saw_closing_bracket,
@@ -202,6 +204,7 @@ pub const Parser = struct {
 
         const term = try self.makeSingleTermNode(nested_count);
         const node = try ast.makeScopeThunk(self.allocator, .{ .start = symbol_token.start, .end = term.node.position.end }, term.node);
+
         return .{
             .node = node,
             .saw_closing_bracket = term.saw_closing_bracket,
@@ -238,11 +241,13 @@ pub const Parser = struct {
                     i += 1;
                 }
             }
+
             try self.string_buf.append(self.allocator, current_char);
             i += 1;
         }
 
         const owned = try self.allocator.dupe(u8, self.string_buf.items);
+
         return ast.makeValueLiteral(self.allocator, .{ .start = self.token.start, .end = self.token.end }, .{ .string = owned });
     }
 
@@ -250,6 +255,7 @@ pub const Parser = struct {
         const parsed_int = std.fmt.parseInt(i64, self.token.lexeme, 10) catch {
             return self.logicalErr("An unexpected numeric token was encountered");
         };
+
         return ast.makeValueLiteral(self.allocator, .{ .start = self.token.start, .end = self.token.end }, .{ .int = parsed_int });
     }
 
@@ -257,6 +263,7 @@ pub const Parser = struct {
         const parsed_float = std.fmt.parseFloat(f64, self.token.lexeme) catch {
             return self.logicalErr("An unexpected numeric token was encountered");
         };
+
         return ast.makeValueLiteral(self.allocator, .{ .start = self.token.start, .end = self.token.end }, .{ .float = parsed_float });
     }
 
@@ -465,6 +472,7 @@ pub const Parser = struct {
                     open_err = try self.missingCloseErr(opening_token);
                     return self.finishClosure(opening_token, expr_count, open_err, close_err);
                 }
+
                 if (self.pending_closure_depth == bracket_depth) {
                     self.pending_closure_depth = NO_PENDING_CLOSURE;
                     return self.finishClosure(opening_token, expr_count, open_err, close_err);
@@ -481,12 +489,14 @@ pub const Parser = struct {
             if (self.closure_stack[@intCast(i)].token_type.pairsWith(closing_type))
                 return i;
         }
+
         return NO_PENDING_CLOSURE;
     }
 
     fn finishClosure(self: *Parser, opening_token: Token, expr_count: usize, open_err: ?AstBracketError, close_err: ?AstBracketError) ClosureInfo {
         if (self.closure_stack_count > 0)
             self.closure_stack_count -= 1;
+
         return .{
             .expr_count = expr_count,
             .open_err = open_err,
@@ -510,10 +520,12 @@ pub const Parser = struct {
                 .message  = try self.bracketMsg("Missing {s}", opening_token.type.paired().?),
                 .position = .{ .start = opening_token.start, .end = opening_token.end },
             };
+
             close_err.* = .{
                 .message  = try self.bracketMsg("Unexpected {s}", self.token.type),
                 .position = .{ .start = self.token.start, .end = self.token.end },
             };
+
             return true;
         }
 
@@ -539,22 +551,27 @@ pub const Parser = struct {
                 nested_count += 1;
                 break :blk try self.singleTermExpression(nested_count);
             },
+
             .call_scope_thunk_symbol => blk: {
                 nested_count += 1;
                 break :blk try self.scopeThunk(nested_count);
             },
+
             .expression_opening_bracket => blk: {
                 nested_count += 1;
                 break :blk singleTermResult(try self.expression(nested_count));
             },
+
             .list_opening_bracket => blk: {
                 nested_count += 1;
                 break :blk singleTermResult(try self.listLiteral(nested_count));
             },
+
             .block_opening_bracket => blk: {
                 nested_count += 1;
                 break :blk singleTermResult(try self.block(nested_count));
             },
+
             .expression_closing_bracket,
             .list_closing_bracket,
             .block_closing_bracket,
@@ -569,6 +586,7 @@ pub const Parser = struct {
     fn singleTermNestingErr(self: *Parser) Allocator.Error!SingleTermResult {
         const saw_closing = self.token.type.isClosing();
         const match_depth = if (saw_closing) self.findMatchingDepth(self.token.type) else NO_PENDING_CLOSURE;
+
         return .{
             .node = try self.expressionNestingErr(),
             .saw_closing_bracket = saw_closing,
@@ -588,6 +606,7 @@ pub const Parser = struct {
                 {
                     continue;
                 }
+
                 return true;
             }
         }
@@ -613,6 +632,7 @@ pub const Parser = struct {
             i -= 1;
             args[i] = self.stackPop();
         }
+
         return args;
     }
 

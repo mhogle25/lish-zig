@@ -21,7 +21,7 @@ lish borrows Lisp's prefix notation and parenthesized sub-expressions, but diver
 - **Existential truthiness** — no booleans; values either exist (`?Value`) or they don't (`null`)
 - **Arena allocation** — parse and execute within a single arena lifecycle
 - **Expression caching** — generic LRU cache avoids redundant parsing
-- **91 built-in operations** — arithmetic, comparison, logic, control flow, string, list, higher-order, type, math, binding, and meta functions, plus a small bundled stdlib of macros (`clamp`, `sign`, `pi`, `fill`, kv-list helpers, etc.) loaded automatically
+- **92 built-in operations** — arithmetic, comparison, logic, control flow, string, list, higher-order, type, math, binding, and meta functions, plus a small bundled stdlib of macros (`clamp`, `sign`, `pi`, `fill`, kv-list helpers, etc.) loaded automatically
 - **Bindings everywhere** — `let` and `pipe` introduce names, and the iterative ops (`map`, `filter`, `reduce`, `loop`, etc.) all take a binding name and a body expression, so transforms live inline at the call site
 - **Session API** — backend-agnostic REPL core
 - **AST builder** — fluent Zig API for constructing lish expressions and macro definitions programmatically
@@ -115,14 +115,14 @@ Macros (params accessed with `:`):
 | Output            | `say`, `error`                                                                                                                   |
 | List              | `list`, `flat`, `flatten`, `range`, `until`, `sort`, `sortby`, `sortwith`, `fillby`                                              |
 | Collection        | `length`, `first`, `last`, `rest`, `at`, `reverse`, `take`, `drop`, `slice`, `zip`                                               |
-| Higher-Order      | `map`, `foreach`, `filter`, `reduce`, `any`, `all`, `count`, `findby`                                                            |
+| Higher-Order      | `map`, `for`, `filter`, `reduce`, `any`, `all`, `count`, `findby`                                                                |
 | Meta              | `apply`, `known`, `ops`                                                                                                          |
 | Math              | `min`, `max`, `abs`, `floor`, `ceil`, `round`, `even`, `odd`, `sqrt`, `sin`, `cos`, `log`, `exp`                                 |
 | Type              | `type`, `int`, `float`, `string`, `inspect`                                                                                      |
 | Sequencing        | `proc`, `loop`, `while`                                                                                                          |
 | Binding           | `let`, `pipe`                                                                                                                    |
 
-The bundled stdlib (`src/stdlib.lishmacro`) loaded automatically by `registerCore` adds math helpers (`clamp`, `clamp01`, `pi`, `sign`, `lerp`, `smoothstep`, `square`, `cube`, `negate`), list helpers (`fill`, `head`, `tail`, `init`, `repeat`), string helpers (`repeatstr`, `padleft`, `padright`), predicates (`positive`, `negative`, `zero`, `between`, `numeric`, `blank`), `panic`, and a kv-list family (`kvget`, `kvhas`, `kvkeys`, `kvvalues`, `kvset`, `kvmerge`) for working with flat alternating key/value lists.
+The bundled stdlib (`src/stdlib.lishmacro`) loaded automatically by `registerCore` adds math helpers (`squared`, `cubed`, `clamp`, `clamp01`, `pi`, `sign`, `lerp`, `smoothstep`, `negate`), list helpers (`fill`, `pop`), string helpers (`repeatstr`, `padleft`, `padright`), predicates (`positive`, `negative`, `zero`, `between`, `numeric`, `blank`), `panic`, and a kv-list family (`kvget`, `kvhas`, `kvkeys`, `kvvalues`, `kvset`, `kvmerge`) for working with flat alternating key/value lists.
 
 `proc` takes its name from three overlapping meanings: **procedure** (execute a sequence of steps), **procure** (retrieve a value), and **process** (transform a sequence). With one argument it returns that argument's value; with multiple arguments it evaluates each in order and returns the last.
 
@@ -132,7 +132,7 @@ The bundled stdlib (`src/stdlib.lishmacro`) loaded automatically by `registerCor
 
 ### Binding form for iterative ops
 
-`map`, `foreach`, `filter`, `reduce`, `any`, `all`, `count`, `findby`, `sortby`, and `sortwith` all take a **binding name** followed by a **source** and a **body expression**. Inside the body, `:NAME` refers to the current element (or accumulator).
+`map`, `for`, `filter`, `reduce`, `any`, `all`, `count`, `findby`, `sortby`, and `sortwith` all take a **binding name** followed by a **source** and a **body expression**. Inside the body, `:NAME` refers to the current element (or accumulator).
 
 ```
 map x [1 2 3] (* :x 2)                              ## [2 4 6]
@@ -400,7 +400,13 @@ fn myOperation(args: lish.Args) lish.exec.ExecError!?lish.Value {
     return value; // echo back the first argument
 }
 
-try registry.registerOperation(allocator, "my-op", lish.Operation.fromFn(myOperation));
+// Every operation carries required metadata (signature + one-line description),
+// surfaced by introspection (`lish --dump-ops`) and the LSP. Pass it as the
+// last argument.
+try registry.registerOperation(allocator, "my-op", lish.Operation.fromFn(myOperation, .{
+    .signature = "my-op x -> any",
+    .description = "Echo back the first argument.",
+}));
 
 // Bound operation (has access to a context struct)
 const MySystem = struct {
@@ -417,7 +423,10 @@ var system = MySystem{};
 try registry.registerOperation(
     allocator,
     "count",
-    lish.Operation.fromBoundFn(MySystem, MySystem.countOp, &system),
+    lish.Operation.fromBoundFn(MySystem, MySystem.countOp, &system, .{
+        .signature = "count -> $none",
+        .description = "Increment the system counter.",
+    }),
 );
 ```
 
@@ -439,6 +448,10 @@ zig build run
 zig build run -- -m path/to/macros/
 zig build run -- -m macros/math.lishmacro
 zig build run -- --macros macros/math --macros macros/utils
+
+# Dump the registry's vocabulary as JSON (for editor tooling / docs)
+zig build run -- --dump-ops      # every operation: name, category, signature, description
+zig build run -- --dump-macros   # every stdlib macro: name + derived signature
 ```
 
 ### REPL Commands
@@ -468,15 +481,17 @@ File extensions used by lish:
 | `.lish` | A single expression (config files, one-off scripts) | `parser.parse` → `processRaw` |
 | `.lishmacro` | One or more macro declarations | `macro_parser` → `loadMacroModule` |
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `autopair-insert` | `$some` | Typing `(`, `[`, `{`, `"`, or `'` inserts the matching closing delimiter with the cursor positioned between the pair. |
-| `autopair-delete` | `$some` | Pressing backspace between a matched pair deletes both brackets. |
-| `macros` | — | Load `.lishmacro` macros from the given path. Accepts a single `.lishmacro` file or a directory (all `.lishmacro` files in the directory are loaded). May be called multiple times. |
-| `max-call-depth` | `1024` | Maximum recursion depth (`processExpression` nesting). Prevents Zig stack overflow from runaway macros. Positive integer required. |
-| `fuel` | `$off` | Maximum total expression evaluations per top-level execute. Halts long-running scripts with a fuel-exhausted error. Positive integer to enable, `$off` for unlimited. |
-| `max-list-length` | `$off` | Maximum element count for any list constructed at runtime (`range`, `fill`, `map`, `filter`, etc.). Positive integer to enable, `$off` for unlimited. |
-| `max-string-length` | `$off` | Maximum byte length for any string constructed at runtime (`concat`, `join`, `format`, `replace`). Positive integer to enable, `$off` for unlimited. |
+| Setting             | Default | Description |
+|---------------------|---------|-------------|
+| `autopair-insert`   | `$on`   | Typing `(`, `[`, `{`, `"`, or `'` inserts the matching closing delimiter with the cursor positioned between the pair. |
+| `autopair-delete`   | `$on`   | Pressing backspace between a matched pair deletes both brackets. |
+| `bracket-expand`    | `$on`   | Pressing Alt+Enter with the cursor between `()`, `[]`, or `{}` expands the pair across two lines with the cursor on an indented middle line. Backspace on that indented middle line collapses the expansion back to a single-line `()`. |
+| `highlight`         | `$on`   | Syntax highlighting in the REPL renderer (comments, strings, numbers, scope refs, sigils). |
+| `macros`            | —       | Load `.lishmacro` macros from the given path. Accepts a single `.lishmacro` file or a directory (all `.lishmacro` files in the directory are loaded). May be called multiple times. |
+| `max-call-depth`    | `1024`  | Maximum recursion depth (`processExpression` nesting). Prevents Zig stack overflow from runaway macros. Positive integer required. |
+| `fuel`              | `$off`  | Maximum total expression evaluations per top-level execute. Halts long-running scripts with a fuel-exhausted error. Positive integer to enable, `$off` for unlimited. |
+| `max-list-length`   | `$off`  | Maximum element count for any list constructed at runtime (`range`, `fill`, `map`, `filter`, etc.). Positive integer to enable, `$off` for unlimited. |
+| `max-string-length` | `$off`  | Maximum byte length for any string constructed at runtime (`concat`, `join`, `format`, `replace`). Positive integer to enable, `$off` for unlimited. |
 
 The config file is evaluated as a single lish expression. Use `proc` to sequence multiple settings:
 
@@ -537,8 +552,10 @@ Defaults are permissive (recursion depth aside) so existing scripts and library 
 | `parser.zig`               | Recursive descent expression parser                                                      |
 | `validation.zig`           | AST to executable transformation with error checking                                     |
 | `exec.zig`                 | Runtime: Thunk, Expression, Scope, Env, Registry                                         |
-| `builtins.zig`             | Registration entry point for the 91 built-in operations                                  |
+| `builtins.zig`             | Registration entry point for the 92 built-in operations                                  |
 | `builtins/`                | One module per category (arithmetic, lists, strings, higher_order, binding, types, ...)  |
+| `introspect.zig`           | Registry self-description: serialize ops/macros to JSON (`lish --dump-ops` / `--dump-macros`) |
+| `boundary.zig`             | Shared expression-boundary finder for embedders (folio's `{...}`, macro `\|...\|`)        |
 | `macro_parser.zig`         | Macro definition parser and validator                                                    |
 | `cache.zig`                | Generic LRU cache (`LruCache(V)`)                                                        |
 | `process.zig`              | Convenience API: processRaw, macro file loading                                          |

@@ -12,9 +12,10 @@ const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
-    try registry.registerOperation(allocator, "apply", Operation.fromFn(applyOp));
-    try registry.registerOperation(allocator, "known", Operation.fromFn(knownOp));
-    try registry.registerOperation(allocator, "ops",   Operation.fromFn(opsOp));
+    const g = registry.group(allocator, "meta");
+    try g.register("apply", Operation.fromFn(applyOp, .{ .signature = "apply name list -> value",   .description = "Call the operation named by the first argument with the elements of the list as its arguments." }));
+    try g.register("known", Operation.fromFn(knownOp, .{ .signature = "known name -> string|$none", .description = "Returns the name when it is a registered operation or macro, else $none." }));
+    try g.register("ops",   Operation.fromFn(opsOp,   .{ .signature = "ops -> list",                .description = "Returns a list of all registered operation and macro names." }));
 }
 
 inline fn makeExpression(id: exec.ExpressionId, arg_buf: []const *const Thunk) Expression {

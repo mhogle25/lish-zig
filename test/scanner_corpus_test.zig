@@ -1,14 +1,26 @@
-//! Runs the shared scanner-boundary corpus against lish-zig's own lexer.
+//! Runs the shared scanner-boundary corpus against lish-zig.
 //!
 //! Cases come from `lish.scanner_corpus` (which @embedFiles them from
-//! `test/scanner_corpus/`). lish-zig only knows about the `|` terminator
-//! (its job is finding macro-body boundaries). Other terminators (`}` for
-//! folio's `{...}` regions, etc.) are exercised by their owning embedders'
-//! own runners against the same module.
+//! `src/scanner_corpus/`). Two runners share the corpus:
+//!
+//!   - `findPipeBoundary` drives the full `Lexer`, the canonical tokenizer, on
+//!     the `|` (macro-body) cases.
+//!   - `findExpressionBoundary` drives `lish.boundary`, the focused scanner that
+//!     embedders call, on *every* case (both `|` and folio's `}`). This is what
+//!     pins that shared function to the lexer's lexical rules.
 
 const std = @import("std");
 const lish = @import("lish");
 const Lexer = lish.Lexer;
+
+/// The opener that nests a given terminator: `{` for folio's `}` regions; the
+/// macro `|` does not nest.
+fn openFor(terminator: u8) ?u8 {
+    return switch (terminator) {
+        '}' => '{',
+        else => null,
+    };
+}
 
 /// Tokenize the source and return the byte offset of the first `macro_bracket`
 /// (`|`) token. Returns null if the source contains no such token.
@@ -46,4 +58,23 @@ test "scanner corpus: every `|` case matches lish-zig's lexer" {
     }
 
     try std.testing.expect(pipe_count > 0);
+}
+
+test "scanner corpus: findExpressionBoundary matches every case" {
+    for (lish.scanner_corpus.cases) |case| {
+        const parsed = try lish.scanner_corpus.parse(case.text);
+        const open = openFor(parsed.terminator);
+
+        const found = lish.findExpressionBoundary(parsed.source, open, parsed.terminator) orelse {
+            std.debug.print("\nCASE FAILED: {s}\n  no boundary found\n", .{case.name});
+            return error.BoundaryNotFound;
+        };
+        if (found != parsed.expected_boundary) {
+            std.debug.print(
+                "\nCASE FAILED: {s}\n  expected boundary {d}, got {d}\n  source: {s}\n",
+                .{ case.name, parsed.expected_boundary, found, parsed.source },
+            );
+            return error.BoundaryMismatch;
+        }
+    }
 }

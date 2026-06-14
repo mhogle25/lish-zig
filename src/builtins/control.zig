@@ -10,10 +10,11 @@ const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
-    try registry.registerOperation(allocator, "if",     Operation.fromFn(ifElseOp));
-    try registry.registerOperation(allocator, "when",   Operation.fromFn(whenOp));
-    try registry.registerOperation(allocator, "match",  Operation.fromFn(matchOp));
-    try registry.registerOperation(allocator, "assert", Operation.fromFn(assertOp));
+    const g = registry.group(allocator, "control");
+    try g.register("if",     Operation.fromFn(ifElseOp, .{ .signature = "if cond then [else] -> value",             .description = "If the condition is truthy yield the then-branch, else the optional else-branch (or $none)." }));
+    try g.register("when",   Operation.fromFn(whenOp,   .{ .signature = "when cond result ... -> value",            .description = "Returns the result of the first truthy condition in condition/result pairs, else $none." }));
+    try g.register("match",  Operation.fromFn(matchOp,  .{ .signature = "match target pattern result ... -> value", .description = "Returns the result whose pattern equals the target in pattern/result pairs, else $none." }));
+    try g.register("assert", Operation.fromFn(assertOp, .{ .signature = "assert cond [message] -> value",           .description = "Returns the condition when truthy, else raises a user error with the optional message." }));
 }
 
 fn ifElseOp(args: Args) ExecError!?Value {

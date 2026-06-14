@@ -12,28 +12,29 @@ const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
+    const g = registry.group(allocator, "lists");
     // List construction / traversal
-    try registry.registerOperation(allocator, "list",     Operation.fromFn(listOp));
-    try registry.registerOperation(allocator, "flat",     Operation.fromFn(flatOp));
-    try registry.registerOperation(allocator, "flatten",  Operation.fromFn(flattenOp));
-    try registry.registerOperation(allocator, "range",    Operation.fromFn(rangeOp));
-    try registry.registerOperation(allocator, "until",    Operation.fromFn(untilOp));
-    try registry.registerOperation(allocator, "sort",     Operation.fromFn(sortOp));
-    try registry.registerOperation(allocator, "sortby",   Operation.fromFn(sortbyOp));
-    try registry.registerOperation(allocator, "sortwith", Operation.fromFn(sortwithOp));
-    try registry.registerOperation(allocator, "fillby",   Operation.fromFn(fillbyOp));
+    try g.register("list",     Operation.fromFn(listOp,     .{ .signature = "list x ... -> list",             .description = "Collect all arguments into a list." }));
+    try g.register("flat",     Operation.fromFn(flatOp,     .{ .signature = "flat x ... -> list",             .description = "Concatenate arguments into one list, splicing in one level of nested lists." }));
+    try g.register("flatten",  Operation.fromFn(flattenOp,  .{ .signature = "flatten x ... -> list",          .description = "Concatenate arguments into one list, splicing nested lists at any depth." }));
+    try g.register("range",    Operation.fromFn(rangeOp,    .{ .signature = "range start end [step] -> list", .description = "List of integers from start to end inclusive, with an optional step." }));
+    try g.register("until",    Operation.fromFn(untilOp,    .{ .signature = "until start end [step] -> list", .description = "List of integers from start up to but excluding end, with an optional step." }));
+    try g.register("sort",     Operation.fromFn(sortOp,     .{ .signature = "sort list -> list",              .description = "Sort a list in ascending order." }));
+    try g.register("sortby",   Operation.fromFn(sortbyOp,   .{ .signature = "sortby name list body -> list",  .description = "Sort a list ascending by the key the body computes for each element bound to name." }));
+    try g.register("sortwith", Operation.fromFn(sortwithOp, .{ .signature = "sortwith a b list body -> list", .description = "Sort a list using a comparator body that returns negative, zero, or positive for the pair bound to a and b." }));
+    try g.register("fillby",   Operation.fromFn(fillbyOp,   .{ .signature = "fillby [name] n body -> list",   .description = "Build a list of n elements from the body; the 3-arg form binds the slot index to name." }));
 
     // Collection access
-    try registry.registerOperation(allocator, "length",  Operation.fromFn(lengthOp));
-    try registry.registerOperation(allocator, "first",   Operation.fromFn(firstOp));
-    try registry.registerOperation(allocator, "last",    Operation.fromFn(lastOp));
-    try registry.registerOperation(allocator, "rest",    Operation.fromFn(restOp));
-    try registry.registerOperation(allocator, "at",      Operation.fromFn(atOp));
-    try registry.registerOperation(allocator, "reverse", Operation.fromFn(reverseOp));
-    try registry.registerOperation(allocator, "take",    Operation.fromFn(takeOp));
-    try registry.registerOperation(allocator, "drop",    Operation.fromFn(dropOp));
-    try registry.registerOperation(allocator, "slice",   Operation.fromFn(sliceOp));
-    try registry.registerOperation(allocator, "zip",     Operation.fromFn(zipOp));
+    try g.register("length",  Operation.fromFn(lengthOp,  .{ .signature = "length collection -> int",                 .description = "Number of elements in a list or characters in a string." }));
+    try g.register("first",   Operation.fromFn(firstOp,   .{ .signature = "first list -> value|$none",                .description = "First element of a list, else $none." }));
+    try g.register("last",    Operation.fromFn(lastOp,    .{ .signature = "last list -> value|$none",                 .description = "Last element of a list, else $none." }));
+    try g.register("rest",    Operation.fromFn(restOp,    .{ .signature = "rest list -> list",                        .description = "List without its first element." }));
+    try g.register("at",      Operation.fromFn(atOp,      .{ .signature = "at index collection -> value|$none",       .description = "Element at the index in a list or string, else $none." }));
+    try g.register("reverse", Operation.fromFn(reverseOp, .{ .signature = "reverse collection -> collection",         .description = "Reverse a list or string." }));
+    try g.register("take",    Operation.fromFn(takeOp,    .{ .signature = "take n collection -> collection",          .description = "First n elements of a list or characters of a string." }));
+    try g.register("drop",    Operation.fromFn(dropOp,    .{ .signature = "drop n collection -> collection",          .description = "Collection with the first n elements or characters removed." }));
+    try g.register("slice",   Operation.fromFn(sliceOp,   .{ .signature = "slice start end collection -> collection", .description = "Sub-range of a list or string from start up to but excluding end." }));
+    try g.register("zip",     Operation.fromFn(zipOp,     .{ .signature = "zip a b -> list",                          .description = "Pair up two lists element-wise into a list of two-element lists, truncating to the shorter." }));
 }
 
 fn listOp(args: Args) ExecError!?Value {
@@ -425,7 +426,7 @@ fn sortwithOp(args: Args) ExecError!?Value {
 
 fn fillbyOp(args: Args) ExecError!?Value {
     const count = args.count();
-    if (count != 2 and count != 3) return args.env.fail(.arity_mismatch, "'fillby' expects  or 3 arguments");
+    if (count != 2 and count != 3) return args.env.fail(.arity_mismatch, "'fillby' expects 2 or 3 arguments");
 
     const alloc = args.env.allocator;
 

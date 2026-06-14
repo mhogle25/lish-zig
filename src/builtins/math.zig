@@ -10,20 +10,21 @@ const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
-    try registry.registerOperation(allocator, "min",   Operation.fromFn(minOp));
-    try registry.registerOperation(allocator, "max",   Operation.fromFn(maxOp));
-    try registry.registerOperation(allocator, "abs",   Operation.fromFn(absOp));
-    try registry.registerOperation(allocator, "floor", Operation.fromFn(floorOp));
-    try registry.registerOperation(allocator, "ceil",  Operation.fromFn(ceilOp));
-    try registry.registerOperation(allocator, "round", Operation.fromFn(roundOp));
-    try registry.registerOperation(allocator, "even",  Operation.fromFn(evenOp));
-    try registry.registerOperation(allocator, "odd",   Operation.fromFn(oddOp));
-    try registry.registerOperation(allocator, "sqrt",  Operation.fromFn(sqrtOp));
-    try registry.registerOperation(allocator, "sin",   Operation.fromFn(sinOp));
-    try registry.registerOperation(allocator, "cos",   Operation.fromFn(cosOp));
-    try registry.registerOperation(allocator, "atan2", Operation.fromFn(atan2Op));
-    try registry.registerOperation(allocator, "log",   Operation.fromFn(logOp));
-    try registry.registerOperation(allocator, "exp",   Operation.fromFn(expOp));
+    const g = registry.group(allocator, "math");
+    try g.register("min",   Operation.fromFn(minOp,   .{ .signature = "min a b ... -> number", .description = "Smallest of the arguments." }));
+    try g.register("max",   Operation.fromFn(maxOp,   .{ .signature = "max a b ... -> number", .description = "Largest of the arguments." }));
+    try g.register("abs",   Operation.fromFn(absOp,   .{ .signature = "abs x -> number",       .description = "Absolute value." }));
+    try g.register("floor", Operation.fromFn(floorOp, .{ .signature = "floor x -> int",        .description = "Round down to the nearest integer." }));
+    try g.register("ceil",  Operation.fromFn(ceilOp,  .{ .signature = "ceil x -> int",         .description = "Round up to the nearest integer." }));
+    try g.register("round", Operation.fromFn(roundOp, .{ .signature = "round x -> int",        .description = "Round to the nearest integer." }));
+    try g.register("even",  Operation.fromFn(evenOp,  .{ .signature = "even n -> $some|$none", .description = "True when the integer is even." }));
+    try g.register("odd",   Operation.fromFn(oddOp,   .{ .signature = "odd n -> $some|$none",  .description = "True when the integer is odd." }));
+    try g.register("sqrt",  Operation.fromFn(sqrtOp,  .{ .signature = "sqrt x -> float",       .description = "Square root." }));
+    try g.register("sin",   Operation.fromFn(sinOp,   .{ .signature = "sin x -> float",        .description = "Sine of an angle in radians." }));
+    try g.register("cos",   Operation.fromFn(cosOp,   .{ .signature = "cos x -> float",        .description = "Cosine of an angle in radians." }));
+    try g.register("atan2", Operation.fromFn(atan2Op, .{ .signature = "atan2 y x -> float",    .description = "Arctangent of y/x, using the signs of both to choose the quadrant." }));
+    try g.register("log",   Operation.fromFn(logOp,   .{ .signature = "log x -> float",        .description = "Natural logarithm." }));
+    try g.register("exp",   Operation.fromFn(expOp,   .{ .signature = "exp x -> float",        .description = "e raised to the given power." }));
 }
 
 fn minOp(args: Args) ExecError!?Value {

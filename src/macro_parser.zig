@@ -87,6 +87,7 @@ const MacroParser = struct {
     fn init(allocator: Allocator, source: []const u8) MacroParser {
         var lexer = Lexer{ .source = source };
         const first_token = lexer.nextToken();
+
         return .{
             .allocator = allocator,
             .lexer = lexer,
@@ -104,6 +105,7 @@ const MacroParser = struct {
                 .deferred_param => try self.handleDeferredParam(),
             }
         }
+
         return .{ .macros = self.macros.items };
     }
 
@@ -122,6 +124,7 @@ const MacroParser = struct {
         if (isTerm(self.token.type)) {
             // First term is the macro identifier
             const identifier = try self.processIdentifier();
+
             if (identifier) |id_str| {
                 if (self.id_set.contains(id_str)) {
                     self.current_id = .{ .err = self.errorAtToken("Duplicate macro identifier") };
@@ -132,13 +135,17 @@ const MacroParser = struct {
             } else {
                 self.current_id = .{ .err = self.errorAtToken("Invalid escape sequences in macro identifier") };
             }
+
             self.state = .past_id;
             self.token = self.lexer.nextToken();
-        } else if (self.token.type == .macro_bracket) {
+        } 
+        else 
+        if (self.token.type == .macro_bracket) {
             // Missing ID, still parse the body
             self.current_id = .{ .err = self.errorAtToken("Macro is missing an identifier") };
             try self.parseMacroBody();
-        } else {
+        } 
+        else {
             self.token = self.lexer.nextToken();
         }
     }
@@ -147,6 +154,7 @@ const MacroParser = struct {
         if (isTerm(self.token.type)) {
             // Value parameter
             const identifier = try self.processIdentifier();
+
             if (identifier) |param_id| {
                 try self.parameters.append(self.allocator, .{
                     .valid = .{ .id = param_id, .param_type = .value },
@@ -156,13 +164,19 @@ const MacroParser = struct {
                     .err = self.errorAtToken("Invalid escape sequences in parameter name"),
                 });
             }
+
             self.token = self.lexer.nextToken();
-        } else if (self.token.type == .deferred_macro_param_symbol) {
+        } 
+        else 
+        if (self.token.type == .deferred_macro_param_symbol) {
             self.state = .deferred_param;
             self.token = self.lexer.nextToken();
-        } else if (self.token.type == .macro_bracket) {
+        } 
+        else 
+        if (self.token.type == .macro_bracket) {
             try self.parseMacroBody();
-        } else {
+        } 
+        else {
             try self.parameters.append(self.allocator, .{
                 .err = self.errorAtToken("Unexpected token in macro parameters"),
             });
@@ -185,13 +199,16 @@ const MacroParser = struct {
             }
             self.state = .past_id;
             self.token = self.lexer.nextToken();
-        } else if (self.token.type == .macro_bracket) {
+        } 
+        else 
+        if (self.token.type == .macro_bracket) {
             // Missing deferred param name
             try self.parameters.append(self.allocator, .{
                 .err = self.errorAtToken("Missing parameter name for deferred argument"),
             });
             try self.parseMacroBody();
-        } else {
+        } 
+        else {
             try self.parameters.append(self.allocator, .{
                 .err = self.errorAtToken("Expected parameter name after '~'"),
             });
@@ -255,6 +272,7 @@ const MacroParser = struct {
 
         self.string_buf.clearRetainingCapacity();
         const lexeme = self.token.lexeme;
+
         var i: usize = 0;
         while (i < lexeme.len) {
             var current_char = lexeme[i];
@@ -264,9 +282,11 @@ const MacroParser = struct {
                     i += 1;
                 }
             }
+
             try self.string_buf.append(self.allocator, current_char);
             i += 1;
         }
+
         return try self.allocator.dupe(u8, self.string_buf.items);
     }
 
@@ -346,6 +366,7 @@ fn validateMacro(
                     },
                 });
             },
+
             .err => |macro_error| {
                 try errors.add(allocator, macroErrToValidationErr(macro_error));
             },

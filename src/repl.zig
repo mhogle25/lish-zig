@@ -11,6 +11,7 @@ const LineEditor = line_editor_mod.LineEditor;
 
 const op_autopair_insert   = "autopair-insert";
 const op_autopair_delete   = "autopair-delete";
+const op_bracket_expand    = "bracket-expand";
 const op_highlight         = "highlight";
 const op_max_call_depth    = "max-call-depth";
 const op_fuel              = "fuel";
@@ -23,6 +24,7 @@ const CONFIG_FILE_MAX_SIZE = 64 * 1024;
 pub const ReplConfig = struct {
     autopair_insert: bool = true,
     autopair_delete: bool = true,
+    bracket_expand: bool = true,
     highlight: bool = true,
     macro_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
     bounds: exec_mod.Bounds = .{},
@@ -44,6 +46,7 @@ fn autopairInsertOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError
         1 => config.autopair_insert = (try args.at(0).get()) != null,
         else => return args.env.fail(.arity_mismatch, op_autopair_insert ++ " takes 0 or 1 argument"),
     }
+
     return null;
 }
 
@@ -53,6 +56,17 @@ fn autopairDeleteOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError
         1 => config.autopair_delete = (try args.at(0).get()) != null,
         else => return args.env.fail(.arity_mismatch, op_autopair_delete ++ " takes 0 or 1 argument"),
     }
+
+    return null;
+}
+
+fn bracketExpandOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?value_mod.Value {
+    switch (args.count()) {
+        0 => config.bracket_expand = true,
+        1 => config.bracket_expand = (try args.at(0).get()) != null,
+        else => return args.env.fail(.arity_mismatch, op_bracket_expand ++ " takes 0 or 1 argument"),
+    }
+
     return null;
 }
 
@@ -62,6 +76,7 @@ fn highlightOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?val
         1 => config.highlight = (try args.at(0).get()) != null,
         else => return args.env.fail(.arity_mismatch, op_highlight ++ " takes 0 or 1 argument"),
     }
+
     return null;
 }
 
@@ -69,7 +84,9 @@ fn maxCallDepthOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?
     const value = try args.single();
     const n = try value.resolveInt();
     if (n < 1) return args.env.fail(.invalid_argument, op_max_call_depth ++ " must be a positive integer");
+
     config.bounds.max_call_depth = @intCast(n);
+
     return null;
 }
 
@@ -79,9 +96,13 @@ fn fuelOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?value_mo
         config.bounds.fuel = null;
         return null;
     }
+
     const n = value.?.getI() catch return args.env.fail(.type_mismatch, op_fuel ++ " expects an integer or $off");
+
     if (n < 1) return args.env.fail(.invalid_argument, op_fuel ++ " must be a positive integer");
+
     config.bounds.fuel = @intCast(n);
+
     return null;
 }
 
@@ -91,9 +112,13 @@ fn maxListLengthOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!
         config.bounds.max_list_length = null;
         return null;
     }
+
     const n = value.?.getI() catch return args.env.fail(.type_mismatch, op_max_list_length ++ " expects an integer or $off");
+
     if (n < 1) return args.env.fail(.invalid_argument, op_max_list_length ++ " must be a positive integer");
+
     config.bounds.max_list_length = @intCast(n);
+
     return null;
 }
 
@@ -103,9 +128,13 @@ fn maxStringLengthOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecErro
         config.bounds.max_string_length = null;
         return null;
     }
+
     const n = value.?.getI() catch return args.env.fail(.type_mismatch, op_max_string_length ++ " expects an integer or $off");
+
     if (n < 1) return args.env.fail(.invalid_argument, op_max_string_length ++ " must be a positive integer");
+
     config.bounds.max_string_length = @intCast(n);
+
     return null;
 }
 
@@ -113,23 +142,27 @@ fn macrosOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?value_
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = try (try args.single()).resolveString(&path_buf);
     const owned = config.allocator.dupe(u8, path) catch return error.OutOfMemory;
+
     config.macro_dirs.append(config.allocator, owned) catch {
         config.allocator.free(owned);
         return error.OutOfMemory;
     };
+
     return null;
 }
 
 const CONFIG_FILE_NAME = "config" ++ process_mod.LISH_EXTENSION;
 
 fn configFilePath(environ: std.process.Environ, allocator: Allocator) ?[]const u8 {
-    if (environ.getPosix("XDG_CONFIG_HOME")) |xdg| {
-        return std.fs.path.join(allocator, &.{ xdg, "lish", CONFIG_FILE_NAME }) catch null;
-    }
-    if (environ.getPosix("HOME")) |home| {
-        return std.fs.path.join(allocator, &.{ home, ".config", "lish", CONFIG_FILE_NAME }) catch null;
-    }
-    return null;
+    return 
+        if (environ.getPosix("XDG_CONFIG_HOME")) |xdg| {
+            std.fs.path.join(allocator, &.{ xdg, "lish", CONFIG_FILE_NAME }) catch null;
+        }
+        else
+        if (environ.getPosix("HOME")) |home| {
+            std.fs.path.join(allocator, &.{ home, ".config", "lish", CONFIG_FILE_NAME }) catch null;
+        }   
+        else null;
 }
 
 pub fn loadConfig(io: std.Io, environ: std.process.Environ, config: *ReplConfig, allocator: Allocator) void {
@@ -142,14 +175,17 @@ pub fn loadConfig(io: std.Io, environ: std.process.Environ, config: *ReplConfig,
     var registry = exec_mod.Registry.init(allocator);
     defer registry.deinit(allocator);
     builtins_mod.registerCore(&registry, allocator) catch return;
-    registry.registerOperation(allocator, op_autopair_insert,   exec_mod.Operation.fromBoundFn(ReplConfig, autopairInsertOp,   config)) catch return;
-    registry.registerOperation(allocator, op_autopair_delete,   exec_mod.Operation.fromBoundFn(ReplConfig, autopairDeleteOp,   config)) catch return;
-    registry.registerOperation(allocator, op_highlight,         exec_mod.Operation.fromBoundFn(ReplConfig, highlightOp,        config)) catch return;
-    registry.registerOperation(allocator, op_max_call_depth,    exec_mod.Operation.fromBoundFn(ReplConfig, maxCallDepthOp,    config)) catch return;
-    registry.registerOperation(allocator, op_fuel,              exec_mod.Operation.fromBoundFn(ReplConfig, fuelOp,            config)) catch return;
-    registry.registerOperation(allocator, op_max_list_length,   exec_mod.Operation.fromBoundFn(ReplConfig, maxListLengthOp,   config)) catch return;
-    registry.registerOperation(allocator, op_max_string_length, exec_mod.Operation.fromBoundFn(ReplConfig, maxStringLengthOp, config)) catch return;
-    registry.registerOperation(allocator, "macros",             exec_mod.Operation.fromBoundFn(ReplConfig, macrosOp,          config)) catch return;
+
+    const g = registry.group(allocator, "repl-config");
+    g.register(op_autopair_insert,   exec_mod.Operation.fromBoundFn(ReplConfig, autopairInsertOp,  config, .{ .signature = "autopair-insert [$on|$off] -> $none", .description = "REPL config: insert the matching closer when you type an opening bracket or quote." })) catch return;
+    g.register(op_autopair_delete,   exec_mod.Operation.fromBoundFn(ReplConfig, autopairDeleteOp,  config, .{ .signature = "autopair-delete [$on|$off] -> $none", .description = "REPL config: delete the matching closer when you backspace an opening bracket." })) catch return;
+    g.register(op_bracket_expand,    exec_mod.Operation.fromBoundFn(ReplConfig, bracketExpandOp,   config, .{ .signature = "bracket-expand [$on|$off] -> $none",  .description = "REPL config: Alt+Enter inside a bracket pair expands it across lines; backspace collapses it." })) catch return;
+    g.register(op_highlight,         exec_mod.Operation.fromBoundFn(ReplConfig, highlightOp,       config, .{ .signature = "highlight [$on|$off] -> $none",       .description = "REPL config: syntax highlighting of the input line." })) catch return;
+    g.register(op_max_call_depth,    exec_mod.Operation.fromBoundFn(ReplConfig, maxCallDepthOp,    config, .{ .signature = "max-call-depth n -> $none",           .description = "REPL config: maximum operation call-stack depth before recursion is stopped." })) catch return;
+    g.register(op_fuel,              exec_mod.Operation.fromBoundFn(ReplConfig, fuelOp,            config, .{ .signature = "fuel n|$off -> $none",                .description = "REPL config: maximum evaluation steps per expression, or $off to disable." })) catch return;
+    g.register(op_max_list_length,   exec_mod.Operation.fromBoundFn(ReplConfig, maxListLengthOp,   config, .{ .signature = "max-list-length n|$off -> $none",     .description = "REPL config: maximum list length, or $off to disable." })) catch return;
+    g.register(op_max_string_length, exec_mod.Operation.fromBoundFn(ReplConfig, maxStringLengthOp, config, .{ .signature = "max-string-length n|$off -> $none",   .description = "REPL config: maximum string length, or $off to disable." })) catch return;
+    g.register("macros",             exec_mod.Operation.fromBoundFn(ReplConfig, macrosOp,          config, .{ .signature = "macros path -> $none",                .description = "REPL config: add a directory to load macro modules from." })) catch return;
 
     const config_macros =
         \\|on| $some

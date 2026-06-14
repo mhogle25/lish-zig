@@ -10,8 +10,9 @@ const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
-    try registry.registerOperation(allocator, "let",  Operation.fromFn(letOp));
-    try registry.registerOperation(allocator, "pipe", Operation.fromFn(pipeOp));
+    const g = registry.group(allocator, "binding");
+    try g.register("let",  Operation.fromFn(letOp,  .{ .signature = "let name value ... body -> value",    .description = "Bind name/value pairs in a new scope, then evaluate the trailing body in it." }));
+    try g.register("pipe", Operation.fromFn(pipeOp, .{ .signature = "pipe name initial step ... -> value", .description = "Thread an initial value through each step, rebinding name to the running result." }));
 }
 
 fn letOp(args: Args) ExecError!?Value {

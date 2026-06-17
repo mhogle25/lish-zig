@@ -74,7 +74,7 @@ fn splitOp(args: Args) ExecError!?Value {
     var sep_buf: [256]u8 = undefined;
     const separator = try args.at(0).resolveString(&sep_buf);
     const target = try args.at(1).resolve();
-    if (target != .string) return args.env.fail(.type_mismatch, "'split' expects a string as second argument");
+    if (target != .string) return args.env.failFmt(.type_mismatch, "'split' expects a string as second argument, got {s}", .{target.typeName()});
     const string = target.string;
 
     const alloc = args.env.allocator;
@@ -105,7 +105,7 @@ fn splitOp(args: Args) ExecError!?Value {
 fn charsOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
     const value = try args.at(0).resolve();
-    if (value != .string) return args.env.fail(.type_mismatch, "'chars' expects a string");
+    if (value != .string) return args.env.failFmt(.type_mismatch, "'chars' expects a string, got {s}", .{value.typeName()});
     const string = value.string;
 
     const alloc = args.env.allocator;
@@ -121,7 +121,7 @@ fn charsOp(args: Args) ExecError!?Value {
 fn linesOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
     const value = try args.at(0).resolve();
-    if (value != .string) return args.env.fail(.type_mismatch, "'lines' expects a string");
+    if (value != .string) return args.env.failFmt(.type_mismatch, "'lines' expects a string, got {s}", .{value.typeName()});
     const string = value.string;
 
     const alloc = args.env.allocator;
@@ -151,7 +151,7 @@ fn linesOp(args: Args) ExecError!?Value {
 fn trimOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
     const value = try args.at(0).resolve();
-    if (value != .string) return args.env.fail(.type_mismatch, "'trim' expects a string");
+    if (value != .string) return args.env.failFmt(.type_mismatch, "'trim' expects a string, got {s}", .{value.typeName()});
     const trimmed = std.mem.trim(u8, value.string, " \t\n\r\x0b\x0c");
     const owned = try args.env.allocator.dupe(u8, trimmed);
     return .{ .string = owned };
@@ -160,7 +160,7 @@ fn trimOp(args: Args) ExecError!?Value {
 fn upperOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
     const value = try args.at(0).resolve();
-    if (value != .string) return args.env.fail(.type_mismatch, "'upper' expects a string");
+    if (value != .string) return args.env.failFmt(.type_mismatch, "'upper' expects a string, got {s}", .{value.typeName()});
     const result = try args.env.allocator.dupe(u8, value.string);
     for (result) |*char| {
         char.* = std.ascii.toUpper(char.*);
@@ -171,7 +171,7 @@ fn upperOp(args: Args) ExecError!?Value {
 fn lowerOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
     const value = try args.at(0).resolve();
-    if (value != .string) return args.env.fail(.type_mismatch, "'lower' expects a string");
+    if (value != .string) return args.env.failFmt(.type_mismatch, "'lower' expects a string, got {s}", .{value.typeName()});
     const result = try args.env.allocator.dupe(u8, value.string);
     for (result) |*char| {
         char.* = std.ascii.toLower(char.*);
@@ -185,7 +185,7 @@ fn replaceOp(args: Args) ExecError!?Value {
     const replacement_val = try args.at(1).resolve();
     const target_val = try args.at(2).resolve();
     if (pattern_val != .string or replacement_val != .string or target_val != .string)
-        return args.env.fail(.type_mismatch, "'replace' expects string arguments");
+        return args.env.failFmt(.type_mismatch, "'replace' expects string arguments (pattern, replacement, target), got {s}, {s}, {s}", .{ pattern_val.typeName(), replacement_val.typeName(), target_val.typeName() });
 
     const pattern = pattern_val.string;
     const replacement = replacement_val.string;
@@ -210,7 +210,7 @@ fn replaceOp(args: Args) ExecError!?Value {
 fn formatOp(args: Args) ExecError!?Value {
     try args.expectMinCount(1);
     const template_val = try args.at(0).resolve();
-    if (template_val != .string) return args.env.fail(.type_mismatch, "'format' expects a string template as first argument");
+    if (template_val != .string) return args.env.failFmt(.type_mismatch, "'format' expects a string template as first argument, got {s}", .{template_val.typeName()});
 
     const template = template_val.string;
     const alloc = args.env.allocator;
@@ -280,7 +280,7 @@ fn inOp(args: Args) ExecError!?Value {
             }
             return null;
         },
-        else => args.env.fail(.type_mismatch, "'in' expects a string or list as second argument"),
+        else => args.env.failFmt(.type_mismatch, "'in' expects a string or list as second argument, got {s}", .{haystack.typeName()}),
     };
 }
 
@@ -301,7 +301,7 @@ fn findOp(args: Args) ExecError!?Value {
             }
             return null;
         },
-        else => args.env.fail(.type_mismatch, "'find' expects a string or list as second argument"),
+        else => args.env.failFmt(.type_mismatch, "'find' expects a string or list as second argument, got {s}", .{haystack.typeName()}),
     };
 }
 

@@ -86,7 +86,7 @@ pub const Thunk = struct {
                 const id_string = id_value.getS(&id_buf);
 
                 const entry = scope.get(id_string) orelse
-                    return env.fail(.unknown_op, "Scope entry not found");
+                    return env.failFmt(.unknown_op, "Scope entry not found: '{s}'", .{id_string});
 
                 return entry.run(env);
             },
@@ -239,21 +239,21 @@ pub const Arg = struct {
     pub fn resolveInt(self: Arg) ExecError!i64 {
         const result = try self.resolve();
         return result.getI() catch
-            return self.env.fail(.type_mismatch, "Expected a number");
+            return self.env.failFmt(.type_mismatch, "Expected a number, got {s}", .{result.typeName()});
     }
 
     /// Evaluate and get as float.
     pub fn resolveFloat(self: Arg) ExecError!f64 {
         const result = try self.resolve();
         return result.getF() catch
-            return self.env.fail(.type_mismatch, "Expected a number");
+            return self.env.failFmt(.type_mismatch, "Expected a number, got {s}", .{result.typeName()});
     }
 
     /// Evaluate and get as list.
     pub fn resolveList(self: Arg) ExecError![]const ?Value {
         const result = try self.resolve();
         return result.getL() catch
-            return self.env.fail(.type_mismatch, "Expected a list");
+            return self.env.failFmt(.type_mismatch, "Expected a list, got {s}", .{result.typeName()});
     }
 };
 
@@ -811,7 +811,24 @@ test "scope thunk fails for missing entry" {
 
     const result = lookup_thunk.proc(&env, &scope);
     try std.testing.expectError(error.RuntimeError, result);
-    try std.testing.expectEqualStrings("Scope entry not found", env.runtime_error.?.message);
+    try std.testing.expectEqualStrings("Scope entry not found: 'missing'", env.runtime_error.?.message);
+}
+
+test "resolveInt names the type it actually received" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var registry = Registry.init(alloc);
+    var env = Env{ .registry = &registry, .allocator = alloc };
+    const scope = Scope.EMPTY;
+
+    // A list where an integer is expected: the error should say "got list".
+    const thunk = try makeValueLiteral(alloc, Position.synthetic, .{ .list = &.{} });
+    const arg = Arg{ .thunk = thunk, .env = &env, .scope = &scope };
+
+    try std.testing.expectError(error.RuntimeError, arg.resolveInt());
+    try std.testing.expectEqualStrings("Expected a number, got list", env.runtime_error.?.message);
 }
 
 test "expression evaluates operation" {

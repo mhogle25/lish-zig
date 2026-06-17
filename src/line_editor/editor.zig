@@ -390,26 +390,36 @@ pub const LineEditor = struct {
             if (c != ' ' and c != '\t') return false;
         }
 
-        // Must have a previous line ending in an open bracket and a next
-        // line starting with the matching close bracket.
+        // Must have a previous line ending in an open bracket and a next line
+        // whose first non-whitespace character is the matching close bracket.
+        // The close may be preceded by indentation when the pair is nested
+        // (the open is always the previous line's last char, so it needs no
+        // such skip).
         if (line_start < 2) return false;
         if (line_end >= self.buffer.length) return false;
 
         const open = self.buffer.data[line_start - 2];
-        const close = self.buffer.data[line_end + 1];
+
+        var close_pos = line_end + 1;
+        while (close_pos < self.buffer.length and
+            (self.buffer.data[close_pos] == ' ' or self.buffer.data[close_pos] == '\t')) : (close_pos += 1)
+        {}
+        if (close_pos >= self.buffer.length) return false;
+
+        const close = self.buffer.data[close_pos];
         const matches = switch (open) {
-            '(' => close == ')',
-            '[' => close == ']',
-            '{' => close == '}',
+            tok.EXPRESSION_OPEN => close == tok.EXPRESSION_CLOSE,
+            tok.LIST_OPEN => close == tok.LIST_CLOSE,
+            tok.BLOCK_OPEN => close == tok.BLOCK_CLOSE,
             else => false,
         };
         if (!matches) return false;
 
-        // Splice out [line_start - 1, line_end + 1): the prev `\n`, the
-        // whitespace, and the trailing `\n`. Cursor lands right after the
-        // open bracket.
+        // Splice out [line_start - 1, close_pos): the prev `\n`, the whitespace
+        // line, the trailing `\n`, and the close line's leading indent — leaving
+        // `<open><close>` with the cursor between them.
         const delete_from = line_start - 1;
-        const delete_to = line_end + 1;
+        const delete_to = close_pos;
         const delete_len = delete_to - delete_from;
 
         var j = delete_to;
@@ -517,9 +527,9 @@ pub const LineEditor = struct {
         const before = self.buffer.data[self.buffer.cursor - 1];
         const at = self.buffer.data[self.buffer.cursor];
         return switch (before) {
-            '(' => at == ')',
-            '[' => at == ']',
-            '{' => at == '}',
+            tok.EXPRESSION_OPEN => at == tok.EXPRESSION_CLOSE,
+            tok.LIST_OPEN => at == tok.LIST_CLOSE,
+            tok.BLOCK_OPEN => at == tok.BLOCK_CLOSE,
             else => false,
         };
     }
@@ -836,8 +846,8 @@ test "Alt+Enter inside `[|]` also expands" {
     editor.buffer.cursor = 1;
     editor.insertNewlineWithIndent();
 
-    try std.testing.expect(std.mem.indexOfScalar(u8, editor.buffer.slice(), '[') == 0);
-    try std.testing.expect(std.mem.indexOfScalar(u8, editor.buffer.slice(), ']') != null);
+    try std.testing.expect(std.mem.indexOfScalar(u8, editor.buffer.slice(), tok.LIST_OPEN) == 0);
+    try std.testing.expect(std.mem.indexOfScalar(u8, editor.buffer.slice(), tok.LIST_CLOSE) != null);
     try std.testing.expect(editor.buffer.cursor > 1);
     try std.testing.expect(editor.buffer.cursor < editor.buffer.length);
 }
@@ -886,6 +896,41 @@ test "Backspace collapses expanded pair in the middle of larger content" {
     editor.handleDeleteBackward();
     try std.testing.expectEqualStrings("say ()", editor.buffer.slice());
     try std.testing.expectEqual(@as(usize, 5), editor.buffer.cursor);
+}
+
+test "Backspace collapses a nested (indented) expanded pair" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    // Build an outer expanded pair, then expand an inner pair on the indented
+    // middle line so the inner close bracket is itself indented.
+    editor.testInsertString("()");
+    editor.buffer.cursor = 1;
+    editor.insertNewlineWithIndent(); // `(\n    |\n)`
+    editor.testInsertString("()");
+    editor.buffer.cursor -= 1; // between the inner ( and )
+    editor.insertNewlineWithIndent(); // inner pair expands at indent INDENT_WIDTH
+
+    // The inner close bracket now sits behind INDENT_WIDTH spaces. Backspace on
+    // the inner whitespace line must still collapse it to `()`.
+    editor.handleDeleteBackward();
+
+    // Expected: outer pair preserved, inner collapsed to `()`:
+    //     (\n<indent>()\n)
+    var expected: [32]u8 = undefined;
+    var len: usize = 0;
+    expected[len] = '(';  len += 1;
+    expected[len] = '\n'; len += 1;
+    var i: usize = 0;
+    while (i < INDENT_WIDTH) : (i += 1) { expected[len] = ' '; len += 1; }
+    const inner_cursor = len + 1; // between the inner ( and )
+    expected[len] = '(';  len += 1;
+    expected[len] = ')';  len += 1;
+    expected[len] = '\n'; len += 1;
+    expected[len] = ')';  len += 1;
+
+    try std.testing.expectEqualStrings(expected[0..len], editor.buffer.slice());
+    try std.testing.expectEqual(inner_cursor, editor.buffer.cursor);
 }
 
 test "Backspace does NOT collapse if the indented line has content" {

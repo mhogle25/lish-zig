@@ -1,8 +1,24 @@
 const std = @import("std");
 const tok = @import("token.zig");
 
+const Allocator = std.mem.Allocator;
 const Token = tok.Token;
 const TokenType = tok.TokenType;
+const CommentSpan = tok.CommentSpan;
+
+/// Optional collaborator that gathers comment spans the lexer would otherwise
+/// discard. Tooling (the LSP) attaches one before lexing; the executable path
+/// leaves it null and pays nothing. `record` is infallible by design — the
+/// lexer's `nextToken` cannot return an error, so a comment dropped under memory
+/// pressure simply goes un-highlighted rather than failing the parse.
+pub const CommentSink = struct {
+    list: *std.ArrayListUnmanaged(CommentSpan),
+    allocator: Allocator,
+
+    fn record(self: CommentSink, start: u32, end: u32) void {
+        self.list.append(self.allocator, .{ .start = start, .end = end }) catch {};
+    }
+};
 
 // This file is the canonical source of truth for lish's lexical rules:
 // what counts as a string, a comment, an escape sequence, a token boundary.
@@ -22,6 +38,11 @@ pub const Lexer = struct {
     idx: usize = 0,
     line: usize = 1,
     column: usize = 1,
+
+    /// When set, `## comment` spans are recorded here instead of being silently
+    /// skipped. Null by default, so non-tooling callers are unaffected. Attach
+    /// it before the first `nextToken` to catch leading comments.
+    comment_sink: ?CommentSink = null,
 
     pub const State = struct {
         idx: usize,
@@ -68,6 +89,7 @@ pub const Lexer = struct {
                 self.source[self.idx] == tok.COMMENT and
                 self.source[self.idx + 1] == tok.COMMENT)
             {
+                const comment_start = self.idx;
                 self.idx += 2; // skip opening ##
                 self.column += 2;
 
@@ -86,6 +108,7 @@ pub const Lexer = struct {
                     self.idx += 1;
                     self.column += 1;
                 }
+                if (self.comment_sink) |sink| sink.record(@intCast(comment_start), @intCast(self.idx));
                 continue; // loop back to skip more whitespace/comments
             }
 
@@ -257,6 +280,7 @@ pub const Lexer = struct {
                     .line = @intCast(starting_line),
                     .column = @intCast(starting_column),
                     .invalid_escape_count = invalid_escape_count,
+                    .quote = quote,
                 };
             }
 
@@ -290,6 +314,7 @@ pub const Lexer = struct {
             .line = @intCast(starting_line),
             .column = @intCast(starting_column),
             .invalid_escape_count = invalid_escape_count,
+            .quote = quote,
         };
     }
 
@@ -490,4 +515,45 @@ test "lex comment: single # in term is valid identifier" {
     const token = lex.nextToken();
     try std.testing.expectEqual(TokenType.identifier, token.type);
     try std.testing.expectEqualStrings("#hello", token.lexeme);
+}
+
+/// Drain a lexer with a comment sink attached and return the collected spans.
+fn collectComments(source: []const u8, allocator: Allocator) ![]CommentSpan {
+    var list: std.ArrayListUnmanaged(CommentSpan) = .empty;
+    var lex = Lexer{ .source = source, .comment_sink = .{ .list = &list, .allocator = allocator } };
+    while (lex.nextToken().type != .eof) {}
+    return list.items;
+}
+
+test "comment sink records inline and to-EOL spans" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const source = "## lead ##\nfoo ## trail";
+    const comments = try collectComments(source, a);
+
+    try std.testing.expectEqual(@as(usize, 2), comments.len);
+    try std.testing.expectEqualStrings("## lead ##", source[comments[0].start..comments[0].end]);
+    try std.testing.expectEqualStrings("## trail", source[comments[1].start..comments[1].end]);
+}
+
+test "comment sink ignores ## inside a string literal" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const comments = try collectComments("\"a ## b\"", a);
+    try std.testing.expectEqual(@as(usize, 0), comments.len);
+}
+
+test "string token carries its quote delimiter; identifier has none" {
+    var dq = Lexer{ .source = "\"hi\"" };
+    try std.testing.expectEqual(@as(?u8, '"'), dq.nextToken().quote);
+
+    var sq = Lexer{ .source = "'hi'" };
+    try std.testing.expectEqual(@as(?u8, '\''), sq.nextToken().quote);
+
+    var id = Lexer{ .source = "hi" };
+    try std.testing.expectEqual(@as(?u8, null), id.nextToken().quote);
 }

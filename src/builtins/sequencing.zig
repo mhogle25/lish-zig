@@ -27,7 +27,7 @@ fn procOp(args: Args) ExecError!?Value {
 
 fn loopOp(args: Args) ExecError!?Value {
     const count = args.count();
-    if (count != 2 and count != 3) return args.env.fail(.arity_mismatch, "'loop' expects  or 3 arguments");
+    if (count != 2 and count != 3) return args.env.fail(.arity_mismatch, "'loop' expects 2 or 3 arguments");
 
     if (count == 2) {
         const n = try args.at(0).resolveInt();

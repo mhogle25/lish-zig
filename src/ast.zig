@@ -13,6 +13,11 @@ pub const Position = exec_mod.Position;
 pub const AstNode = struct {
     position: Position,
     body:     AstNodeBody,
+    /// The quote delimiter (`"` or `'`) if this node is a string literal, else
+    /// null. A bare identifier and a quoted string both parse to
+    /// `value_literal: .string`; this is the only thing that tells them apart
+    /// (the executable form treats them identically). Tooling-only.
+    quote:    ?u8 = null,
 
     pub fn isErr(self: AstNode) bool {
         return self.body == .err;

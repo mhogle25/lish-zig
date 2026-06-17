@@ -77,7 +77,9 @@ pub const History = struct {
             self.browse_index = if (self.browse_index.? == 0) MAX_ENTRIES - 1 else self.browse_index.? - 1;
         }
 
-        self.loadEntry(self.browse_index.?, buffer);
+        // Browsing up lands the cursor at the end of the recalled entry, so a
+        // further Up keeps moving up through a multiline entry's rows.
+        self.loadEntry(self.browse_index.?, buffer, .end);
     }
 
     /// Move to the next (newer) history entry. Past the newest entry restores
@@ -96,7 +98,9 @@ pub const History = struct {
         }
 
         self.browse_index = (self.browse_index.? + 1) % MAX_ENTRIES;
-        self.loadEntry(self.browse_index.?, buffer);
+        // Mirror of `up`: browsing down lands the cursor at the start (top) of
+        // the recalled entry, so a further Down keeps moving down through it.
+        self.loadEntry(self.browse_index.?, buffer, .start);
     }
 
     /// Reset browse state without clearing entries. Used at the start of a
@@ -105,12 +109,20 @@ pub const History = struct {
         self.browse_index = null;
     }
 
-    fn loadEntry(self: *History, index: usize, buffer: *LineBuffer) void {
+    /// Where to place the cursor after loading a recalled entry. `up` lands at
+    /// the end and `down` at the start so multiline navigation continues in the
+    /// direction the user was already moving.
+    const CursorAt = enum { start, end };
+
+    fn loadEntry(self: *History, index: usize, buffer: *LineBuffer, cursor_at: CursorAt) void {
         if (self.entries[index]) |entry| {
             const copy_len = @min(entry.len, BUFFER_SIZE);
             @memcpy(buffer.data[0..copy_len], entry[0..copy_len]);
             buffer.length = copy_len;
-            buffer.cursor = copy_len;
+            buffer.cursor = switch (cursor_at) {
+                .start => 0,
+                .end => copy_len,
+            };
         }
     }
 };
@@ -151,6 +163,31 @@ test "history: add and navigate" {
     history.down(&buffer);
     try std.testing.expectEqualStrings("", buffer.slice());
     try std.testing.expect(history.browse_index == null);
+}
+
+test "history: up lands cursor at end, down lands cursor at start" {
+    var buffer = LineBuffer{};
+    var history = History.init(std.testing.allocator);
+    defer history.deinit();
+
+    // Two multiline entries so cursor-at-end vs cursor-at-start is observable.
+    history.add("a\nbb");
+    history.add("ccc\ndddd");
+
+    // Up to the newest entry: cursor at the end (bottom row).
+    history.up(&buffer);
+    try std.testing.expectEqualStrings("ccc\ndddd", buffer.slice());
+    try std.testing.expectEqual(buffer.length, buffer.cursor);
+
+    // Up to the older entry: still cursor at the end.
+    history.up(&buffer);
+    try std.testing.expectEqualStrings("a\nbb", buffer.slice());
+    try std.testing.expectEqual(buffer.length, buffer.cursor);
+
+    // Down to the newer entry: cursor mirrored to the start (top row).
+    history.down(&buffer);
+    try std.testing.expectEqualStrings("ccc\ndddd", buffer.slice());
+    try std.testing.expectEqual(@as(usize, 0), buffer.cursor);
 }
 
 test "history: skip duplicates" {

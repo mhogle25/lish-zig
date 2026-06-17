@@ -54,8 +54,8 @@ fn randInclusiveOp(args: Args) ExecError!?Value {
     try args.expectCount(2);
     const x = try args.at(0).resolve();
     const y = try args.at(1).resolve();
-    if (!x.isNumber()) return args.env.fail(.type_mismatch, "'?' expects numbers");
-    if (!y.isNumber()) return args.env.fail(.type_mismatch, "'?' expects numbers");
+    if (!x.isNumber()) return args.env.failFmt(.type_mismatch, "'?' expects numbers, got {s}", .{x.typeName()});
+    if (!y.isNumber()) return args.env.failFmt(.type_mismatch, "'?' expects numbers, got {s}", .{y.typeName()});
 
     const io = try requireIo(args);
 
@@ -79,8 +79,8 @@ fn randExclusiveOp(args: Args) ExecError!?Value {
     try args.expectCount(2);
     const x = try args.at(0).resolve();
     const y = try args.at(1).resolve();
-    if (!x.isNumber()) return args.env.fail(.type_mismatch, "'?<' expects numbers");
-    if (!y.isNumber()) return args.env.fail(.type_mismatch, "'?<' expects numbers");
+    if (!x.isNumber()) return args.env.failFmt(.type_mismatch, "'?<' expects numbers, got {s}", .{x.typeName()});
+    if (!y.isNumber()) return args.env.failFmt(.type_mismatch, "'?<' expects numbers, got {s}", .{y.typeName()});
 
     const io = try requireIo(args);
 

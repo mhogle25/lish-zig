@@ -74,7 +74,7 @@ fn lengthOp(args: Args) ExecError!?Value {
     return switch (value) {
         .list => |items| .{ .int = @intCast(items.len) },
         .string => |str| .{ .int = @intCast(str.len) },
-        else => args.env.fail(.type_mismatch, "'length' expects a list or string"),
+        else => args.env.failFmt(.type_mismatch, "'length' expects a list or string, got {s}", .{value.typeName()}),
     };
 }
 
@@ -84,7 +84,7 @@ fn firstOp(args: Args) ExecError!?Value {
     return switch (value) {
         .list => |items| if (items.len == 0) null else items[0],
         .string => |str| if (str.len == 0) null else .{ .string = str[0..1] },
-        else => args.env.fail(.type_mismatch, "'first' expects a list or string"),
+        else => args.env.failFmt(.type_mismatch, "'first' expects a list or string, got {s}", .{value.typeName()}),
     };
 }
 
@@ -94,14 +94,14 @@ fn restOp(args: Args) ExecError!?Value {
     return switch (value) {
         .list => |items| if (items.len <= 1) .{ .list = &.{} } else .{ .list = items[1..] },
         .string => |str| if (str.len <= 1) .{ .string = "" } else .{ .string = str[1..] },
-        else => args.env.fail(.type_mismatch, "'rest' expects a list or string"),
+        else => args.env.failFmt(.type_mismatch, "'rest' expects a list or string, got {s}", .{value.typeName()}),
     };
 }
 
 fn atOp(args: Args) ExecError!?Value {
     try args.expectCount(2);
     const index_value = try args.at(0).resolve();
-    const index = index_value.getI() catch return args.env.fail(.type_mismatch, "'at' expects an integer index");
+    const index = index_value.getI() catch return args.env.failFmt(.type_mismatch, "'at' expects an integer index, got {s}", .{index_value.typeName()});
     if (index < 0) return null;
     const collection = try args.at(1).resolve();
     return switch (collection) {
@@ -114,7 +114,7 @@ fn atOp(args: Args) ExecError!?Value {
             const idx: usize = @intCast(index);
             return .{ .string = str[idx .. idx + 1] };
         },
-        else => args.env.fail(.type_mismatch, "'at' expects a list or string"),
+        else => args.env.failFmt(.type_mismatch, "'at' expects a list or string, got {s}", .{collection.typeName()}),
     };
 }
 
@@ -137,13 +137,13 @@ fn reverseOp(args: Args) ExecError!?Value {
             }
             return .{ .string = reversed };
         },
-        else => args.env.fail(.type_mismatch, "'reverse' expects a list or string"),
+        else => args.env.failFmt(.type_mismatch, "'reverse' expects a list or string, got {s}", .{value.typeName()}),
     };
 }
 
 fn rangeOp(args: Args) ExecError!?Value {
     const count = args.count();
-    if (count < 2 or count > 3) return args.env.fail(.arity_mismatch, "'range' expects  or 3 arguments");
+    if (count < 2 or count > 3) return args.env.fail(.arity_mismatch, "'range' expects 2 or 3 arguments");
 
     const start_value = try args.at(0).resolve();
     const end_value = try args.at(1).resolve();
@@ -178,7 +178,7 @@ fn rangeOp(args: Args) ExecError!?Value {
 
 fn untilOp(args: Args) ExecError!?Value {
     const count = args.count();
-    if (count < 2 or count > 3) return args.env.fail(.arity_mismatch, "'until' expects  or 3 arguments");
+    if (count < 2 or count > 3) return args.env.fail(.arity_mismatch, "'until' expects 2 or 3 arguments");
 
     const start_value = try args.at(0).resolve();
     const end_value = try args.at(1).resolve();
@@ -217,35 +217,35 @@ fn lastOp(args: Args) ExecError!?Value {
     return switch (value) {
         .list => |items| if (items.len == 0) null else items[items.len - 1],
         .string => |str| if (str.len == 0) null else .{ .string = str[str.len - 1 ..] },
-        else => args.env.fail(.type_mismatch, "'last' expects a list or string"),
+        else => args.env.failFmt(.type_mismatch, "'last' expects a list or string, got {s}", .{value.typeName()}),
     };
 }
 
 fn takeOp(args: Args) ExecError!?Value {
     try args.expectCount(2);
     const count_val = try args.at(0).resolve();
-    const take_n = count_val.getI() catch return args.env.fail(.type_mismatch, "'take' expects an integer count");
+    const take_n = count_val.getI() catch return args.env.failFmt(.type_mismatch, "'take' expects an integer count, got {s}", .{count_val.typeName()});
     if (take_n < 0) return args.env.fail(.invalid_argument, "'take' count cannot be negative");
     const value = try args.at(1).resolve();
     const take_count: usize = @intCast(take_n);
     return switch (value) {
         .list => |items| .{ .list = items[0..@min(take_count, items.len)] },
         .string => |str| .{ .string = str[0..@min(take_count, str.len)] },
-        else => args.env.fail(.type_mismatch, "'take' expects a list or string"),
+        else => args.env.failFmt(.type_mismatch, "'take' expects a list or string, got {s}", .{value.typeName()}),
     };
 }
 
 fn dropOp(args: Args) ExecError!?Value {
     try args.expectCount(2);
     const count_val = try args.at(0).resolve();
-    const drop_n = count_val.getI() catch return args.env.fail(.type_mismatch, "'drop' expects an integer count");
+    const drop_n = count_val.getI() catch return args.env.failFmt(.type_mismatch, "'drop' expects an integer count, got {s}", .{count_val.typeName()});
     if (drop_n < 0) return args.env.fail(.invalid_argument, "'drop' count cannot be negative");
     const value = try args.at(1).resolve();
     const drop_count: usize = @intCast(drop_n);
     return switch (value) {
         .list => |items| .{ .list = if (drop_count >= items.len) &.{} else items[drop_count..] },
         .string => |str| .{ .string = if (drop_count >= str.len) "" else str[drop_count..] },
-        else => args.env.fail(.type_mismatch, "'drop' expects a list or string"),
+        else => args.env.failFmt(.type_mismatch, "'drop' expects a list or string, got {s}", .{value.typeName()}),
     };
 }
 
@@ -261,7 +261,7 @@ fn sliceOp(args: Args) ExecError!?Value {
     return switch (collection) {
         .list => |items| .{ .list = items[@min(start, items.len)..@min(end, items.len)] },
         .string => |str| .{ .string = str[@min(start, str.len)..@min(end, str.len)] },
-        else => args.env.fail(.type_mismatch, "'slice' expects a list or string"),
+        else => args.env.failFmt(.type_mismatch, "'slice' expects a list or string, got {s}", .{collection.typeName()}),
     };
 }
 
@@ -432,7 +432,7 @@ fn fillbyOp(args: Args) ExecError!?Value {
 
     if (count == 2) {
         const n_value = try args.at(0).resolve();
-        const n = n_value.getI() catch return args.env.fail(.type_mismatch, "'fillby' expects an integer count");
+        const n = n_value.getI() catch return args.env.failFmt(.type_mismatch, "'fillby' expects an integer count, got {s}", .{n_value.typeName()});
         if (n < 0) return args.env.fail(.invalid_argument, "'fillby' count cannot be negative");
 
         try helpers.checkListLength(args, @intCast(n));
@@ -450,7 +450,7 @@ fn fillbyOp(args: Args) ExecError!?Value {
     const name     = try alloc.dupe(u8, raw_name);
 
     const n_value = try args.at(1).resolve();
-    const n = n_value.getI() catch return args.env.fail(.type_mismatch, "'fillby' expects an integer count");
+    const n = n_value.getI() catch return args.env.failFmt(.type_mismatch, "'fillby' expects an integer count, got {s}", .{n_value.typeName()});
     if (n < 0) return args.env.fail(.invalid_argument, "'fillby' count cannot be negative");
 
     try helpers.checkListLength(args, @intCast(n));

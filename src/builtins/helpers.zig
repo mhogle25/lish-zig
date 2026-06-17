@@ -35,11 +35,11 @@ pub fn numericFold(
 ) ExecError!?Value {
     try args.expectMinCount(2);
     var accumulator = try args.at(0).resolve();
-    if (!accumulator.isNumber()) return args.env.fail(.type_mismatch, "Expected a number");
+    if (!accumulator.isNumber()) return args.env.failFmt(.type_mismatch, "Expected a number, got {s}", .{accumulator.typeName()});
 
     for (1..args.count()) |i| {
         const operand = try args.at(i).resolve();
-        if (!operand.isNumber()) return args.env.fail(.type_mismatch, "Expected a number");
+        if (!operand.isNumber()) return args.env.failFmt(.type_mismatch, "Expected a number, got {s}", .{operand.typeName()});
 
         if (accumulator == .float or operand == .float) {
             const left  = accumulator.getF() catch unreachable;
@@ -61,11 +61,11 @@ pub fn numericComparison(
 ) ExecError!?Value {
     try args.expectMinCount(2);
     var prev = try args.at(0).resolve();
-    if (!prev.isNumber()) return args.env.fail(.type_mismatch, "Expected a number");
+    if (!prev.isNumber()) return args.env.failFmt(.type_mismatch, "Expected a number, got {s}", .{prev.typeName()});
 
     for (1..args.count()) |i| {
         const current = try args.at(i).resolve();
-        if (!current.isNumber()) return args.env.fail(.type_mismatch, "Expected a number");
+        if (!current.isNumber()) return args.env.failFmt(.type_mismatch, "Expected a number, got {s}", .{current.typeName()});
 
         const passes = if (prev == .float or current == .float)
             float_cmp(prev.getF() catch unreachable, current.getF() catch unreachable)

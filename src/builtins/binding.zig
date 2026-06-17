@@ -40,7 +40,7 @@ fn letOp(args: Args) ExecError!?Value {
 fn pipeOp(args: Args) ExecError!?Value {
     const count = args.count();
     if (count < 3) {
-        return args.env.fail(.arity_mismatch, "'pipe' expects at least  arguments (name, initial value, step+)");
+        return args.env.fail(.arity_mismatch, "'pipe' expects at least 3 arguments (name, initial value, step+)");
     }
 
     var pipe_scope = exec.Scope{ .parent = args.scope };

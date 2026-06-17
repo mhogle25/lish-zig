@@ -19,7 +19,7 @@ pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void 
 
 fn ifElseOp(args: Args) ExecError!?Value {
     const count = args.count();
-    if (count != 2 and count != 3) return args.env.fail(.arity_mismatch, "'if' expects  or 3 arguments");
+    if (count != 2 and count != 3) return args.env.fail(.arity_mismatch, "'if' expects 2 or 3 arguments");
 
     const condition = try args.at(0).get();
 
@@ -76,7 +76,7 @@ fn matchOp(args: Args) ExecError!?Value {
 
 fn assertOp(args: Args) ExecError!?Value {
     const count = args.count();
-    if (count < 1 or count > 2) return args.env.fail(.arity_mismatch, "'assert' expects  or 2 arguments");
+    if (count < 1 or count > 2) return args.env.fail(.arity_mismatch, "'assert' expects 1 or 2 arguments");
     const condition = try args.at(0).get();
     if (condition != null) return condition;
     if (count == 2) {

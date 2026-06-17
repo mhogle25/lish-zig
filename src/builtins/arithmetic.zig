@@ -73,11 +73,11 @@ fn modFloat(left: f64, right: f64) f64 {
 fn powerOp(args: Args) ExecError!?Value {
     try args.expectMinCount(2);
     var accumulator = try args.at(0).resolve();
-    if (!accumulator.isNumber()) return args.env.fail(.type_mismatch, "Expected a number");
+    if (!accumulator.isNumber()) return args.env.failFmt(.type_mismatch, "'^' expects numbers, got {s}", .{accumulator.typeName()});
 
     for (1..args.count()) |i| {
         const operand = try args.at(i).resolve();
-        if (!operand.isNumber()) return args.env.fail(.type_mismatch, "Expected a number");
+        if (!operand.isNumber()) return args.env.failFmt(.type_mismatch, "'^' expects numbers, got {s}", .{operand.typeName()});
 
         if (accumulator == .float or operand == .float) {
             const base = accumulator.getF() catch unreachable;

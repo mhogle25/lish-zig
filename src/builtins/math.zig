@@ -30,11 +30,11 @@ pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void 
 fn minOp(args: Args) ExecError!?Value {
     try args.expectMinCount(2);
     var result = try args.at(0).resolve();
-    if (!result.isNumber()) return args.env.fail(.type_mismatch, "Expected a number");
+    if (!result.isNumber()) return args.env.failFmt(.type_mismatch, "'min' expects numbers, got {s}", .{result.typeName()});
 
     for (1..args.count()) |i| {
         const operand = try args.at(i).resolve();
-        if (!operand.isNumber()) return args.env.fail(.type_mismatch, "Expected a number");
+        if (!operand.isNumber()) return args.env.failFmt(.type_mismatch, "'min' expects numbers, got {s}", .{operand.typeName()});
 
         if (result == .float or operand == .float) {
             const left = result.getF() catch unreachable;
@@ -52,11 +52,11 @@ fn minOp(args: Args) ExecError!?Value {
 fn maxOp(args: Args) ExecError!?Value {
     try args.expectMinCount(2);
     var result = try args.at(0).resolve();
-    if (!result.isNumber()) return args.env.fail(.type_mismatch, "Expected a number");
+    if (!result.isNumber()) return args.env.failFmt(.type_mismatch, "'max' expects numbers, got {s}", .{result.typeName()});
 
     for (1..args.count()) |i| {
         const operand = try args.at(i).resolve();
-        if (!operand.isNumber()) return args.env.fail(.type_mismatch, "Expected a number");
+        if (!operand.isNumber()) return args.env.failFmt(.type_mismatch, "'max' expects numbers, got {s}", .{operand.typeName()});
 
         if (result == .float or operand == .float) {
             const left = result.getF() catch unreachable;
@@ -77,7 +77,7 @@ fn absOp(args: Args) ExecError!?Value {
     return switch (value) {
         .int => |int_val| .{ .int = if (int_val < 0) -%int_val else int_val },
         .float => |float_val| .{ .float = @abs(float_val) },
-        else => args.env.fail(.type_mismatch, "Expected a number"),
+        else => args.env.failFmt(.type_mismatch, "'abs' expects a number, got {s}", .{value.typeName()}),
     };
 }
 
@@ -87,7 +87,7 @@ fn floorOp(args: Args) ExecError!?Value {
     return switch (value) {
         .int => value,
         .float => |float_val| .{ .int = @intFromFloat(@floor(float_val)) },
-        else => args.env.fail(.type_mismatch, "Expected a number"),
+        else => args.env.failFmt(.type_mismatch, "'floor' expects a number, got {s}", .{value.typeName()}),
     };
 }
 
@@ -97,7 +97,7 @@ fn ceilOp(args: Args) ExecError!?Value {
     return switch (value) {
         .int => value,
         .float => |float_val| .{ .int = @intFromFloat(@ceil(float_val)) },
-        else => args.env.fail(.type_mismatch, "Expected a number"),
+        else => args.env.failFmt(.type_mismatch, "'ceil' expects a number, got {s}", .{value.typeName()}),
     };
 }
 
@@ -107,21 +107,21 @@ fn roundOp(args: Args) ExecError!?Value {
     return switch (value) {
         .int => value,
         .float => |float_val| .{ .int = @intFromFloat(@round(float_val)) },
-        else => args.env.fail(.type_mismatch, "Expected a number"),
+        else => args.env.failFmt(.type_mismatch, "'round' expects a number, got {s}", .{value.typeName()}),
     };
 }
 
 fn evenOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
     const value = try args.at(0).resolve();
-    const n = value.getI() catch return args.env.fail(.type_mismatch, "'even' expects an integer");
+    const n = value.getI() catch return args.env.failFmt(.type_mismatch, "'even' expects an integer, got {s}", .{value.typeName()});
     return val.toCondition(@mod(n, 2) == 0);
 }
 
 fn oddOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
     const value = try args.at(0).resolve();
-    const n = value.getI() catch return args.env.fail(.type_mismatch, "'odd' expects an integer");
+    const n = value.getI() catch return args.env.failFmt(.type_mismatch, "'odd' expects an integer, got {s}", .{value.typeName()});
     return val.toCondition(@mod(n, 2) != 0);
 }
 

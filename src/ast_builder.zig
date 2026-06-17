@@ -63,7 +63,7 @@ pub const AstBuilder = struct {
     pub fn list(self: AstBuilder) ExprBuilder {
         return .{
             .builder = self,
-            .id = "list",
+            .id = ast_mod.LIST_ID,
             .args = .empty,
             .meta_type = .list_literal,
             .sticky_err = null,
@@ -75,7 +75,7 @@ pub const AstBuilder = struct {
     pub fn block(self: AstBuilder) ExprBuilder {
         return .{
             .builder = self,
-            .id = "proc",
+            .id = ast_mod.BLOCK_ID,
             .args = .empty,
             .meta_type = .block_literal,
             .sticky_err = null,
@@ -164,7 +164,7 @@ pub const MacroBuilder = struct {
         if (self.sticky_err) |err| return err;
         const params_slice = try self.params.toOwnedSlice(self.builder.allocator);
         return AstMacro{
-            .id = .{ .valid = self.name },
+            .id = .{ .valid = .{ .name = self.name } },
             .parameters = params_slice,
             .body = body_node,
         };

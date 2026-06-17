@@ -11,7 +11,10 @@ const Allocator = std.mem.Allocator;
 const Token = tok.Token;
 const TokenType = tok.TokenType;
 const Lexer = lex_mod.Lexer;
+const CommentSink = lex_mod.CommentSink;
+const CommentSpan = tok.CommentSpan;
 const AstNode = ast_mod.AstNode;
+const Position = ast_mod.Position;
 
 
 pub const AstMacroModule = struct {
@@ -27,11 +30,22 @@ pub const AstMacro = struct {
     id: AstMacroId,
     parameters: []const AstMacroParam,
     body: *const AstNode,
+    /// Docstring: the `##` comment run immediately preceding the macro's header,
+    /// as a raw source slice (markers and newlines included), or "" if none.
+    /// Only populated by `parseMacroModuleWithComments`; empty otherwise.
+    description: []const u8 = "",
 };
 
 pub const AstMacroId = union(enum) {
-    valid: []const u8,
+    valid: MacroIdData,
     err: MacroError,
+};
+
+pub const MacroIdData = struct {
+    name: []const u8,
+    /// Source span of the identifier. `.synthetic` for macros built in memory
+    /// (the AstBuilder) rather than parsed. Carried for tooling (the LSP).
+    position: Position = .synthetic,
 };
 
 pub const AstMacroParam = union(enum) {
@@ -42,6 +56,9 @@ pub const AstMacroParam = union(enum) {
 pub const MacroParamData = struct {
     id: []const u8,
     param_type: MacroParamType,
+    /// Source span of the parameter name (excluding any `~`). `.synthetic` for
+    /// in-memory macros. Carried for tooling (the LSP).
+    position: Position = .synthetic,
 };
 
 pub const MacroParamType = enum { value, deferred };
@@ -56,8 +73,23 @@ pub const MacroError = struct {
 
 
 pub fn parseMacroModule(allocator: Allocator, source: []const u8) Allocator.Error!AstMacroModule {
-    var parser = MacroParser.init(allocator, source);
+    var parser = MacroParser.init(allocator, source, null);
     return parser.parse();
+}
+
+/// Macro module plus the comment spans collected during parsing. For tooling
+/// (the LSP); each `AstMacro.description` is also populated from its leading
+/// comment run. Plain `parseMacroModule` leaves comments uncollected.
+pub const MacroModuleWithComments = struct {
+    module: AstMacroModule,
+    comments: []const CommentSpan,
+};
+
+pub fn parseMacroModuleWithComments(allocator: Allocator, source: []const u8) Allocator.Error!MacroModuleWithComments {
+    var comments: std.ArrayListUnmanaged(CommentSpan) = .empty;
+    var parser = MacroParser.init(allocator, source, .{ .list = &comments, .allocator = allocator });
+    const module = try parser.parse();
+    return .{ .module = module, .comments = comments.items };
 }
 
 
@@ -73,6 +105,12 @@ const MacroParser = struct {
     id_set: std.StringHashMapUnmanaged(void) = .{},
     string_buf: std.ArrayListUnmanaged(u8) = .empty,
 
+    /// Comment sink shared with the lexer (and sub-parsers). When set, each
+    /// macro's leading comment run becomes its `description`.
+    comment_sink: ?CommentSink = null,
+    /// Byte offset of the current macro's opening `|`, used to find its docstring.
+    header_start: u32 = 0,
+
     const State = enum { init, in_params, past_id, deferred_param };
 
     const EOF_TOKEN: Token = .{
@@ -84,8 +122,8 @@ const MacroParser = struct {
         .column = 0,
     };
 
-    fn init(allocator: Allocator, source: []const u8) MacroParser {
-        var lexer = Lexer{ .source = source };
+    fn init(allocator: Allocator, source: []const u8, comment_sink: ?CommentSink) MacroParser {
+        var lexer = Lexer{ .source = source, .comment_sink = comment_sink };
         const first_token = lexer.nextToken();
 
         return .{
@@ -93,6 +131,7 @@ const MacroParser = struct {
             .lexer = lexer,
             .token = first_token,
             .state = .init,
+            .comment_sink = comment_sink,
         };
     }
 
@@ -112,6 +151,7 @@ const MacroParser = struct {
 
     fn handleInit(self: *MacroParser) void {
         if (self.token.type == .macro_bracket) {
+            self.header_start = self.token.start;
             self.state = .in_params;
             self.token = self.lexer.nextToken();
         } else {
@@ -123,6 +163,7 @@ const MacroParser = struct {
     fn handleInParams(self: *MacroParser) Allocator.Error!void {
         if (isTerm(self.token.type)) {
             // First term is the macro identifier
+            const id_position: Position = .{ .start = self.token.start, .end = self.token.end };
             const identifier = try self.processIdentifier();
 
             if (identifier) |id_str| {
@@ -130,7 +171,7 @@ const MacroParser = struct {
                     self.current_id = .{ .err = self.errorAtToken("Duplicate macro identifier") };
                 } else {
                     try self.id_set.put(self.allocator, id_str, {});
-                    self.current_id = .{ .valid = id_str };
+                    self.current_id = .{ .valid = .{ .name = id_str, .position = id_position } };
                 }
             } else {
                 self.current_id = .{ .err = self.errorAtToken("Invalid escape sequences in macro identifier") };
@@ -153,11 +194,12 @@ const MacroParser = struct {
     fn handlePastId(self: *MacroParser) Allocator.Error!void {
         if (isTerm(self.token.type)) {
             // Value parameter
+            const param_position: Position = .{ .start = self.token.start, .end = self.token.end };
             const identifier = try self.processIdentifier();
 
             if (identifier) |param_id| {
                 try self.parameters.append(self.allocator, .{
-                    .valid = .{ .id = param_id, .param_type = .value },
+                    .valid = .{ .id = param_id, .param_type = .value, .position = param_position },
                 });
             } else {
                 try self.parameters.append(self.allocator, .{
@@ -166,8 +208,8 @@ const MacroParser = struct {
             }
 
             self.token = self.lexer.nextToken();
-        } 
-        else 
+        }
+        else
         if (self.token.type == .deferred_macro_param_symbol) {
             self.state = .deferred_param;
             self.token = self.lexer.nextToken();
@@ -187,10 +229,11 @@ const MacroParser = struct {
     fn handleDeferredParam(self: *MacroParser) Allocator.Error!void {
         if (isTerm(self.token.type)) {
             // Deferred parameter
+            const param_position: Position = .{ .start = self.token.start, .end = self.token.end };
             const identifier = try self.processIdentifier();
             if (identifier) |param_id| {
                 try self.parameters.append(self.allocator, .{
-                    .valid = .{ .id = param_id, .param_type = .deferred },
+                    .valid = .{ .id = param_id, .param_type = .deferred, .position = param_position },
                 });
             } else {
                 try self.parameters.append(self.allocator, .{
@@ -232,7 +275,8 @@ const MacroParser = struct {
         self.lexer.setState(result.lexer_state);
 
         if (result.last_token_type == .macro_bracket) {
-            // Another macro follows
+            // The `|` that ended this body opens the next macro's header.
+            self.header_start = result.last_token_start;
             self.state = .in_params;
             self.token = self.lexer.nextToken();
         } else {
@@ -247,6 +291,7 @@ const MacroParser = struct {
                 .id = id,
                 .parameters = try self.allocator.dupe(AstMacroParam, self.parameters.items),
                 .body = body,
+                .description = self.docstringBefore(self.header_start),
             };
             try self.macros.append(self.allocator, .{ .macro = macro });
         } else {
@@ -264,6 +309,33 @@ const MacroParser = struct {
         // Reset for next macro
         self.current_id = null;
         self.parameters.clearRetainingCapacity();
+    }
+
+    /// The macro's docstring: the maximal run of comments ending immediately
+    /// before `header_start`, where every gap (comment-to-comment and
+    /// last-comment-to-header) is whitespace only. Returned as a raw source
+    /// slice, or "" if there's no sink or no adjacent comment.
+    fn docstringBefore(self: *MacroParser, header_start: u32) []const u8 {
+        const sink = self.comment_sink orelse return "";
+        const items = sink.list.items;
+        const source = self.lexer.source;
+
+        // Comments are appended in source order; skip any that start at or after
+        // the header (they belong to a later macro, already collected).
+        var run_end = items.len;
+        while (run_end > 0 and items[run_end - 1].start >= header_start) run_end -= 1;
+        if (run_end == 0) return "";
+        run_end -= 1;
+
+        // The nearest comment must be adjacent to the header to be its docstring.
+        if (!isAdjacentGap(source[items[run_end].end..header_start])) return "";
+
+        // Extend the run backward across adjacent comments.
+        var run_start = run_end;
+        while (run_start > 0 and isAdjacentGap(source[items[run_start - 1].end..items[run_start].start]))
+            run_start -= 1;
+
+        return source[items[run_start].start..items[run_end].end];
     }
 
 
@@ -308,6 +380,22 @@ const MacroParser = struct {
     }
 };
 
+/// True when `slice` (the gap between a comment and what follows) is whitespace
+/// only AND spans at most one line break — i.e. they are on adjacent lines. A
+/// blank line (two line breaks) detaches the comment, so it is not a docstring.
+fn isAdjacentGap(slice: []const u8) bool {
+    var newlines: usize = 0;
+    for (slice) |c| switch (c) {
+        '\n' => {
+            newlines += 1;
+            if (newlines > 1) return false;
+        },
+        ' ', '\t', '\r' => {},
+        else => return false,
+    };
+    return true;
+}
+
 
 pub const MacroValidationResult = union(enum) {
     ok: []const exec.Macro,
@@ -346,7 +434,7 @@ fn validateMacro(
 
     // Validate ID
     const id = switch (macro.id) {
-        .valid => |id_str| id_str,
+        .valid => |id_data| id_data.name,
         .err => |macro_error| {
             try errors.add(allocator, macroErrToValidationErr(macro_error));
             return null;
@@ -411,7 +499,7 @@ test "parse single macro" {
 
     try std.testing.expectEqual(@as(usize, 1), module.macros.len);
     const macro = module.macros[0].macro;
-    try std.testing.expectEqualStrings("double", macro.id.valid);
+    try std.testing.expectEqualStrings("double", macro.id.valid.name);
     try std.testing.expectEqual(@as(usize, 1), macro.parameters.len);
     try std.testing.expectEqualStrings("x", macro.parameters[0].valid.id);
     try std.testing.expect(macro.parameters[0].valid.param_type == .value);
@@ -425,8 +513,8 @@ test "parse multiple macros" {
     const module = try parseMacroModule(alloc, "| double x | * :x 2 | triple x | * :x 3");
 
     try std.testing.expectEqual(@as(usize, 2), module.macros.len);
-    try std.testing.expectEqualStrings("double", module.macros[0].macro.id.valid);
-    try std.testing.expectEqualStrings("triple", module.macros[1].macro.id.valid);
+    try std.testing.expectEqualStrings("double", module.macros[0].macro.id.valid.name);
+    try std.testing.expectEqualStrings("triple", module.macros[1].macro.id.valid.name);
 }
 
 test "parse macro with deferred parameter" {
@@ -588,4 +676,45 @@ test "end-to-end: multiple macros in module" {
     const value = try env.processExpression(expression, &scope);
 
     try std.testing.expectEqual(@as(i64, 12), value.?.int);
+}
+
+test "docstring: leading comment run attaches to the macro" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const source = "## doubles its arg\n## (second line)\n| double x | * :x 2";
+    const result = try parseMacroModuleWithComments(a, source);
+
+    try std.testing.expectEqual(@as(usize, 1), result.module.macros.len);
+    const m = result.module.macros[0].macro;
+    try std.testing.expectEqualStrings("double", m.id.valid.name);
+    try std.testing.expectEqualStrings("## doubles its arg\n## (second line)", m.description);
+    try std.testing.expectEqual(@as(usize, 2), result.comments.len);
+}
+
+test "docstring: a blank line detaches the comment" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const source = "## just a note\n\n| double x | * :x 2";
+    const result = try parseMacroModuleWithComments(a, source);
+
+    const m = result.module.macros[0].macro;
+    try std.testing.expectEqualStrings("", m.description);
+}
+
+test "docstring: each macro gets its own (second enters via body-stop path)" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const source =
+        "## first\n| double x | * :x 2\n## second\n| quad x | double (double :x)";
+    const result = try parseMacroModuleWithComments(a, source);
+
+    try std.testing.expectEqual(@as(usize, 2), result.module.macros.len);
+    try std.testing.expectEqualStrings("## first", result.module.macros[0].macro.description);
+    try std.testing.expectEqualStrings("## second", result.module.macros[1].macro.description);
 }

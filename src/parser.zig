@@ -20,6 +20,9 @@ pub const ParserResult = struct {
     node: *AstNode,
     lexer_state: Lexer.State,
     last_token_type: TokenType,
+    /// Byte offset of the stop token (e.g. the `|` that ended a macro body). The
+    /// macro parser uses it as the header position of the macro that follows.
+    last_token_start: u32,
 };
 
 /// Closure tracking info for bracket matching.
@@ -42,6 +45,23 @@ const SingleTermResult = struct {
 pub fn parse(allocator: Allocator, source: []const u8) Allocator.Error!*AstNode {
     var expression_parser = Parser.init(allocator, &.{});
     return expression_parser.get(source);
+}
+
+/// Parse result that also carries the `## comment` spans collected during
+/// lexing. For tooling (the LSP); the executable path uses `parse`, which
+/// discards comments.
+pub const ParseWithComments = struct {
+    root: *AstNode,
+    comments: []const tok.CommentSpan,
+};
+
+/// Like `parse`, but also returns every comment span in source order. The
+/// comment list is allocated from `allocator` alongside the AST.
+pub fn parseWithComments(allocator: Allocator, source: []const u8) Allocator.Error!ParseWithComments {
+    var comments: std.ArrayListUnmanaged(tok.CommentSpan) = .empty;
+    var expression_parser = Parser.init(allocator, &.{});
+    const root = try expression_parser.getWithComments(source, .{ .list = &comments, .allocator = allocator });
+    return .{ .root = root, .comments = comments.items };
 }
 
 /// Parse using an existing lexer (for macro parser integration).
@@ -87,6 +107,14 @@ pub const Parser = struct {
         return self.topLevelExpression(1);
     }
 
+    /// Same as `get`, but with a comment sink attached before the first token
+    /// so leading comments are captured too.
+    pub fn getWithComments(self: *Parser, source: []const u8, sink: lex_mod.CommentSink) Allocator.Error!*AstNode {
+        self.lexer = .{ .source = source, .comment_sink = sink };
+        self.token = self.lexer.nextToken();
+        return self.topLevelExpression(1);
+    }
+
     pub fn getFromLexer(self: *Parser, lexer: *Lexer) Allocator.Error!ParserResult {
         self.lexer = lexer.*;
         self.token = self.lexer.nextToken();
@@ -96,6 +124,7 @@ pub const Parser = struct {
             .node = node,
             .lexer_state = self.lexer.getState(),
             .last_token_type = self.token.type,
+            .last_token_start = self.token.start,
         };
     }
 
@@ -248,7 +277,9 @@ pub const Parser = struct {
 
         const owned = try self.allocator.dupe(u8, self.string_buf.items);
 
-        return ast.makeValueLiteral(self.allocator, .{ .start = self.token.start, .end = self.token.end }, .{ .string = owned });
+        const node = try ast.makeValueLiteral(self.allocator, .{ .start = self.token.start, .end = self.token.end }, .{ .string = owned });
+        node.quote = self.token.quote; // the delimiter for a string literal, null for an identifier
+        return node;
     }
 
     fn intLiteral(self: *Parser) Allocator.Error!*AstNode {
@@ -814,4 +845,36 @@ test "parse with eof_at stops at macro bracket" {
     try std.testing.expectEqualStrings("+", expr.id.body.value_literal.string);
     try std.testing.expectEqual(@as(usize, 2), expr.args.len);
     try std.testing.expectEqual(TokenType.macro_bracket, result.last_token_type);
+}
+
+test "parseWithComments returns comment spans and a valid root" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const source = "## doc\n(+ 1 2) ## trailing";
+    const result = try parseWithComments(a, source);
+
+    try std.testing.expect(result.root.body == .expression);
+    try std.testing.expectEqual(@as(usize, 2), result.comments.len);
+    try std.testing.expectEqualStrings("## doc", source[result.comments[0].start..result.comments[0].end]);
+    try std.testing.expectEqualStrings("## trailing", source[result.comments[1].start..result.comments[1].end]);
+}
+
+test "quote field distinguishes a string literal from a bare identifier" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Bare identifier: same value payload, but no quote.
+    const id_root = try parse(a, "foo");
+    const id_node = id_root.body.expression.id;
+    try std.testing.expectEqualStrings("foo", id_node.body.value_literal.string);
+    try std.testing.expectEqual(@as(?u8, null), id_node.quote);
+
+    // Quoted string: identical value payload, but the quote records the delimiter.
+    const str_root = try parse(a, "\"foo\"");
+    const str_node = str_root.body.expression.id;
+    try std.testing.expectEqualStrings("foo", str_node.body.value_literal.string);
+    try std.testing.expectEqual(@as(?u8, '"'), str_node.quote);
 }

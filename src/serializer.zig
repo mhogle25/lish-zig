@@ -23,7 +23,7 @@ pub fn serializeExpression(node: *const AstNode, writer: anytype) !void {
 pub fn serializeMacro(macro: AstMacro, writer: anytype) !void {
     try writer.writeByte(tok.MACRO_BRACKET);
     switch (macro.id) {
-        .valid => |name| try writer.writeAll(name),
+        .valid => |id_data| try writer.writeAll(id_data.name),
         .err => return SerializeError.InvalidNode,
     }
     for (macro.parameters) |param| {
@@ -36,7 +36,8 @@ pub fn serializeMacro(macro: AstMacro, writer: anytype) !void {
             .err => return SerializeError.InvalidNode,
         }
     }
-    try writer.writeAll("| ");
+    try writer.writeByte(tok.MACRO_BRACKET);
+    try writer.writeByte(' ');
     try serializeNode(macro.body, writer, false);
 }
 
@@ -152,7 +153,7 @@ fn looksLikeNumber(str: []const u8) bool {
     if (str.len == 0) return false;
 
     var idx: usize = 0;
-    if (str[idx] == '-') {
+    if (str[idx] == tok.NEGATIVE_SIGN) {
         idx += 1;
         if (idx >= str.len) return false; // lone "-" is a valid identifier
     }
@@ -163,7 +164,7 @@ fn looksLikeNumber(str: []const u8) bool {
         const char = str[idx];
         if (std.ascii.isDigit(char)) {
             digit_count += 1;
-        } else if (char == '.' and !has_dot) {
+        } else if (char == tok.DECIMAL_POINT and !has_dot) {
             has_dot = true;
         } else {
             return false; // non-numeric character, safe bare word
@@ -171,7 +172,7 @@ fn looksLikeNumber(str: []const u8) bool {
     }
 
     if (digit_count == 0) return false;
-    if (str[str.len - 1] == '.') return false; // trailing dot → lexed as identifier
+    if (str[str.len - 1] == tok.DECIMAL_POINT) return false; // trailing dot → lexed as identifier
     return true;
 }
 

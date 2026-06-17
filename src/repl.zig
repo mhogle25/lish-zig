@@ -97,7 +97,7 @@ fn fuelOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?value_mo
         return null;
     }
 
-    const n = value.?.getI() catch return args.env.fail(.type_mismatch, op_fuel ++ " expects an integer or $off");
+    const n = value.?.getI() catch return args.env.failFmt(.type_mismatch, "{s} expects an integer or $off, got {s}", .{ op_fuel, value.?.typeName() });
 
     if (n < 1) return args.env.fail(.invalid_argument, op_fuel ++ " must be a positive integer");
 
@@ -113,7 +113,7 @@ fn maxListLengthOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!
         return null;
     }
 
-    const n = value.?.getI() catch return args.env.fail(.type_mismatch, op_max_list_length ++ " expects an integer or $off");
+    const n = value.?.getI() catch return args.env.failFmt(.type_mismatch, "{s} expects an integer or $off, got {s}", .{ op_max_list_length, value.?.typeName() });
 
     if (n < 1) return args.env.fail(.invalid_argument, op_max_list_length ++ " must be a positive integer");
 
@@ -129,7 +129,7 @@ fn maxStringLengthOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecErro
         return null;
     }
 
-    const n = value.?.getI() catch return args.env.fail(.type_mismatch, op_max_string_length ++ " expects an integer or $off");
+    const n = value.?.getI() catch return args.env.failFmt(.type_mismatch, "{s} expects an integer or $off, got {s}", .{ op_max_string_length, value.?.typeName() });
 
     if (n < 1) return args.env.fail(.invalid_argument, op_max_string_length ++ " must be a positive integer");
 
@@ -155,14 +155,9 @@ const CONFIG_FILE_NAME = "config" ++ process_mod.LISH_EXTENSION;
 
 fn configFilePath(environ: std.process.Environ, allocator: Allocator) ?[]const u8 {
     return 
-        if (environ.getPosix("XDG_CONFIG_HOME")) |xdg| {
-            std.fs.path.join(allocator, &.{ xdg, "lish", CONFIG_FILE_NAME }) catch null;
-        }
-        else
-        if (environ.getPosix("HOME")) |home| {
-            std.fs.path.join(allocator, &.{ home, ".config", "lish", CONFIG_FILE_NAME }) catch null;
-        }   
-        else null;
+        if (environ.getPosix("XDG_CONFIG_HOME")) |xdg| std.fs.path.join(allocator, &.{ xdg, "lish", CONFIG_FILE_NAME }) catch null else
+        if (environ.getPosix("HOME"))            |home| std.fs.path.join(allocator, &.{ home, ".config", "lish", CONFIG_FILE_NAME }) catch null else 
+        null;
 }
 
 pub fn loadConfig(io: std.Io, environ: std.process.Environ, config: *ReplConfig, allocator: Allocator) void {

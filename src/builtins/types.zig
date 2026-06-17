@@ -1,6 +1,7 @@
 const std = @import("std");
 const exec = @import("../exec.zig");
 const val = @import("../value.zig");
+const tok = @import("../token.zig");
 
 const Value = val.Value;
 const Args = exec.Args;
@@ -94,29 +95,29 @@ fn writeInspect(writer: *std.Io.Writer, maybe_value: ?Value) !void {
         .int => |n| try writer.print("{d}", .{n}),
         .float => |x| try writer.print("{d}", .{x}),
         .list => |items| {
-            try writer.writeByte('[');
+            try writer.writeByte(tok.LIST_OPEN);
             for (items, 0..) |item, i| {
                 if (i > 0) try writer.writeByte(' ');
                 try writeInspect(writer, item);
             }
-            try writer.writeByte(']');
+            try writer.writeByte(tok.LIST_CLOSE);
         },
     }
 }
 
 fn writeQuoted(writer: *std.Io.Writer, s: []const u8) !void {
-    try writer.writeByte('"');
+    try writer.writeByte(tok.QUOTE_DOUBLE);
     for (s) |c| {
         switch (c) {
-            '"'  => try writer.writeAll("\\\""),
-            '\\' => try writer.writeAll("\\\\"),
-            '\n' => try writer.writeAll("\\n"),
-            '\r' => try writer.writeAll("\\r"),
-            '\t' => try writer.writeAll("\\t"),
+            tok.QUOTE_DOUBLE    => try writer.writeAll("\\\""),
+            tok.BACKSLASH       => try writer.writeAll("\\\\"),
+            tok.NEWLINE         => try writer.writeAll("\\n"),
+            tok.CARRIAGE_RETURN => try writer.writeAll("\\r"),
+            tok.TAB             => try writer.writeAll("\\t"),
             else => try writer.writeByte(c),
         }
     }
-    try writer.writeByte('"');
+    try writer.writeByte(tok.QUOTE_DOUBLE);
 }
 
 fn typeOp(args: Args) ExecError!?Value {

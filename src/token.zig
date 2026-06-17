@@ -103,10 +103,23 @@ pub const Token = struct {
     line: u32,
     column: u32,
     invalid_escape_count: usize = 0,
+    /// The delimiter of a string-literal token (`"` or `'`), or null for any
+    /// other token. Lets consumers distinguish a quoted string from a bare
+    /// identifier, which are otherwise indistinguishable once parsed.
+    quote: ?u8 = null,
 
     pub fn hasInvalidEscapes(self: Token) bool {
         return self.invalid_escape_count > 0;
     }
+};
+
+/// Byte span of a `##` comment in source. The lexer discards comments from the
+/// token stream; tooling that wants them (the LSP) collects spans into a sink
+/// (see `lexer.CommentSink`). `start` is the opening `#`; `end` is one past the
+/// comment's last byte.
+pub const CommentSpan = struct {
+    start: u32,
+    end: u32,
 };
 
 

@@ -12,6 +12,18 @@ pub const Value = union(enum) {
         return self == .int or self == .float;
     }
 
+    /// A human-readable name for this value's type, for error messages
+    /// (`string`, `int`, `float`, `list`).
+    pub fn typeName(self: Value) []const u8 {
+        return @tagName(self);
+    }
+
+    /// The type name of an optional value, naming the absent case `none`. Use
+    /// when reporting what an op received in a slot that may hold no value.
+    pub fn typeNameOpt(maybe: ?Value) []const u8 {
+        return if (maybe) |value| value.typeName() else NONE_ID;
+    }
+
     pub fn getI(self: Value) error{TypeMismatch}!i64 {
         return switch (self) {
             .int   => |int_val| int_val,

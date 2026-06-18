@@ -1,6 +1,7 @@
 const std = @import("std");
 const posix = std.posix;
 const tok = @import("../token.zig");
+const highlight = @import("../highlight.zig");
 const buffer_mod = @import("buffer.zig");
 const renderer_mod = @import("renderer.zig");
 const escape_mod = @import("escape.zig");
@@ -25,6 +26,29 @@ pub const ReadLineResult = union(enum) {
     line: []const u8,
     eof,
 };
+
+/// Indent level a new line should take given the content before the cursor.
+/// The level is the count of unclosed `(`/`[`/`{`, ignoring brackets inside
+/// strings and comments (the highlighter classifies those). A bare top-level
+/// call (head is an identifier, not a bracket) counts as one implicit level,
+/// since lish's bare top-level expression is itself a call whose args on later
+/// lines should indent: `proc` then a newline lands one level in.
+fn structuralIndentLevel(content: []const u8) usize {
+    var depth: usize = 0;
+    var head: ?highlight.Category = null;
+    var highlighter = highlight.Highlighter.init(content);
+    while (highlighter.next()) |span| {
+        if (head == null) head = span.category;
+        if (span.category != .bracket) continue;
+        switch (content[span.start]) {
+            tok.EXPRESSION_OPEN, tok.LIST_OPEN, tok.BLOCK_OPEN => depth += 1,
+            tok.EXPRESSION_CLOSE, tok.LIST_CLOSE, tok.BLOCK_CLOSE => depth -|= 1,
+            else => {},
+        }
+    }
+    if (head == .identifier) depth += 1;
+    return depth;
+}
 
 /// Module-level storage so the SIGINT handler can restore the terminal.
 var global_original_termios: ?posix.termios = null;
@@ -60,6 +84,8 @@ pub const LineEditor = struct {
     /// cursor on an indented middle line. When false, Alt+Enter inserts the
     /// usual newline with copied indent regardless of surrounding brackets.
     bracket_expand: bool = true,
+    /// Spaces inserted per Tab and per indent level.
+    indent_width: usize = INDENT_WIDTH,
     /// True while a bracketed paste is in progress (between ESC[200~ and ESC[201~).
     /// Bytes received during paste are inserted literally and autopair is disabled.
     paste_mode: bool = false,
@@ -464,56 +490,51 @@ pub const LineEditor = struct {
         self.buffer.cursor = offsetAt(content, cur_row + 1, cur_col);
     }
 
-    /// Tab: insert INDENT_WIDTH spaces at the cursor.
+    /// Tab: insert `indent_width` spaces at the cursor.
     fn insertTab(self: *LineEditor) void {
         var i: usize = 0;
-        while (i < INDENT_WIDTH) : (i += 1) {
+        while (i < self.indent_width) : (i += 1) {
             if (!self.buffer.insertChar(' ')) break;
         }
     }
 
-    /// Shift+Tab: remove up to INDENT_WIDTH leading spaces from the current
+    /// Shift+Tab: remove up to `indent_width` leading spaces from the current
     /// logical line.
     fn dedentCurrentLine(self: *LineEditor) void {
         var line_start = self.buffer.cursor;
         while (line_start > 0 and self.buffer.data[line_start - 1] != '\n') : (line_start -= 1) {}
 
         var leading_spaces: usize = 0;
-        while (leading_spaces < INDENT_WIDTH and line_start + leading_spaces < self.buffer.length and self.buffer.data[line_start + leading_spaces] == ' ') : (leading_spaces += 1) {}
+        while (leading_spaces < self.indent_width and line_start + leading_spaces < self.buffer.length and self.buffer.data[line_start + leading_spaces] == ' ') : (leading_spaces += 1) {}
 
         if (leading_spaces == 0) return;
         self.buffer.removeRange(line_start, line_start + leading_spaces);
     }
 
-    /// Alt+Enter: insert a `\n` followed by the leading whitespace of the
-    /// current logical line (truncated at the cursor, so the new indent
-    /// never exceeds what was actually before the cursor).
+    /// Alt+Enter: insert a `\n`, then indent the new line to its structural
+    /// depth (see `structuralIndentLevel`).
     ///
     /// Special case when `bracket_expand` is set: if the cursor sits between
     /// a matched pair of paired brackets (`()`, `[]`, or `{}`), expand the
-    /// pair across two lines — `\n + indent + INDENT_WIDTH spaces + \n + indent`
-    /// — and position the cursor on the indented middle line.
+    /// pair across two lines and position the cursor on the indented middle.
     fn insertNewlineWithIndent(self: *LineEditor) void {
-        var line_start = self.buffer.cursor;
-        while (line_start > 0 and self.buffer.data[line_start - 1] != '\n') : (line_start -= 1) {}
-
-        var indent_buf: [64]u8 = undefined;
-        var indent_len: usize = 0;
-        while (line_start + indent_len < self.buffer.cursor and indent_len < indent_buf.len) {
-            const b = self.buffer.data[line_start + indent_len];
-            if (b != ' ' and b != '\t') break;
-            indent_buf[indent_len] = b;
-            indent_len += 1;
-        }
+        const level = structuralIndentLevel(self.buffer.data[0..self.buffer.cursor]);
 
         if (self.bracket_expand and self.cursorInsideMatchedPair()) {
-            self.expandPairAcrossLines(indent_buf[0..indent_len]);
+            self.expandPairAcrossLines(level);
             return;
         }
 
         if (!self.buffer.insertChar('\n')) return;
-        for (indent_buf[0..indent_len]) |c| {
-            if (!self.buffer.insertChar(c)) break;
+        self.insertIndent(level);
+    }
+
+    /// Insert `level` indent units worth of spaces at the cursor. Stops early
+    /// if the buffer fills.
+    fn insertIndent(self: *LineEditor, level: usize) void {
+        var i: usize = 0;
+        while (i < level * self.indent_width) : (i += 1) {
+            if (!self.buffer.insertChar(' ')) return;
         }
     }
 
@@ -540,24 +561,18 @@ pub const LineEditor = struct {
     ///     )
     /// where `indent` is the leading whitespace of the current logical line
     /// and the cursor lands on the middle (indented) line.
-    fn expandPairAcrossLines(self: *LineEditor, indent: []const u8) void {
+    fn expandPairAcrossLines(self: *LineEditor, level: usize) void {
+        // `level` already counts the open bracket before the cursor, so the
+        // middle line sits at `level` and the close aligns with the open's line.
         if (!self.buffer.insertChar('\n')) return;
-        for (indent) |c| {
-            if (!self.buffer.insertChar(c)) return;
-        }
-        var i: usize = 0;
-        while (i < INDENT_WIDTH) : (i += 1) {
-            if (!self.buffer.insertChar(' ')) return;
-        }
+        self.insertIndent(level);
 
         // Remember the cursor position — the middle indented line — then
         // insert the closing newline + indent and restore.
         const cursor_after_middle = self.buffer.cursor;
 
         if (!self.buffer.insertChar('\n')) return;
-        for (indent) |c| {
-            if (!self.buffer.insertChar(c)) return;
-        }
+        self.insertIndent(level -| 1);
 
         self.buffer.cursor = cursor_after_middle;
     }
@@ -693,15 +708,34 @@ test "escape parser: Alt+Enter (ESC \\r / ESC \\n)" {
     try std.testing.expectEqual(EscapeMode.ground, editor.escape.mode);
 }
 
-test "Alt+Enter inserts newline with same indent as current line" {
+test "Alt+Enter indents a bare top-level call one level" {
     var editor = LineEditor.testInit();
     defer editor.deinit();
 
-    editor.testInsertString("    foo");
-    // Cursor at end (position 7).
+    // `foo` is a bare top-level call head, so the next line indents one level.
+    editor.testInsertString("foo");
     editor.insertNewlineWithIndent();
-    try std.testing.expectEqualStrings("    foo\n    ", editor.buffer.slice());
-    try std.testing.expectEqual(@as(usize, 12), editor.buffer.cursor);
+    try std.testing.expectEqualStrings("foo\n    ", editor.buffer.slice());
+    try std.testing.expectEqual(@as(usize, 8), editor.buffer.cursor);
+}
+
+test "Alt+Enter on a bare proc keeps body steps at one level" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    editor.testInsertString("proc (step1)");
+    editor.insertNewlineWithIndent();
+    try std.testing.expectEqualStrings("proc (step1)\n    ", editor.buffer.slice());
+}
+
+test "Alt+Enter adds a level for each unclosed bracket" {
+    var editor = LineEditor.testInit();
+    defer editor.deinit();
+
+    // Bare call (+1) plus one unclosed `(` => level 2 => 8 spaces.
+    editor.testInsertString("proc (let");
+    editor.insertNewlineWithIndent();
+    try std.testing.expectEqualStrings("proc (let\n        ", editor.buffer.slice());
 }
 
 test "Alt+Enter at line start inserts just newline (no indent)" {
@@ -715,15 +749,14 @@ test "Alt+Enter at line start inserts just newline (no indent)" {
     try std.testing.expectEqual(@as(usize, 1), editor.buffer.cursor);
 }
 
-test "Alt+Enter mid-line truncates indent at cursor" {
+test "Alt+Enter with only whitespace before the cursor adds no indent" {
     var editor = LineEditor.testInit();
     defer editor.deinit();
 
     editor.testInsertString("    foo");
-    editor.buffer.cursor = 2; // Between the 2nd and 3rd space.
+    editor.buffer.cursor = 2; // Amid the leading whitespace: no call head yet.
     editor.insertNewlineWithIndent();
-    // Indent captured: "  " (2 spaces, up to cursor). Content after cursor: "  foo".
-    try std.testing.expectEqualStrings("  \n    foo", editor.buffer.slice());
+    try std.testing.expectEqualStrings("  \n  foo", editor.buffer.slice());
 }
 
 test "escape parser: Shift+Tab (ESC [ Z)" {
@@ -852,13 +885,15 @@ test "Alt+Enter inside `[|]` also expands" {
     try std.testing.expect(editor.buffer.cursor < editor.buffer.length);
 }
 
-test "Alt+Enter outside paired brackets stays as plain newline+indent" {
+test "Alt+Enter outside paired brackets indents structurally, not by copying" {
     var editor = LineEditor.testInit();
     defer editor.deinit();
 
+    // Not inside a pair: no expand. The new line indents to its structural
+    // level (bare call => 1), regardless of the current line's own indent.
     editor.testInsertString("  foo");
     editor.insertNewlineWithIndent();
-    try std.testing.expectEqualStrings("  foo\n  ", editor.buffer.slice());
+    try std.testing.expectEqualStrings("  foo\n    ", editor.buffer.slice());
 }
 
 test "Alt+Enter inside `\"|\"` does NOT expand (strings are single-line)" {
@@ -978,15 +1013,17 @@ test "Backspace collapse disabled when bracket_expand is off" {
     try std.testing.expectEqualStrings(expected[0..len], editor.buffer.slice());
 }
 
-test "Alt+Enter inside `(|)` with bracket_expand disabled is plain newline" {
+test "Alt+Enter inside `(|)` with bracket_expand disabled still indents" {
     var editor = LineEditor.testInit();
     defer editor.deinit();
     editor.bracket_expand = false;
 
+    // No pair-expansion (no close line), but the new line still indents one
+    // level for the unclosed `(`.
     editor.testInsertString("()");
     editor.buffer.cursor = 1;
     editor.insertNewlineWithIndent();
-    try std.testing.expectEqualStrings("(\n)", editor.buffer.slice());
+    try std.testing.expectEqualStrings("(\n    )", editor.buffer.slice());
 }
 
 test "Up arrow on row 0 falls through to history" {

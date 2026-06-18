@@ -17,6 +17,9 @@ const op_max_call_depth    = "max-call-depth";
 const op_fuel              = "fuel";
 const op_max_list_length   = "max-list-length";
 const op_max_string_length = "max-string-length";
+const op_indent_width      = "indent-width";
+const op_history_size      = "history-size";
+const op_prompt            = "prompt";
 
 const Param = exec_mod.Param;
 const on_off = [_]Param{Param.optional("$on|$off")};
@@ -42,6 +45,12 @@ pub const ReplConfig = struct {
     autopair_delete: bool = true,
     bracket_expand: bool = true,
     highlight: bool = true,
+    /// Spaces per Tab / indent level. Mirrors the editor default.
+    indent_width: usize = 4,
+    /// Lines of command history retained. Mirrors the history default.
+    history_size: usize = 256,
+    /// Input prompt, or null to use the editor's default. Owned.
+    prompt: ?[]const u8 = null,
     macro_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
     bounds: exec_mod.Bounds = .{},
     allocator: Allocator,
@@ -53,6 +62,7 @@ pub const ReplConfig = struct {
     pub fn deinit(self: *ReplConfig) void {
         for (self.macro_dirs.items) |path| self.allocator.free(path);
         self.macro_dirs.deinit(self.allocator);
+        if (self.prompt) |prompt| self.allocator.free(prompt);
     }
 };
 
@@ -167,6 +177,29 @@ fn macrosOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?value_
     return null;
 }
 
+fn indentWidthOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?value_mod.Value {
+    const n = try (try args.single()).resolveInt();
+    if (n < 1) return args.env.fail(.invalid_argument, op_indent_width ++ " must be a positive integer");
+    config.indent_width = @intCast(n);
+    return null;
+}
+
+fn historySizeOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?value_mod.Value {
+    const n = try (try args.single()).resolveInt();
+    if (n < 1) return args.env.fail(.invalid_argument, op_history_size ++ " must be a positive integer");
+    config.history_size = @intCast(n);
+    return null;
+}
+
+fn promptOp(config: *ReplConfig, args: exec_mod.Args) exec_mod.ExecError!?value_mod.Value {
+    var buf: [256]u8 = undefined;
+    const text = try (try args.single()).resolveString(&buf);
+    const owned = config.allocator.dupe(u8, text) catch return error.OutOfMemory;
+    if (config.prompt) |old| config.allocator.free(old);
+    config.prompt = owned;
+    return null;
+}
+
 const CONFIG_FILE_NAME = "config" ++ process_mod.LISH_EXTENSION;
 
 fn configFilePath(environ: std.process.Environ, allocator: Allocator) ?[]const u8 {
@@ -176,6 +209,116 @@ fn configFilePath(environ: std.process.Environ, allocator: Allocator) ?[]const u
         null;
 }
 
+/// Commented starter written by `--init-config`.
+pub const STARTER_CONFIG =
+    \\## lish REPL config. Evaluated once at startup.
+    \\## Settings are ops; wrap several in `proc`. Booleans take $on / $off.
+    \\
+    \\proc
+    \\  (indent-width 2)
+    \\  (history-size 1000)
+    \\  (prompt "> ")
+    \\  (autopair-insert $on)
+    \\  (bracket-expand $on)
+    \\  (highlight $on)
+    \\
+;
+
+pub const InitConfigResult = struct {
+    /// Absolute config path; caller frees.
+    path: []const u8,
+    /// True if newly written, false if it already existed.
+    created: bool,
+};
+
+/// Write the starter config to the standard path if absent. Returns the path and
+/// whether it was created, or null if no config location can be determined.
+pub fn initConfig(io: std.Io, environ: std.process.Environ, allocator: Allocator) !?InitConfigResult {
+    const path = configFilePath(environ, allocator) orelse return null;
+    errdefer allocator.free(path);
+
+    const cwd = std.Io.Dir.cwd();
+    cwd.access(io, path, .{}) catch |err| switch (err) {
+        error.FileNotFound => {
+            if (std.fs.path.dirname(path)) |dir| try cwd.createDirPath(io, dir);
+            try cwd.writeFile(io, .{ .sub_path = path, .data = STARTER_CONFIG });
+            return .{ .path = path, .created = true };
+        },
+        else => return err,
+    };
+    return .{ .path = path, .created = false };
+}
+
+/// Register the REPL config ops (and `on`/`off` macros) into `registry`, bound
+/// to `config`. A reusable fragment so tooling can introspect them.
+pub fn registerConfigOps(registry: *exec_mod.Registry, config: *ReplConfig, allocator: Allocator) Allocator.Error!void {
+    const g = registry.group(allocator, "repl-config");
+    try g.register(op_autopair_insert, exec_mod.Operation.fromBoundFn(ReplConfig, autopairInsertOp, config, .{
+        .signature = .{ .params = &on_off, .returns = "$none" },
+        .description = "REPL config: insert the matching closer when you type an opening bracket or quote.",
+    }));
+
+    try g.register(op_autopair_delete, exec_mod.Operation.fromBoundFn(ReplConfig, autopairDeleteOp, config, .{
+        .signature = .{ .params = &on_off, .returns = "$none" },
+        .description = "REPL config: delete the matching closer when you backspace an opening bracket.",
+    }));
+
+    try g.register(op_bracket_expand, exec_mod.Operation.fromBoundFn(ReplConfig, bracketExpandOp, config, .{
+        .signature = .{ .params = &on_off, .returns = "$none" },
+        .description = "REPL config: Alt+Enter inside a bracket pair expands it across lines; backspace collapses it.",
+    }));
+
+    try g.register(op_highlight, exec_mod.Operation.fromBoundFn(ReplConfig, highlightOp, config, .{
+        .signature = .{ .params = &on_off, .returns = "$none" },
+        .description = "REPL config: syntax highlighting of the input line.",
+    }));
+
+    try g.register(op_max_call_depth, exec_mod.Operation.fromBoundFn(ReplConfig, maxCallDepthOp, config, .{
+        .signature = .{ .params = comptime &.{Param.value("n")}, .returns = "$none" },
+        .description = "REPL config: maximum operation call-stack depth before recursion is stopped.",
+    }));
+
+    try g.register(op_fuel, exec_mod.Operation.fromBoundFn(ReplConfig, fuelOp, config, .{
+        .signature = .{ .params = &n_off, .returns = "$none" },
+        .description = "REPL config: maximum evaluation steps per expression, or $off to disable.",
+    }));
+
+    try g.register(op_max_list_length, exec_mod.Operation.fromBoundFn(ReplConfig, maxListLengthOp, config, .{
+        .signature = .{ .params = &n_off, .returns = "$none" },
+        .description = "REPL config: maximum list length, or $off to disable.",
+    }));
+
+    try g.register(op_max_string_length, exec_mod.Operation.fromBoundFn(ReplConfig, maxStringLengthOp, config, .{
+        .signature = .{ .params = &n_off, .returns = "$none" },
+        .description = "REPL config: maximum string length, or $off to disable.",
+    }));
+
+    try g.register("macros", exec_mod.Operation.fromBoundFn(ReplConfig, macrosOp, config, .{
+        .signature = .{ .params = comptime &.{Param.value("path")}, .returns = "$none" },
+        .description = "REPL config: add a directory to load macro modules from.",
+    }));
+
+    try g.register(op_indent_width, exec_mod.Operation.fromBoundFn(ReplConfig, indentWidthOp, config, .{
+        .signature = .{ .params = comptime &.{Param.value("n")}, .returns = "$none" },
+        .description = "REPL config: spaces per Tab / indent level.",
+    }));
+
+    try g.register(op_history_size, exec_mod.Operation.fromBoundFn(ReplConfig, historySizeOp, config, .{
+        .signature = .{ .params = comptime &.{Param.value("n")}, .returns = "$none" },
+        .description = "REPL config: lines of command history to retain.",
+    }));
+
+    try g.register(op_prompt, exec_mod.Operation.fromBoundFn(ReplConfig, promptOp, config, .{
+        .signature = .{ .params = comptime &.{Param.value("text")}, .returns = "$none" },
+        .description = "REPL config: the input prompt string.",
+    }));
+
+    _ = try process_mod.loadMacroModule(registry,
+        \\|on| $some
+        \\|off| $none
+    );
+}
+
 pub fn loadConfig(io: std.Io, environ: std.process.Environ, config: *ReplConfig, allocator: Allocator) void {
     const path = configFilePath(environ, allocator) orelse return;
     defer allocator.free(path);
@@ -183,66 +326,27 @@ pub fn loadConfig(io: std.Io, environ: std.process.Environ, config: *ReplConfig,
     const source = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(CONFIG_FILE_MAX_SIZE)) catch return;
     defer allocator.free(source);
 
-    var registry = exec_mod.Registry.init(allocator);
-    defer registry.deinit(allocator);
-    builtins_mod.registerCore(&registry, allocator) catch return;
+    applyConfig(config, source, allocator);
+}
 
-    const g = registry.group(allocator, "repl-config");
-    g.register(op_autopair_insert, exec_mod.Operation.fromBoundFn(ReplConfig, autopairInsertOp, config, .{
-        .signature = .{ .params = &on_off, .returns = "$none" },
-        .description = "REPL config: insert the matching closer when you type an opening bracket or quote.",
-    })) catch return;
+/// Register the config ops against a throwaway registry and evaluate `source`
+/// (config file contents) to populate `config`. Errors are swallowed: a broken
+/// line just leaves the corresponding default in place.
+fn applyConfig(config: *ReplConfig, source: []const u8, allocator: Allocator) void {
+    // The registry, parse, and eval are throwaway; only values copied into
+    // `config` (via config.allocator) outlive this call.
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const scratch = arena.allocator();
 
-    g.register(op_autopair_delete, exec_mod.Operation.fromBoundFn(ReplConfig, autopairDeleteOp, config, .{
-        .signature = .{ .params = &on_off, .returns = "$none" },
-        .description = "REPL config: delete the matching closer when you backspace an opening bracket.",
-    })) catch return;
-
-    g.register(op_bracket_expand, exec_mod.Operation.fromBoundFn(ReplConfig, bracketExpandOp, config, .{
-        .signature = .{ .params = &on_off, .returns = "$none" },
-        .description = "REPL config: Alt+Enter inside a bracket pair expands it across lines; backspace collapses it.",
-    })) catch return;
-
-    g.register(op_highlight, exec_mod.Operation.fromBoundFn(ReplConfig, highlightOp, config, .{
-        .signature = .{ .params = &on_off, .returns = "$none" },
-        .description = "REPL config: syntax highlighting of the input line.",
-    })) catch return;
-
-    g.register(op_max_call_depth, exec_mod.Operation.fromBoundFn(ReplConfig, maxCallDepthOp, config, .{
-        .signature = .{ .params = comptime &.{Param.value("n")}, .returns = "$none" },
-        .description = "REPL config: maximum operation call-stack depth before recursion is stopped.",
-    })) catch return;
-
-    g.register(op_fuel, exec_mod.Operation.fromBoundFn(ReplConfig, fuelOp, config, .{
-        .signature = .{ .params = &n_off, .returns = "$none" },
-        .description = "REPL config: maximum evaluation steps per expression, or $off to disable.",
-    })) catch return;
-
-    g.register(op_max_list_length, exec_mod.Operation.fromBoundFn(ReplConfig, maxListLengthOp, config, .{
-        .signature = .{ .params = &n_off, .returns = "$none" },
-        .description = "REPL config: maximum list length, or $off to disable.",
-    })) catch return;
-
-    g.register(op_max_string_length, exec_mod.Operation.fromBoundFn(ReplConfig, maxStringLengthOp, config, .{
-        .signature = .{ .params = &n_off, .returns = "$none" },
-        .description = "REPL config: maximum string length, or $off to disable.",
-    })) catch return;
-
-    g.register("macros", exec_mod.Operation.fromBoundFn(ReplConfig, macrosOp, config, .{
-        .signature = .{ .params = comptime &.{Param.value("path")}, .returns = "$none" },
-        .description = "REPL config: add a directory to load macro modules from.",
-    })) catch return;
-
-    const config_macros =
-        \\|on| $some
-        \\|off| $none
-    ;
-    _ = process_mod.loadMacroModule(&registry, config_macros) catch return;
+    var registry = exec_mod.Registry.init(scratch);
+    builtins_mod.registerCore(&registry, scratch) catch return;
+    registerConfigOps(&registry, config, scratch) catch return;
 
     const trimmed = std.mem.trim(u8, source, " \t\r\n");
     if (trimmed.len == 0) return;
 
-    var env = exec_mod.Env{ .registry = &registry, .allocator = allocator };
+    var env = exec_mod.Env{ .registry = &registry, .allocator = scratch };
     _ = process_mod.processRaw(&env, trimmed, null) catch {};
 }
 
@@ -293,4 +397,52 @@ pub fn runRepl(
             },
         }
     }
+}
+
+
+const testing = std.testing;
+
+test "applyConfig sets indent-width, history-size, and prompt" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var config = ReplConfig.init(arena.allocator());
+
+    applyConfig(&config, "proc (indent-width 2) (history-size 500) (prompt \"# \")", arena.allocator());
+
+    try testing.expectEqual(@as(usize, 2), config.indent_width);
+    try testing.expectEqual(@as(usize, 500), config.history_size);
+    try testing.expectEqualStrings("# ", config.prompt.?);
+}
+
+test "applyConfig applies the shipped starter config (comments + multiline)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var config = ReplConfig.init(arena.allocator());
+
+    applyConfig(&config, STARTER_CONFIG, arena.allocator());
+
+    try testing.expectEqual(@as(usize, 2), config.indent_width);
+    try testing.expectEqual(@as(usize, 1000), config.history_size);
+    try testing.expectEqualStrings("> ", config.prompt.?);
+}
+
+test "applyConfig leaves defaults when a setting is invalid" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var config = ReplConfig.init(arena.allocator());
+
+    // indent-width 0 is rejected; the default stays.
+    applyConfig(&config, "indent-width 0", arena.allocator());
+    try testing.expectEqual(@as(usize, 4), config.indent_width);
+}
+
+test "applyConfig with an empty source keeps every default" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var config = ReplConfig.init(arena.allocator());
+
+    applyConfig(&config, "   \n  ", arena.allocator());
+    try testing.expectEqual(@as(usize, 4), config.indent_width);
+    try testing.expectEqual(@as(usize, 256), config.history_size);
+    try testing.expect(config.prompt == null);
 }

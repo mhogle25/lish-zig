@@ -3,6 +3,22 @@ const lish = @import("lish");
 const line_editor_mod = lish.line_editor;
 const repl_mod = lish.repl;
 
+const HELP =
+    \\lish - interactive shell and .lish script runner
+    \\
+    \\Usage:
+    \\  lish                  Start the interactive REPL.
+    \\  lish <file.lish>      Run a script, print its result, and exit.
+    \\
+    \\Options:
+    \\  -m, --macros DIR      Load macros from DIR (repeatable, max 16).
+    \\      --init-config     Write a starter config to the standard path if absent.
+    \\      --dump-ops        Print the operation vocabulary as JSON and exit.
+    \\      --dump-macros     Print the macro vocabulary as JSON and exit.
+    \\  -h, --help            Show this help and exit.
+    \\
+;
+
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
@@ -11,6 +27,18 @@ pub fn main(init: std.process.Init) !void {
     var stderr_writer = std.Io.File.stderr().writer(io, &.{});
     const stdout = &stdout_writer.interface;
     const stderr = &stderr_writer.interface;
+
+    // --help / -h: print usage and exit.
+    {
+        var probe = init.minimal.args.iterate();
+        _ = probe.next(); // skip argv[0]
+        while (probe.next()) |arg| {
+            if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+                try stdout.writeAll(HELP);
+                return;
+            }
+        }
+    }
 
     // --dump-ops / --dump-macros: serialize the full default registry to stdout
     // and exit. This is the canonical, reproducible source of the op/macro
@@ -34,6 +62,30 @@ pub fn main(init: std.process.Init) !void {
                     try lish.introspect.serializeMacros(stdout, &registry, allocator);
                 return;
             }
+        }
+    }
+
+    // --init-config: write a commented starter config to the standard path (if
+    // absent) and exit. Never clobbers an existing config.
+    {
+        var probe = init.minimal.args.iterate();
+        _ = probe.next(); // skip argv[0]
+        while (probe.next()) |arg| {
+            if (!std.mem.eql(u8, arg, "--init-config")) continue;
+            const result = repl_mod.initConfig(io, init.minimal.environ, allocator) catch |err| {
+                try stderr.print("lish: could not write config: {s}\n", .{@errorName(err)});
+                return;
+            };
+            if (result) |r| {
+                defer allocator.free(r.path);
+                if (r.created)
+                    try stdout.print("Created {s}\n", .{r.path})
+                else
+                    try stdout.print("Config already exists at {s}\n", .{r.path});
+            } else {
+                try stderr.writeAll("lish: could not determine config path ($HOME unset)\n");
+            }
+            return;
         }
     }
 
@@ -92,6 +144,9 @@ pub fn main(init: std.process.Init) !void {
     editor.autopair_delete = repl_config.autopair_delete;
     editor.bracket_expand = repl_config.bracket_expand;
     editor.renderer.highlight_enabled = repl_config.highlight;
+    editor.indent_width = repl_config.indent_width;
+    editor.history.setLimit(repl_config.history_size);
+    if (repl_config.prompt) |prompt| editor.renderer.prompt = prompt;
     defer editor.deinit();
 
     repl_mod.runRepl(&session, &editor, stdout, stderr);

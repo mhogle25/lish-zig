@@ -5,9 +5,19 @@ const highlight = @import("../highlight.zig");
 const BUFFER_SIZE = buffer_mod.BUFFER_SIZE;
 
 pub const PROMPT = "lish> ";
-pub const CONTINUATION_PROMPT = "..... ";
 
 const ANSI_RESET = "\x1b[0m";
+
+fn displayWidth(text: []const u8) usize {
+    return std.unicode.utf8CountCodepoints(text) catch text.len;
+}
+
+// Continuation prompt sized to the prompt's display width: dots then a space.
+fn writeContinuation(writer: *std.Io.Writer, prompt_width: usize) std.Io.Writer.Error!void {
+    if (prompt_width == 0) return;
+    try writer.splatByteAll('.', prompt_width - 1);
+    try writer.writeByte(' ');
+}
 
 /// ANSI escape for a token category. Empty string means "no color, default
 /// terminal foreground." Identifiers use no color so plain text reads natural.
@@ -56,7 +66,6 @@ const HighlightState = struct {
 pub const Renderer = struct {
     stdout: *std.Io.Writer,
     prompt: []const u8 = PROMPT,
-    continuation_prompt: []const u8 = CONTINUATION_PROMPT,
     /// Row offset (from render origin) where the cursor was last positioned.
     /// Used to navigate back to the origin before redrawing.
     prev_cursor_row: usize = 0,
@@ -83,6 +92,7 @@ pub const Renderer = struct {
         writer.writeAll("\x1b[J") catch return;
 
         // Step 2: emit prompt + content row by row, tracking cursor row/col.
+        const prompt_width = displayWidth(self.prompt);
         writer.writeAll(self.prompt) catch return;
 
         var hl_state = HighlightState.init(content, self.highlight_enabled);
@@ -96,15 +106,14 @@ pub const Renderer = struct {
         var i: usize = 0;
         while (i < content.len) : (i += 1) {
             if (i == cursor) {
-                const prefix_len = if (row_count == 0) self.prompt.len else self.continuation_prompt.len;
                 cursor_row = row_count;
-                cursor_col = prefix_len + (i - line_start);
+                cursor_col = prompt_width + (i - line_start);
                 saw_cursor = true;
             }
             if (content[i] == '\n') {
                 emitRange(&writer, content, line_start, i, &hl_state);
                 writer.writeAll("\r\n") catch return;
-                writer.writeAll(self.continuation_prompt) catch return;
+                writeContinuation(&writer, prompt_width) catch return;
                 row_count += 1;
                 line_start = i + 1;
             }
@@ -113,9 +122,8 @@ pub const Renderer = struct {
 
         // Cursor at end of content (i.e., past last byte).
         if (!saw_cursor) {
-            const prefix_len = if (row_count == 0) self.prompt.len else self.continuation_prompt.len;
             cursor_row = row_count;
-            cursor_col = prefix_len + (content.len - line_start);
+            cursor_col = prompt_width + (content.len - line_start);
         }
 
         // Step 3: position cursor at the user's logical location.

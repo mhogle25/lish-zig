@@ -5,15 +5,21 @@ const Allocator = std.mem.Allocator;
 const LineBuffer = buffer_mod.LineBuffer;
 const BUFFER_SIZE = buffer_mod.BUFFER_SIZE;
 
-pub const MAX_ENTRIES = 256;
+/// Physical ring capacity. The active `limit` (how many lines are actually
+/// retained) is configurable up to this; the rest of the array stays unused.
+pub const HISTORY_CAPACITY = 1024;
+/// Default retained history size.
+pub const DEFAULT_HISTORY_SIZE = 256;
 
 /// Ring buffer of past input lines plus browse state. Methods that change the
 /// current input take a `*LineBuffer` so History stays decoupled from the
 /// editor's orchestration role.
 pub const History = struct {
-    entries: [MAX_ENTRIES]?[]const u8 = [_]?[]const u8{null} ** MAX_ENTRIES,
+    entries: [HISTORY_CAPACITY]?[]const u8 = [_]?[]const u8{null} ** HISTORY_CAPACITY,
     count: usize = 0,
     write_index: usize = 0,
+    /// Active retained-history size (the logical ring length). Set before use.
+    limit: usize = DEFAULT_HISTORY_SIZE,
     /// When browsing, index into `entries` of the currently-displayed entry.
     /// Null means not browsing.
     browse_index: ?usize = null,
@@ -27,6 +33,12 @@ pub const History = struct {
 
     pub fn init(allocator: Allocator) History {
         return .{ .allocator = allocator };
+    }
+
+    /// Set the active retained-history size, clamped to [1, HISTORY_CAPACITY].
+    /// Call before the history is used (config applies it at startup).
+    pub fn setLimit(self: *History, n: usize) void {
+        self.limit = @min(@max(n, 1), HISTORY_CAPACITY);
     }
 
     pub fn deinit(self: *History) void {
@@ -44,7 +56,7 @@ pub const History = struct {
     /// drops the entry on allocation failure.
     pub fn add(self: *History, line: []const u8) void {
         if (self.count > 0) {
-            const last_index = if (self.write_index == 0) MAX_ENTRIES - 1 else self.write_index - 1;
+            const last_index = if (self.write_index == 0) self.limit - 1 else self.write_index - 1;
             if (self.entries[last_index]) |last_entry| {
                 if (std.mem.eql(u8, last_entry, line)) return;
             }
@@ -56,8 +68,8 @@ pub const History = struct {
 
         const copy = self.allocator.dupe(u8, line) catch return;
         self.entries[self.write_index] = copy;
-        self.write_index = (self.write_index + 1) % MAX_ENTRIES;
-        if (self.count < MAX_ENTRIES) self.count += 1;
+        self.write_index = (self.write_index + 1) % self.limit;
+        if (self.count < self.limit) self.count += 1;
     }
 
     /// Move to the previous (older) history entry. On first call captures
@@ -69,12 +81,12 @@ pub const History = struct {
             @memcpy(self.saved_buffer[0..buffer.length], buffer.data[0..buffer.length]);
             self.saved_length = buffer.length;
 
-            self.browse_index = if (self.write_index == 0) MAX_ENTRIES - 1 else self.write_index - 1;
+            self.browse_index = if (self.write_index == 0) self.limit - 1 else self.write_index - 1;
         } else {
-            const oldest_index = if (self.count < MAX_ENTRIES) 0 else self.write_index;
+            const oldest_index = if (self.count < self.limit) 0 else self.write_index;
             if (self.browse_index.? == oldest_index) return;
 
-            self.browse_index = if (self.browse_index.? == 0) MAX_ENTRIES - 1 else self.browse_index.? - 1;
+            self.browse_index = if (self.browse_index.? == 0) self.limit - 1 else self.browse_index.? - 1;
         }
 
         // Browsing up lands the cursor at the end of the recalled entry, so a
@@ -87,7 +99,7 @@ pub const History = struct {
     pub fn down(self: *History, buffer: *LineBuffer) void {
         if (self.browse_index == null) return;
 
-        const newest_index = if (self.write_index == 0) MAX_ENTRIES - 1 else self.write_index - 1;
+        const newest_index = if (self.write_index == 0) self.limit - 1 else self.write_index - 1;
 
         if (self.browse_index.? == newest_index) {
             self.browse_index = null;
@@ -97,7 +109,7 @@ pub const History = struct {
             return;
         }
 
-        self.browse_index = (self.browse_index.? + 1) % MAX_ENTRIES;
+        self.browse_index = (self.browse_index.? + 1) % self.limit;
         // Mirror of `up`: browsing down lands the cursor at the start (top) of
         // the recalled entry, so a further Down keeps moving down through it.
         self.loadEntry(self.browse_index.?, buffer, .start);
@@ -221,13 +233,13 @@ test "history: ring buffer wrapping" {
     var history = History.init(std.testing.allocator);
     defer history.deinit();
 
-    for (0..MAX_ENTRIES + 10) |idx| {
+    for (0..DEFAULT_HISTORY_SIZE + 10) |idx| {
         var num_buf: [16]u8 = undefined;
         const num_str = std.fmt.bufPrint(&num_buf, "cmd {d}", .{idx}) catch continue;
         history.add(num_str);
     }
 
-    try std.testing.expectEqual(@as(usize, MAX_ENTRIES), history.count);
+    try std.testing.expectEqual(@as(usize, DEFAULT_HISTORY_SIZE), history.count);
 
     history.up(&buffer);
     try std.testing.expectEqualStrings("cmd 265", buffer.slice());

@@ -18,7 +18,6 @@ pub const offsetAt = buffer_mod.offsetAt;
 
 pub const Renderer = renderer_mod.Renderer;
 pub const PROMPT = renderer_mod.PROMPT;
-pub const CONTINUATION_PROMPT = renderer_mod.CONTINUATION_PROMPT;
 
 pub const LineEditor = editor_mod.LineEditor;
 pub const ReadLineResult = editor_mod.ReadLineResult;

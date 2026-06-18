@@ -1,0 +1,1 @@
+proc (say hi) (say hello) (say wuss good mayn) [ 1 2 3 ] (let x 5 y 10 (compare :x :y))

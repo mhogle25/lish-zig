@@ -215,7 +215,7 @@ pub const STARTER_CONFIG =
     \\## Settings are ops; wrap several in `proc`. Booleans take $on / $off.
     \\
     \\proc
-    \\  (indent-width 2)
+    \\  (indent-width 4)
     \\  (history-size 1000)
     \\  (prompt "> ")
     \\  (autopair-insert $on)
@@ -421,7 +421,7 @@ test "applyConfig applies the shipped starter config (comments + multiline)" {
 
     applyConfig(&config, STARTER_CONFIG, arena.allocator());
 
-    try testing.expectEqual(@as(usize, 2), config.indent_width);
+    try testing.expectEqual(@as(usize, 4), config.indent_width);
     try testing.expectEqual(@as(usize, 1000), config.history_size);
     try testing.expectEqualStrings("> ", config.prompt.?);
 }

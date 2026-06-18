@@ -7,14 +7,30 @@ const Args = exec.Args;
 const ExecError = exec.ExecError;
 const Registry = exec.Registry;
 const Operation = exec.Operation;
+const Param = exec.Param;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "control");
-    try g.register("if",     Operation.fromFn(ifElseOp, .{ .signature = "if cond then [else] -> value",             .description = "If the condition is truthy yield the then-branch, else the optional else-branch (or $none)." }));
-    try g.register("when",   Operation.fromFn(whenOp,   .{ .signature = "when cond result ... -> value",            .description = "Returns the result of the first truthy condition in condition/result pairs, else $none." }));
-    try g.register("match",  Operation.fromFn(matchOp,  .{ .signature = "match target pattern result ... -> value", .description = "Returns the result whose pattern equals the target in pattern/result pairs, else $none." }));
-    try g.register("assert", Operation.fromFn(assertOp, .{ .signature = "assert cond [message] -> value",           .description = "Returns the condition when truthy, else raises a user error with the optional message." }));
+    try g.register("if", Operation.fromFn(ifElseOp, .{
+        .signature = .{ .params = comptime &.{ Param.value("cond"), Param.value("then"), Param.optional("else") }, .returns = "value" },
+        .description = "If the condition is truthy yield the then-branch, else the optional else-branch (or $none).",
+    }));
+
+    try g.register("when", Operation.fromFn(whenOp, .{
+        .signature = .{ .params = comptime &.{ Param.value("cond"), Param.variadic("result") }, .returns = "value" },
+        .description = "Returns the result of the first truthy condition in condition/result pairs, else $none.",
+    }));
+
+    try g.register("match", Operation.fromFn(matchOp, .{
+        .signature = .{ .params = comptime &.{ Param.value("target"), Param.value("pattern"), Param.variadic("result") }, .returns = "value" },
+        .description = "Returns the result whose pattern equals the target in pattern/result pairs, else $none.",
+    }));
+
+    try g.register("assert", Operation.fromFn(assertOp, .{
+        .signature = .{ .params = comptime &.{ Param.value("cond"), Param.optional("message") }, .returns = "value" },
+        .description = "Returns the condition when truthy, else raises a user error with the optional message.",
+    }));
 }
 
 fn ifElseOp(args: Args) ExecError!?Value {

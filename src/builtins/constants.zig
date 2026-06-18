@@ -11,8 +11,15 @@ const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "constants");
-    try g.register("some", Operation.fromFn(someOp, .{ .signature = "some -> $some", .description = "The truthy sentinel value $some." }));
-    try g.register("none", Operation.fromFn(noneOp, .{ .signature = "none -> $none", .description = "The absent sentinel value $none." }));
+    try g.register("some", Operation.fromFn(someOp, .{
+        .signature = .{ .returns = "$some" },
+        .description = "The truthy sentinel value $some.",
+    }));
+
+    try g.register("none", Operation.fromFn(noneOp, .{
+        .signature = .{ .returns = "$none" },
+        .description = "The absent sentinel value $none.",
+    }));
 }
 
 fn someOp(_: Args) ExecError!?Value {

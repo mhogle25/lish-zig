@@ -7,14 +7,27 @@ const Args = exec.Args;
 const ExecError = exec.ExecError;
 const Registry = exec.Registry;
 const Operation = exec.Operation;
+const Param = exec.Param;
 const Allocator = std.mem.Allocator;
 
+const x_y = [_]Param{ Param.value("x"), Param.value("y") };
 
 pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "random");
-    try g.register("?",  Operation.fromFn(randInclusiveOp, .{ .signature = "? x y -> number",     .description = "Random number in the inclusive range [x, y]." }));
-    try g.register("?<", Operation.fromFn(randExclusiveOp, .{ .signature = "?< x y -> number",    .description = "Random number in the upper-exclusive range [x, y)." }));
-    try g.register("??", Operation.fromFn(randPickOp,      .{ .signature = "?? a b ... -> value", .description = "Pick one argument at random; only the chosen argument is evaluated." }));
+    try g.register("?", Operation.fromFn(randInclusiveOp, .{
+        .signature = .{ .params = &x_y, .returns = "number" },
+        .description = "Random number in the inclusive range [x, y].",
+    }));
+
+    try g.register("?<", Operation.fromFn(randExclusiveOp, .{
+        .signature = .{ .params = &x_y, .returns = "number" },
+        .description = "Random number in the upper-exclusive range [x, y).",
+    }));
+
+    try g.register("??", Operation.fromFn(randPickOp, .{
+        .signature = .{ .params = comptime &.{ Param.value("a"), Param.variadic("b") }, .returns = "value" },
+        .description = "Pick one argument at random; only the chosen argument is evaluated.",
+    }));
 }
 
 // Each op pulls bytes from io and converts to the needed type.

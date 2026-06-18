@@ -7,12 +7,20 @@ const Args = exec.Args;
 const ExecError = exec.ExecError;
 const Registry = exec.Registry;
 const Operation = exec.Operation;
+const Param = exec.Param;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "binding");
-    try g.register("let",  Operation.fromFn(letOp,  .{ .signature = "let name value ... body -> value",    .description = "Bind name/value pairs in a new scope, then evaluate the trailing body in it." }));
-    try g.register("pipe", Operation.fromFn(pipeOp, .{ .signature = "pipe name initial step ... -> value", .description = "Thread an initial value through each step, rebinding name to the running result." }));
+    try g.register("let", Operation.fromFn(letOp, .{
+        .signature = .{ .params = comptime &.{ Param.binding("name"), Param.variadic("value"), Param.body("body") }, .returns = "value", .binding_pairs = true },
+        .description = "Bind name/value pairs in a new scope, then evaluate the trailing body in it.",
+    }));
+
+    try g.register("pipe", Operation.fromFn(pipeOp, .{
+        .signature = .{ .params = comptime &.{ Param.binding("name"), Param.value("initial"), .{ .name = "step", .role = .body, .arity = .variadic } }, .returns = "value" },
+        .description = "Thread an initial value through each step, rebinding name to the running result.",
+    }));
 }
 
 fn letOp(args: Args) ExecError!?Value {

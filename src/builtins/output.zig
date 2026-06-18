@@ -7,12 +7,22 @@ const Args = exec.Args;
 const ExecError = exec.ExecError;
 const Registry = exec.Registry;
 const Operation = exec.Operation;
+const Param = exec.Param;
 const Allocator = std.mem.Allocator;
+
+const x_variadic = [_]Param{Param.variadic("x")};
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "output");
-    try g.register("say",   Operation.fromFn(sayOp,   .{ .signature = "say x ... -> $none",   .description = "Write the arguments to stdout followed by a newline." }));
-    try g.register("error", Operation.fromFn(errorOp, .{ .signature = "error x ... -> $none", .description = "Write the arguments to stderr followed by a newline." }));
+    try g.register("say", Operation.fromFn(sayOp, .{
+        .signature = .{ .params = &x_variadic, .returns = "$none" },
+        .description = "Write the arguments to stdout followed by a newline.",
+    }));
+
+    try g.register("error", Operation.fromFn(errorOp, .{
+        .signature = .{ .params = &x_variadic, .returns = "$none" },
+        .description = "Write the arguments to stderr followed by a newline.",
+    }));
 }
 
 fn sayOp(args: Args) ExecError!?Value {

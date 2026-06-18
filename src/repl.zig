@@ -18,6 +18,10 @@ const op_fuel              = "fuel";
 const op_max_list_length   = "max-list-length";
 const op_max_string_length = "max-string-length";
 
+const Param = exec_mod.Param;
+const on_off = [_]Param{Param.optional("$on|$off")};
+const n_off = [_]Param{Param.value("n|$off")};
+
 /// Write a result value in the canonical `=> <value>` form, strings quoted to
 /// disambiguate them from other types. The caller frames it (the trailing
 /// newline, and the REPL's dim ANSI). Shared by the REPL and the `lish <file>`
@@ -184,15 +188,50 @@ pub fn loadConfig(io: std.Io, environ: std.process.Environ, config: *ReplConfig,
     builtins_mod.registerCore(&registry, allocator) catch return;
 
     const g = registry.group(allocator, "repl-config");
-    g.register(op_autopair_insert,   exec_mod.Operation.fromBoundFn(ReplConfig, autopairInsertOp,  config, .{ .signature = "autopair-insert [$on|$off] -> $none", .description = "REPL config: insert the matching closer when you type an opening bracket or quote." })) catch return;
-    g.register(op_autopair_delete,   exec_mod.Operation.fromBoundFn(ReplConfig, autopairDeleteOp,  config, .{ .signature = "autopair-delete [$on|$off] -> $none", .description = "REPL config: delete the matching closer when you backspace an opening bracket." })) catch return;
-    g.register(op_bracket_expand,    exec_mod.Operation.fromBoundFn(ReplConfig, bracketExpandOp,   config, .{ .signature = "bracket-expand [$on|$off] -> $none",  .description = "REPL config: Alt+Enter inside a bracket pair expands it across lines; backspace collapses it." })) catch return;
-    g.register(op_highlight,         exec_mod.Operation.fromBoundFn(ReplConfig, highlightOp,       config, .{ .signature = "highlight [$on|$off] -> $none",       .description = "REPL config: syntax highlighting of the input line." })) catch return;
-    g.register(op_max_call_depth,    exec_mod.Operation.fromBoundFn(ReplConfig, maxCallDepthOp,    config, .{ .signature = "max-call-depth n -> $none",           .description = "REPL config: maximum operation call-stack depth before recursion is stopped." })) catch return;
-    g.register(op_fuel,              exec_mod.Operation.fromBoundFn(ReplConfig, fuelOp,            config, .{ .signature = "fuel n|$off -> $none",                .description = "REPL config: maximum evaluation steps per expression, or $off to disable." })) catch return;
-    g.register(op_max_list_length,   exec_mod.Operation.fromBoundFn(ReplConfig, maxListLengthOp,   config, .{ .signature = "max-list-length n|$off -> $none",     .description = "REPL config: maximum list length, or $off to disable." })) catch return;
-    g.register(op_max_string_length, exec_mod.Operation.fromBoundFn(ReplConfig, maxStringLengthOp, config, .{ .signature = "max-string-length n|$off -> $none",   .description = "REPL config: maximum string length, or $off to disable." })) catch return;
-    g.register("macros",             exec_mod.Operation.fromBoundFn(ReplConfig, macrosOp,          config, .{ .signature = "macros path -> $none",                .description = "REPL config: add a directory to load macro modules from." })) catch return;
+    g.register(op_autopair_insert, exec_mod.Operation.fromBoundFn(ReplConfig, autopairInsertOp, config, .{
+        .signature = .{ .params = &on_off, .returns = "$none" },
+        .description = "REPL config: insert the matching closer when you type an opening bracket or quote.",
+    })) catch return;
+
+    g.register(op_autopair_delete, exec_mod.Operation.fromBoundFn(ReplConfig, autopairDeleteOp, config, .{
+        .signature = .{ .params = &on_off, .returns = "$none" },
+        .description = "REPL config: delete the matching closer when you backspace an opening bracket.",
+    })) catch return;
+
+    g.register(op_bracket_expand, exec_mod.Operation.fromBoundFn(ReplConfig, bracketExpandOp, config, .{
+        .signature = .{ .params = &on_off, .returns = "$none" },
+        .description = "REPL config: Alt+Enter inside a bracket pair expands it across lines; backspace collapses it.",
+    })) catch return;
+
+    g.register(op_highlight, exec_mod.Operation.fromBoundFn(ReplConfig, highlightOp, config, .{
+        .signature = .{ .params = &on_off, .returns = "$none" },
+        .description = "REPL config: syntax highlighting of the input line.",
+    })) catch return;
+
+    g.register(op_max_call_depth, exec_mod.Operation.fromBoundFn(ReplConfig, maxCallDepthOp, config, .{
+        .signature = .{ .params = comptime &.{Param.value("n")}, .returns = "$none" },
+        .description = "REPL config: maximum operation call-stack depth before recursion is stopped.",
+    })) catch return;
+
+    g.register(op_fuel, exec_mod.Operation.fromBoundFn(ReplConfig, fuelOp, config, .{
+        .signature = .{ .params = &n_off, .returns = "$none" },
+        .description = "REPL config: maximum evaluation steps per expression, or $off to disable.",
+    })) catch return;
+
+    g.register(op_max_list_length, exec_mod.Operation.fromBoundFn(ReplConfig, maxListLengthOp, config, .{
+        .signature = .{ .params = &n_off, .returns = "$none" },
+        .description = "REPL config: maximum list length, or $off to disable.",
+    })) catch return;
+
+    g.register(op_max_string_length, exec_mod.Operation.fromBoundFn(ReplConfig, maxStringLengthOp, config, .{
+        .signature = .{ .params = &n_off, .returns = "$none" },
+        .description = "REPL config: maximum string length, or $off to disable.",
+    })) catch return;
+
+    g.register("macros", exec_mod.Operation.fromBoundFn(ReplConfig, macrosOp, config, .{
+        .signature = .{ .params = comptime &.{Param.value("path")}, .returns = "$none" },
+        .description = "REPL config: add a directory to load macro modules from.",
+    })) catch return;
 
     const config_macros =
         \\|on| $some

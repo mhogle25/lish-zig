@@ -9,13 +9,25 @@ const Expression = exec.Expression;
 const Thunk = exec.Thunk;
 const Registry = exec.Registry;
 const Operation = exec.Operation;
+const Param = exec.Param;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "meta");
-    try g.register("apply", Operation.fromFn(applyOp, .{ .signature = "apply name list -> value",   .description = "Call the operation named by the first argument with the elements of the list as its arguments." }));
-    try g.register("known", Operation.fromFn(knownOp, .{ .signature = "known name -> string|$none", .description = "Returns the name when it is a registered operation or macro, else $none." }));
-    try g.register("ops",   Operation.fromFn(opsOp,   .{ .signature = "ops -> list",                .description = "Returns a list of all registered operation and macro names." }));
+    try g.register("apply", Operation.fromFn(applyOp, .{
+        .signature = .{ .params = comptime &.{ Param.value("name"), Param.value("list") }, .returns = "value" },
+        .description = "Call the operation named by the first argument with the elements of the list as its arguments.",
+    }));
+
+    try g.register("known", Operation.fromFn(knownOp, .{
+        .signature = .{ .params = comptime &.{Param.value("name")}, .returns = "string|$none" },
+        .description = "Returns the name when it is a registered operation or macro, else $none.",
+    }));
+
+    try g.register("ops", Operation.fromFn(opsOp, .{
+        .signature = .{ .returns = "list" },
+        .description = "Returns a list of all registered operation and macro names.",
+    }));
 }
 
 inline fn makeExpression(id: exec.ExpressionId, arg_buf: []const *const Thunk) Expression {

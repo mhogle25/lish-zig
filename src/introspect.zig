@@ -81,7 +81,10 @@ pub fn serializeOperations(
             try writeJsonString(writer, category);
         }
         try writer.writeAll(", \"signature\": ");
-        try writeJsonString(writer, entry.op.signature);
+        var sig_buf: [512]u8 = undefined;
+        var sig_writer = std.Io.Writer.fixed(&sig_buf);
+        try entry.op.signature.render(&sig_writer, entry.name);
+        try writeJsonString(writer, sig_writer.buffered());
         try writer.writeAll(", \"description\": ");
         try writeJsonString(writer, entry.op.description);
         try writer.writeAll(if (i + 1 < entries.items.len) " },\n" else " }\n");

@@ -8,17 +8,48 @@ const Args = exec.Args;
 const ExecError = exec.ExecError;
 const Registry = exec.Registry;
 const Operation = exec.Operation;
+const Param = exec.Param;
 const Allocator = std.mem.Allocator;
+
+const ab_variadic = [_]Param{ Param.value("a"), Param.variadic("b") };
+const ab = [_]Param{ Param.value("a"), Param.value("b") };
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "comparison");
-    try g.register("<",       Operation.fromFn(lessThanOp,           .{ .signature = "< a b ... -> $some|$none",  .description = "True when the arguments are strictly increasing." }));
-    try g.register("<=",      Operation.fromFn(lessThanOrEqualOp,    .{ .signature = "<= a b ... -> $some|$none", .description = "True when the arguments are non-decreasing." }));
-    try g.register(">",       Operation.fromFn(greaterThanOp,        .{ .signature = "> a b ... -> $some|$none",  .description = "True when the arguments are strictly decreasing." }));
-    try g.register(">=",      Operation.fromFn(greaterThanOrEqualOp, .{ .signature = ">= a b ... -> $some|$none", .description = "True when the arguments are non-increasing." }));
-    try g.register("is",      Operation.fromFn(isOp,                 .{ .signature = "is a b ... -> value|$none", .description = "Equality test; returns the first value when all arguments are equal, else $none." }));
-    try g.register("isnt",    Operation.fromFn(isntOp,               .{ .signature = "isnt a b -> value|$none",   .description = "Inequality test; returns the left value when the two differ, else $none." }));
-    try g.register("compare", Operation.fromFn(compareOp,            .{ .signature = "compare a b -> int",        .description = "Three-way compare; returns -1, 0, or 1 ordering two numbers or strings." }));
+    try g.register("<", Operation.fromFn(lessThanOp, .{
+        .signature = .{ .params = &ab_variadic, .returns = "$some|$none" },
+        .description = "True when the arguments are strictly increasing.",
+    }));
+
+    try g.register("<=", Operation.fromFn(lessThanOrEqualOp, .{
+        .signature = .{ .params = &ab_variadic, .returns = "$some|$none" },
+        .description = "True when the arguments are non-decreasing.",
+    }));
+
+    try g.register(">", Operation.fromFn(greaterThanOp, .{
+        .signature = .{ .params = &ab_variadic, .returns = "$some|$none" },
+        .description = "True when the arguments are strictly decreasing.",
+    }));
+
+    try g.register(">=", Operation.fromFn(greaterThanOrEqualOp, .{
+        .signature = .{ .params = &ab_variadic, .returns = "$some|$none" },
+        .description = "True when the arguments are non-increasing.",
+    }));
+
+    try g.register("is", Operation.fromFn(isOp, .{
+        .signature = .{ .params = &ab_variadic, .returns = "value|$none" },
+        .description = "Equality test; returns the first value when all arguments are equal, else $none.",
+    }));
+
+    try g.register("isnt", Operation.fromFn(isntOp, .{
+        .signature = .{ .params = &ab, .returns = "value|$none" },
+        .description = "Inequality test; returns the left value when the two differ, else $none.",
+    }));
+
+    try g.register("compare", Operation.fromFn(compareOp, .{
+        .signature = .{ .params = &ab, .returns = "int" },
+        .description = "Three-way compare; returns -1, 0, or 1 ordering two numbers or strings.",
+    }));
 }
 
 fn lessThanOp(args: Args) ExecError!?Value {

@@ -7,13 +7,25 @@ const Args = exec.Args;
 const ExecError = exec.ExecError;
 const Registry = exec.Registry;
 const Operation = exec.Operation;
+const Param = exec.Param;
 const Allocator = std.mem.Allocator;
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "sequencing");
-    try g.register("proc",  Operation.fromFn(procOp,  .{ .signature = "proc expr ... -> value",      .description = "Evaluate each argument in order and return the last result." }));
-    try g.register("loop",  Operation.fromFn(loopOp,  .{ .signature = "loop [name] n body -> $none", .description = "Evaluate the body n times; the 3-arg form binds the iteration index to a name." }));
-    try g.register("while", Operation.fromFn(whileOp, .{ .signature = "while cond body -> $none",    .description = "Evaluate the body repeatedly while the condition stays truthy." }));
+    try g.register("proc", Operation.fromFn(procOp, .{
+        .signature = .{ .params = comptime &.{Param.variadic("expr")}, .returns = "value" },
+        .description = "Evaluate each argument in order and return the last result.",
+    }));
+
+    try g.register("loop", Operation.fromFn(loopOp, .{
+        .signature = .{ .params = comptime &.{ .{ .name = "name", .role = .binding, .arity = .optional }, Param.value("n"), Param.body("body") }, .returns = "$none" },
+        .description = "Evaluate the body n times; the 3-arg form binds the iteration index to a name.",
+    }));
+
+    try g.register("while", Operation.fromFn(whileOp, .{
+        .signature = .{ .params = comptime &.{ Param.value("cond"), Param.value("body") }, .returns = "$none" },
+        .description = "Evaluate the body repeatedly while the condition stays truthy.",
+    }));
 }
 
 fn procOp(args: Args) ExecError!?Value {

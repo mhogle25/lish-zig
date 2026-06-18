@@ -323,10 +323,64 @@ pub const Args = struct {
 
 // Operation
 
+/// One parameter in an operation's call signature. `role` is what the parameter
+/// is semantically (a plain value, a name a binding form introduces, or a body
+/// the binding is in scope for); `arity` is how it is supplied.
+pub const Param = struct {
+    name: []const u8,
+    role: Role = .value,
+    arity: Arity = .single,
+
+    pub const Role = enum { value, binding, body };
+    pub const Arity = enum { single, optional, variadic };
+
+    pub fn value(name: []const u8) Param {
+        return .{ .name = name };
+    }
+    pub fn variadic(name: []const u8) Param {
+        return .{ .name = name, .arity = .variadic };
+    }
+    pub fn optional(name: []const u8) Param {
+        return .{ .name = name, .arity = .optional };
+    }
+    pub fn binding(name: []const u8) Param {
+        return .{ .name = name, .role = .binding };
+    }
+    pub fn body(name: []const u8) Param {
+        return .{ .name = name, .role = .body };
+    }
+};
+
+/// An operation's call shape, authored as structured data. The display string
+/// (`"map name list body -> list"`) is rendered from it, and tooling reads the
+/// parameter roles directly (binding/scope analysis, signature help).
+pub const Signature = struct {
+    params: []const Param = &.{},
+    returns: []const u8,
+    /// `let`-style: the params repeat as (binding, value) pairs before the body.
+    /// The flat `params` list cannot express this; only `let` sets it.
+    binding_pairs: bool = false,
+
+    /// Write the display form `name p1 [opt] vararg ... -> returns`.
+    pub fn render(self: Signature, writer: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!void {
+        try writer.writeAll(name);
+        for (self.params) |param| {
+            try writer.writeByte(' ');
+            if (param.arity == .optional) {
+                try writer.print("[{s}]", .{param.name});
+            } else {
+                try writer.writeAll(param.name);
+            }
+            if (param.arity == .variadic) try writer.writeAll(" ...");
+        }
+        try writer.print(" -> {s}", .{self.returns});
+    }
+};
+
 pub const Operation = struct {
     context: ?*anyopaque,
     callFn: *const fn (?*anyopaque, Args) ExecError!?Value,
-    signature: []const u8,
+    signature: Signature,
     description: []const u8,
 
     /// Group this op belongs to (e.g. "arithmetic"), or null if registered
@@ -340,8 +394,8 @@ pub const Operation = struct {
     /// the LSP (hover) and by `lish.introspect` (`lish --dump-ops`). Required,
     /// not optional: an op you cannot describe is an op nobody can discover.
     pub const Meta = struct {
-        /// Call shape, e.g. "+ a b ... -> number".
-        signature: []const u8,
+        /// Call shape as structured data; the display string is rendered from it.
+        signature: Signature,
         /// One-line human summary.
         description: []const u8,
     };
@@ -837,7 +891,10 @@ test "expression evaluates operation" {
     const alloc = arena.allocator();
 
     var registry = Registry.init(alloc);
-    try registry.registerOperation(alloc, "double", Operation.fromFn(testDoubleOp, .{ .signature = "double n -> int", .description = "Test op: double an integer." }));
+    try registry.registerOperation(alloc, "double", Operation.fromFn(testDoubleOp, .{
+        .signature = .{ .params = comptime &.{Param.value("n")}, .returns = "int" },
+        .description = "Test op: double an integer.",
+    }));
 
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
@@ -929,7 +986,10 @@ test "nested expression evaluation" {
     const alloc = arena.allocator();
 
     var registry = Registry.init(alloc);
-    try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp, .{ .signature = "add a b -> int", .description = "Test op: add two integers." }));
+    try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp, .{
+        .signature = .{ .params = comptime &.{ Param.value("a"), Param.value("b") }, .returns = "int" },
+        .description = "Test op: add two integers.",
+    }));
 
     var env = Env{ .registry = &registry, .allocator = alloc };
     const scope = Scope.EMPTY;
@@ -960,7 +1020,10 @@ test "macro with value parameters" {
     const alloc = arena.allocator();
 
     var registry = Registry.init(alloc);
-    try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp, .{ .signature = "add a b -> int", .description = "Test op: add two integers." }));
+    try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp, .{
+        .signature = .{ .params = comptime &.{ Param.value("a"), Param.value("b") }, .returns = "int" },
+        .description = "Test op: add two integers.",
+    }));
 
     // Define macro: |add-one x| add :x 1
     const params = [_]MacroParameter{
@@ -1001,7 +1064,10 @@ test "macro with deferred parameter" {
     const alloc = arena.allocator();
 
     var registry = Registry.init(alloc);
-    try registry.registerOperation(alloc, "passthrough", Operation.fromFn(testPassthroughOp, .{ .signature = "passthrough x -> any", .description = "Test op: return its argument unchanged." }));
+    try registry.registerOperation(alloc, "passthrough", Operation.fromFn(testPassthroughOp, .{
+        .signature = .{ .params = comptime &.{Param.value("x")}, .returns = "any" },
+        .description = "Test op: return its argument unchanged.",
+    }));
 
     // Define macro: |run-deferred ~thunk| passthrough :thunk
     // The deferred parameter means the thunk is not evaluated until :thunk is referenced
@@ -1102,7 +1168,10 @@ test "scope entry closure captures scope" {
     const alloc = arena.allocator();
 
     var registry = Registry.init(alloc);
-    try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp, .{ .signature = "add a b -> int", .description = "Test op: add two integers." }));
+    try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp, .{
+        .signature = .{ .params = comptime &.{ Param.value("a"), Param.value("b") }, .returns = "int" },
+        .description = "Test op: add two integers.",
+    }));
 
     var env = Env{ .registry = &registry, .allocator = alloc };
 

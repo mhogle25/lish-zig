@@ -8,16 +8,42 @@ const Args = exec.Args;
 const ExecError = exec.ExecError;
 const Registry = exec.Registry;
 const Operation = exec.Operation;
+const Param = exec.Param;
 const Allocator = std.mem.Allocator;
+
+const number_fold = [_]Param{ Param.value("a"), Param.variadic("b") };
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "arithmetic");
-    try g.register("+", Operation.fromFn(addOp,      .{ .signature = "+ a b ... -> number",      .description = "Sum all arguments." }));
-    try g.register("-", Operation.fromFn(subtractOp, .{ .signature = "- a b ... -> number",      .description = "Subtract the remaining arguments from the first." }));
-    try g.register("*", Operation.fromFn(multiplyOp, .{ .signature = "* a b ... -> number",      .description = "Multiply all arguments." }));
-    try g.register("/", Operation.fromFn(divideOp,   .{ .signature = "/ a b ... -> number",      .description = "Divide the first argument by the rest; integer division truncates and division by zero yields 0." }));
-    try g.register("%", Operation.fromFn(moduloOp,   .{ .signature = "% a b ... -> number",      .description = "Modulo of the first argument by the rest; modulo by zero yields 0." }));
-    try g.register("^", Operation.fromFn(powerOp,    .{ .signature = "^ base exp ... -> number", .description = "Raise the first argument to each subsequent power, left to right." }));
+    try g.register("+", Operation.fromFn(addOp, .{
+        .signature = .{ .params = &number_fold, .returns = "number" },
+        .description = "Sum all arguments.",
+    }));
+
+    try g.register("-", Operation.fromFn(subtractOp, .{
+        .signature = .{ .params = &number_fold, .returns = "number" },
+        .description = "Subtract the remaining arguments from the first.",
+    }));
+
+    try g.register("*", Operation.fromFn(multiplyOp, .{
+        .signature = .{ .params = &number_fold, .returns = "number" },
+        .description = "Multiply all arguments.",
+    }));
+
+    try g.register("/", Operation.fromFn(divideOp, .{
+        .signature = .{ .params = &number_fold, .returns = "number" },
+        .description = "Divide the first argument by the rest; integer division truncates and division by zero yields 0.",
+    }));
+
+    try g.register("%", Operation.fromFn(moduloOp, .{
+        .signature = .{ .params = &number_fold, .returns = "number" },
+        .description = "Modulo of the first argument by the rest; modulo by zero yields 0.",
+    }));
+
+    try g.register("^", Operation.fromFn(powerOp, .{
+        .signature = .{ .params = comptime &.{ Param.value("base"), Param.variadic("exp") }, .returns = "number" },
+        .description = "Raise the first argument to each subsequent power, left to right.",
+    }));
 }
 
 fn addOp(args: Args) ExecError!?Value {

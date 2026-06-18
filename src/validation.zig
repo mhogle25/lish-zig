@@ -323,7 +323,10 @@ test "validate end-to-end with execution" {
 
     // Register an "echo" operation that returns its argument
     var registry = exec_mod.Registry.init(alloc);
-    try registry.registerOperation(alloc, "echo", exec_mod.Operation.fromFn(testEchoOp, .{ .signature = "echo x -> any", .description = "Test op: return its argument unchanged." }));
+    try registry.registerOperation(alloc, "echo", exec_mod.Operation.fromFn(testEchoOp, .{
+        .signature = .{ .params = comptime &.{exec_mod.Param.value("x")}, .returns = "any" },
+        .description = "Test op: return its argument unchanged.",
+    }));
 
     var env = exec_mod.Env{ .registry = &registry, .allocator = alloc };
     const scope = exec_mod.Scope.EMPTY;

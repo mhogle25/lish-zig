@@ -8,18 +8,53 @@ const Args = exec.Args;
 const ExecError = exec.ExecError;
 const Registry = exec.Registry;
 const Operation = exec.Operation;
+const Param = exec.Param;
 const Allocator = std.mem.Allocator;
+
+// `op name list body`: name binds each element, body is evaluated per element.
+const name_list_body = [_]Param{ Param.binding("name"), Param.value("list"), Param.body("body") };
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "higher_order");
-    try g.register("map",     Operation.fromFn(mapOp,    .{ .signature = "map name list body -> list",              .description = "Apply the body to each element bound to name, collecting the results into a list." }));
-    try g.register("for",     Operation.fromFn(forOp,    .{ .signature = "for name list body -> $none",             .description = "Evaluate the body for each element bound to name, discarding the results." }));
-    try g.register("filter",  Operation.fromFn(filterOp, .{ .signature = "filter name list body -> list",           .description = "Keep the elements for which the body bound to name is truthy." }));
-    try g.register("reduce",  Operation.fromFn(reduceOp, .{ .signature = "reduce acc init item list body -> value", .description = "Fold the list into a single value, binding the accumulator and each item by name." }));
-    try g.register("any",     Operation.fromFn(anyOp,    .{ .signature = "any name list body -> $some|$none",       .description = "True when the body bound to name is truthy for at least one element." }));
-    try g.register("all",     Operation.fromFn(allOp,    .{ .signature = "all name list body -> $some|$none",       .description = "True when the body bound to name is truthy for every element." }));
-    try g.register("count",   Operation.fromFn(countOp,  .{ .signature = "count name list body -> int",             .description = "Number of elements for which the body bound to name is truthy." }));
-    try g.register("findby",  Operation.fromFn(findbyOp, .{ .signature = "findby name list body -> value|$none",    .description = "First element for which the body bound to name is truthy, else $none." }));
+    try g.register("map", Operation.fromFn(mapOp, .{
+        .signature = .{ .params = &name_list_body, .returns = "list" },
+        .description = "Apply the body to each element bound to name, collecting the results into a list.",
+    }));
+
+    try g.register("for", Operation.fromFn(forOp, .{
+        .signature = .{ .params = &name_list_body, .returns = "$none" },
+        .description = "Evaluate the body for each element bound to name, discarding the results.",
+    }));
+
+    try g.register("filter", Operation.fromFn(filterOp, .{
+        .signature = .{ .params = &name_list_body, .returns = "list" },
+        .description = "Keep the elements for which the body bound to name is truthy.",
+    }));
+
+    try g.register("reduce", Operation.fromFn(reduceOp, .{
+        .signature = .{ .params = comptime &.{ Param.binding("acc"), Param.value("init"), Param.binding("item"), Param.value("list"), Param.body("body") }, .returns = "value" },
+        .description = "Fold the list into a single value, binding the accumulator and each item by name.",
+    }));
+
+    try g.register("any", Operation.fromFn(anyOp, .{
+        .signature = .{ .params = &name_list_body, .returns = "$some|$none" },
+        .description = "True when the body bound to name is truthy for at least one element.",
+    }));
+
+    try g.register("all", Operation.fromFn(allOp, .{
+        .signature = .{ .params = &name_list_body, .returns = "$some|$none" },
+        .description = "True when the body bound to name is truthy for every element.",
+    }));
+
+    try g.register("count", Operation.fromFn(countOp, .{
+        .signature = .{ .params = &name_list_body, .returns = "int" },
+        .description = "Number of elements for which the body bound to name is truthy.",
+    }));
+
+    try g.register("findby", Operation.fromFn(findbyOp, .{
+        .signature = .{ .params = &name_list_body, .returns = "value|$none" },
+        .description = "First element for which the body bound to name is truthy, else $none.",
+    }));
 }
 
 fn mapOp(args: Args) ExecError!?Value {

@@ -39,6 +39,8 @@ pub const Scope = exec.Scope;
 pub const Args = exec.Args;
 pub const Registry = exec.Registry;
 pub const Operation = exec.Operation;
+pub const Signature = exec.Signature;
+pub const Param = exec.Param;
 pub const Macro = exec.Macro;
 pub const Bounds = exec.Bounds;
 

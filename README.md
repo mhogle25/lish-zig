@@ -227,7 +227,7 @@ pub fn main() !void {
         .validation_err => |errors| {
             for (errors) |err| std.debug.print("Validation: {s}\n", .{err.message});
         },
-        .runtime_err => |msg| std.debug.print("Runtime: {s}\n", .{msg}),
+        .runtime_err => |err| std.debug.print("Runtime [{s}]: {s}\n", .{ @tagName(err.category), err.message }),
     }
 }
 ```

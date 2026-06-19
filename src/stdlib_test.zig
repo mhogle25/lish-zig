@@ -396,3 +396,77 @@ test "stdlib: panic raises runtime error" {
     const result = testing.evalWithStdlib(arena.allocator(), "panic \"oops\"");
     try std.testing.expectError(error.RuntimeError, result);
 }
+
+test "stdlib: ok constructs an [ok payload] Result" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithStdlib(arena.allocator(), "ok 5");
+    const list = result.?.list;
+    try std.testing.expectEqualStrings("ok", list[0].?.string);
+    try std.testing.expectEqual(@as(i64, 5), list[1].?.int);
+}
+
+test "stdlib: err constructs an [err payload] Result" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithStdlib(arena.allocator(), "err \"boom\"");
+    const list = result.?.list;
+    try std.testing.expectEqualStrings("err", list[0].?.string);
+    try std.testing.expectEqualStrings("boom", list[1].?.string);
+}
+
+test "stdlib: pass projects an ok Result to its payload" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithStdlib(arena.allocator(), "pass (ok 5)");
+    try std.testing.expectEqual(@as(i64, 5), result.?.int);
+}
+
+test "stdlib: pass on an err Result is $none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithStdlib(arena.allocator(), "pass (err \"boom\")");
+    try std.testing.expect(result == null);
+}
+
+test "stdlib: fail projects an err Result to its payload" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithStdlib(arena.allocator(), "fail (err \"boom\")");
+    try std.testing.expectEqualStrings("boom", result.?.string);
+}
+
+test "stdlib: fail on an ok Result is $none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithStdlib(arena.allocator(), "fail (ok 5)");
+    try std.testing.expect(result == null);
+}
+
+test "stdlib: unwrap yields the payload of an ok Result" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithStdlib(arena.allocator(), "unwrap (ok 42)");
+    try std.testing.expectEqual(@as(i64, 42), result.?.int);
+}
+
+test "stdlib: unwrap panics on an err Result" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = testing.evalWithStdlib(arena.allocator(), "unwrap (err \"kaboom\")");
+    try std.testing.expectError(error.RuntimeError, result);
+}
+
+test "stdlib: given over a pass-projected ok Result binds the payload" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithStdlib(arena.allocator(), "given v (pass (ok 10)) (* :v 2) 0");
+    try std.testing.expectEqual(@as(i64, 20), result.?.int);
+}
+
+test "stdlib: given over a pass-projected err Result runs the else" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithStdlib(arena.allocator(), "given v (pass (err \"x\")) (* :v 2) 0");
+    try std.testing.expectEqual(@as(i64, 0), result.?.int);
+}

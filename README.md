@@ -21,7 +21,7 @@ lish borrows Lisp's prefix notation and parenthesized sub-expressions, but diver
 - **Existential truthiness** — no booleans; values either exist (`?Value`) or they don't (`null`)
 - **Arena allocation** — parse and execute within a single arena lifecycle
 - **Expression caching** — generic LRU cache avoids redundant parsing
-- **92 built-in operations** — arithmetic, comparison, logic, control flow, string, list, higher-order, type, math, binding, and meta functions, plus a small bundled stdlib of macros (`clamp`, `sign`, `pi`, `fill`, kv-list helpers, etc.) loaded automatically
+- **93 built-in operations** — arithmetic, comparison, logic, control flow, string, list, higher-order, type, math, binding, and meta functions, plus a small bundled stdlib of macros (`clamp`, `sign`, `pi`, `fill`, kv-list helpers, Result helpers, etc.) loaded automatically
 - **Bindings everywhere** — `let` and `pipe` introduce names, and the iterative ops (`map`, `filter`, `reduce`, `loop`, etc.) all take a binding name and a body expression, so transforms live inline at the call site
 - **Session API** — backend-agnostic REPL core
 - **AST builder** — fluent Zig API for constructing lish expressions and macro definitions programmatically
@@ -552,7 +552,7 @@ Defaults are permissive (recursion depth aside) so existing scripts and library 
 | `parser.zig`               | Recursive descent expression parser                                                      |
 | `validation.zig`           | AST to executable transformation with error checking                                     |
 | `exec.zig`                 | Runtime: Thunk, Expression, Scope, Env, Registry                                         |
-| `builtins.zig`             | Registration entry point for the 92 built-in operations                                  |
+| `builtins.zig`             | Registration entry point for the 93 built-in operations                                  |
 | `builtins/`                | One module per category (arithmetic, lists, strings, higher_order, binding, types, ...)  |
 | `introspect.zig`           | Registry self-description: serialize ops/macros to JSON (`lish --dump-ops` / `--dump-macros`) |
 | `boundary.zig`             | Shared expression-boundary finder for embedders (folio's `{...}`, macro `\|...\|`)        |

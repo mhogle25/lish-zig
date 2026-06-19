@@ -21,6 +21,33 @@ pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void 
         .signature = .{ .params = comptime &.{ Param.binding("name"), Param.value("initial"), .{ .name = "step", .role = .body, .arity = .variadic } }, .returns = "value" },
         .description = "Thread an initial value through each step, rebinding name to the running result.",
     }));
+
+    try g.register("given", Operation.fromFn(givenOp, .{
+        .signature = .{ .params = comptime &.{ Param.binding("name"), Param.value("source"), Param.body("ok"), .{ .name = "else", .role = .body, .arity = .optional } }, .returns = "value" },
+        .description = "Evaluate source; if non-$none bind it to name and run the ok body, else run the optional else body (or $none).",
+    }));
+}
+
+fn givenOp(args: Args) ExecError!?Value {
+    const count = args.count();
+    if (count != 3 and count != 4) {
+        return args.env.fail(.arity_mismatch, "'given' expects 3 or 4 arguments (name, source, ok-body, [else-body])");
+    }
+
+    var name_buf: [256]u8 = undefined;
+    const raw_name = try args.at(0).resolveString(&name_buf);
+
+    const source = try args.items[1].proc(args.env, args.scope);
+    if (source) |value| {
+        var bound_scope = exec.Scope{ .parent = args.scope };
+        defer bound_scope.deinit(args.env.allocator);
+        const name = try args.env.allocator.dupe(u8, raw_name);
+        try bound_scope.setValue(args.env.allocator, name, value);
+        return args.items[2].proc(args.env, &bound_scope);
+    }
+
+    if (count == 4) return args.items[3].proc(args.env, args.scope);
+    return null;
 }
 
 fn letOp(args: Args) ExecError!?Value {
@@ -239,6 +266,57 @@ test "pipe: too few args fails" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = testing.evalWithBuiltins(arena.allocator(), "pipe x 5");
+    try std.testing.expectError(error.RuntimeError, result);
+}
+
+test "given: binds the source and runs the ok body when non-none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "given x 5 (* :x 2) 0");
+    try std.testing.expectEqual(@as(i64, 10), result.?.int);
+}
+
+test "given: runs the else body when the source is none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "given x $none (* :x 2) 99");
+    try std.testing.expectEqual(@as(i64, 99), result.?.int);
+}
+
+test "given: a missing else yields none on a none source" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "given x $none (* :x 2)");
+    try std.testing.expect(result == null);
+}
+
+test "given: the binding is not visible to the else body" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // :x must resolve to the outer binding, not the (unbound) given name.
+    const result = try testing.evalWithBuiltins(arena.allocator(), "let x 7 (given x $none :x :x)");
+    try std.testing.expectEqual(@as(i64, 7), result.?.int);
+}
+
+test "given: the binding does not leak past the body" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = testing.evalWithBuiltins(arena.allocator(), "proc (given x 5 :x) :x");
+    try std.testing.expectError(error.RuntimeError, result);
+}
+
+test "given: the ok body is not evaluated on a none source" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // If the ok body ran, :x would be unbound and this would error; the else wins.
+    const result = try testing.evalWithBuiltins(arena.allocator(), "given x $none :x 1");
+    try std.testing.expectEqual(@as(i64, 1), result.?.int);
+}
+
+test "given: wrong arg count fails" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = testing.evalWithBuiltins(arena.allocator(), "given x 5");
     try std.testing.expectError(error.RuntimeError, result);
 }
 

@@ -136,3 +136,31 @@
 ## sites than `assert $none :msg`.
 | panic msg |
    assert $none :msg
+
+## Result type
+##
+## A Result is a 2-element list [tag payload], tag = ok or err, for expected
+## failure that carries a reason. (Mere absence uses Optional instead: $none vs
+## a value, which composes with or/and/if/assert/given directly.) The tag lives
+## at slot 0 (`first`) and the payload at slot 1 (`last`); no special accessors.
+## Tags are bare-term strings, so `is (first :r) ok` matches the unquoted tag.
+
+## ok: construct a success Result wrapping v.
+| ok v |
+   list ok :v
+
+## err: construct a failure Result wrapping message m.
+| err m |
+   list err :m
+
+## pass: the payload if this Result is ok, else $none (Result -> Optional).
+| pass r |
+   if (is (first :r) ok) (last :r) $none
+
+## fail: the payload if this Result is err, else $none (Result -> Optional).
+| fail r |
+   if (is (first :r) err) (last :r) $none
+
+## unwrap: the payload if this Result is ok, else panic with the err payload.
+| unwrap r |
+   if (is (first :r) ok) (last :r) (panic (last :r))

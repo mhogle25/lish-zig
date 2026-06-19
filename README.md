@@ -6,10 +6,10 @@ A Lisp-family expression language interpreter for Zig. Designed to be embedded i
 
 lish borrows Lisp's prefix notation and parenthesized sub-expressions but diverges sharply:
 
-- **No parentheses at the top level** — `+ 1 2` is complete; parens only nest: `+ 1 (* 2 3)`.
-- **No symbols, no booleans** — bare words are strings; truthiness is existential (any non-null value is truthy, `null` is falsy).
-- **Call-by-name** — arguments aren't evaluated before the call; they're re-evaluated each time the callee accesses them.
-- **No first-class functions, no mutable state** — macros are parameter-substitution patterns; host state flows in read-only through scopes.
+- **No parentheses at the top level:** `+ 1 2` is complete; parens only nest: `+ 1 (* 2 3)`.
+- **No symbols, no booleans:** bare words are strings; truthiness is existential (any non-null value is truthy, `null` is falsy).
+- **Call-by-name:** arguments aren't evaluated before the call; they're re-evaluated each time the callee accesses them.
+- **No first-class functions, no mutable state:** macros are parameter-substitution patterns; host state flows in read-only through scopes.
 
 See [Syntax](docs/syntax.md) for the full picture.
 
@@ -17,7 +17,7 @@ See [Syntax](docs/syntax.md) for the full picture.
 
 - **Deferred evaluation**, **macro system** (`|name params| body`), **existential truthiness**
 - **93 built-in operations** plus a bundled stdlib of macros (math, kv-list, Result helpers), loaded automatically
-- **Bindings everywhere** — `let`, `pipe`, `given`, and the iterative ops (`map`/`filter`/`reduce`/…) take an inline binding name + body
+- **Bindings everywhere:** `let`, `pipe`, `given`, and the iterative ops (`map`/`filter`/`reduce`/...) take an inline binding name + body
 - **Session API**, **AST builder + serializer**, **arena allocation**, **expression caching**
 - **Embeddable** as a Zig module via `zig fetch`
 
@@ -60,8 +60,8 @@ See [Embedding](docs/embedding.md) for sessions, macros, custom ops, and scopes.
 
 Full docs live in **[`docs/`](docs/)**:
 
-- [Syntax](docs/syntax.md) · [Built-in Operations](docs/operations.md) · [Error handling](docs/errors.md)
-- [Embedding](docs/embedding.md) · [REPL & CLI](docs/repl.md) · [Architecture](docs/architecture.md)
+- [Syntax](docs/syntax.md) | [Built-in Operations](docs/operations.md) | [Error handling](docs/errors.md)
+- [Embedding](docs/embedding.md) | [REPL & CLI](docs/repl.md) | [Architecture](docs/architecture.md)
 
 The authoritative operation reference is always the live registry: `zig build run -- --dump-ops` (and `--dump-macros`).
 

@@ -113,7 +113,7 @@ zig build run -- -m macros/math.lishmacro
 
 ## The bundled stdlib
 
-lish ships a small standard-library macro file (`src/stdlib.lishmacro`) compiled into the binary via `@embedFile`. `builtins.registerCore` (and therefore `builtins.registerAll`) loads it automatically — consumers calling those functions get the stdlib macros without any extra setup.
+lish ships a small standard-library macro file (`src/stdlib.lishmacro`) compiled into the binary via `@embedFile`. `builtins.registerCore` (and therefore `builtins.registerAll`) loads it automatically; consumers calling those functions get the stdlib macros without any extra setup.
 
 For consumers wiring up a custom registry that doesn't go through `registerCore`, load it explicitly:
 
@@ -137,19 +137,19 @@ try b.string("hello")    // hello
 try b.scope("x")         // :x  (scope reference)
 try b.call("none")       // $none  (zero-argument call)
 
-// Expressions — chain .arg(), finish with .build()
+// Expressions: chain .arg(), finish with .build()
 var eb = b.expr("+");
 const node = try eb.arg(try b.int(1)).arg(try b.int(2)).build();
-// → + 1 2
+// -> + 1 2
 
 // Nested sub-expressions
 var inner = b.expr("+");
 const inner_node = try inner.arg(try b.int(1)).arg(try b.int(2)).build();
 var outer = b.expr("+");
 const root = try outer.arg(inner_node).arg(try b.int(3)).build();
-// → + (+ 1 2) 3
+// -> + (+ 1 2) 3
 
-// Sugar types — meta type locked at construction
+// Sugar types: meta type locked at construction
 var lb = b.list();
 const list_node = try lb.arg(try b.int(1)).arg(try b.int(2)).build();  // .list_literal
 
@@ -171,7 +171,7 @@ const body = try say_eb.arg(concat_node).build();
 
 var mb = b.macro("greet");
 const macro_def = try mb.param("name").body(body);
-// → |greet name| say (concat "hello " :name)
+// -> |greet name| say (concat "hello " :name)
 ```
 
 ## Serializing AST to Source
@@ -179,7 +179,7 @@ const macro_def = try mb.param("name").body(body);
 Any AST node or macro definition can be serialized back to lish source text:
 
 ```zig
-// Expression node → source string
+// Expression node -> source string
 try lish.serializeExpression(node, writer);
 
 // Single macro definition
@@ -189,7 +189,7 @@ try lish.serializeMacro(macro_def, writer);
 try lish.serializeMacroModule(macros, writer);
 ```
 
-Serialization always emits the canonical desugared form — `list` instead of `[...]`, `proc` instead of `{...}`. Comments are not preserved (they are discarded by the lexer during parsing).
+Serialization always emits the canonical desugared form: `list` instead of `[...]`, `proc` instead of `{...}`. Comments are not preserved (they are discarded by the lexer during parsing).
 
 ## Populating a Scope
 
@@ -198,10 +198,10 @@ Serialization always emits the canonical desugared form — `list` instead of `[
 ```zig
 var scope = lish.Scope{};
 
-// Bind a static value — accessed instantly, no re-evaluation
+// Bind a static value: accessed instantly, no re-evaluation
 try scope.setValue(allocator, "playerName", .{ .string = "Aiden" });
 
-// Bind a lazily-evaluated expression — re-evaluated each time :varName is accessed
+// Bind a lazily-evaluated expression: re-evaluated each time :varName is accessed
 const expr: lish.exec.Expression = ...; // built or validated externally
 try scope.setExpression(allocator, "greeting", expr);
 

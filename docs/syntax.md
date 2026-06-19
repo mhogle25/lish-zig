@@ -64,11 +64,11 @@ Macros (params accessed with `:`):
 
 ## Key Concepts
 
-- `$term` — single-term expression (evaluates the term as a zero-argument call)
-- `:name` — scope thunk (looks up a named entry in the current scope; used to access macro parameters)
-- `[...]` — list sugar
-- `{...}` — block sugar (desugars to `proc`; evaluates each sub-expression in order, returns the last)
-- `~param` — deferred parameter in macro definitions (not evaluated until accessed)
+- `$term`: single-term expression (evaluates the term as a zero-argument call)
+- `:name`: scope thunk (looks up a named entry in the current scope; used to access macro parameters)
+- `[...]`: list sugar
+- `{...}`: block sugar (desugars to `proc`; evaluates each sub-expression in order, returns the last)
+- `~param`: deferred parameter in macro definitions (not evaluated until accessed)
 - `?Value` = truthy, `null` = falsy
 
 ## How lish differs from Lisp
@@ -76,9 +76,9 @@ Macros (params accessed with `:`):
 lish borrows Lisp's prefix notation and parenthesized sub-expressions, but diverges significantly. If you're coming from Scheme, Common Lisp, or Clojure, expect these differences:
 
 - **No parentheses at the top level.** `+ 1 2` is a complete expression. Parens only appear when nesting: `+ 1 (* 2 3)`.
-- **No symbols.** Bare words are strings, not a distinct symbol type. The `'expr` quote operator does not exist — `'...'` is simply a string literal that allows whitespace.
+- **No symbols.** Bare words are strings, not a distinct symbol type. The `'expr` quote operator does not exist; `'...'` is simply a string literal that allows whitespace.
 - **No booleans.** There are no `true`/`false`, `t`/`nil` values. Truthiness is existential: any non-null value is truthy, `null` is falsy.
 - **Call-by-name, not call-by-value.** Arguments are not evaluated before the call. They are re-evaluated each time the callee accesses them. This applies uniformly to all operations, not just special forms.
 - **No cons cells.** Lists are flat arrays. There is no `car`, `cdr`, or dotted pair notation.
 - **No first-class functions.** There is no `lambda` and no closures. Macros are named parameter-substitution patterns evaluated at call time, not compile-time code transformers.
-- **No mutable state.** There is no `set`, `define`, or `setq`. Host state flows in through scope thunks and is read-only from within lish. Bindings exist (`let`, `pipe`, and the iterative ops like `map`/`filter`/`reduce` all introduce a name for the duration of a body expression) but every binding is immutable, lexically scoped, and evaporates at the end of its body — none of them can be reassigned, and they don't leak into sibling expressions or called macros.
+- **No mutable state.** There is no `set`, `define`, or `setq`. Host state flows in through scope thunks and is read-only from within lish. Bindings exist (`let`, `pipe`, and the iterative ops like `map`/`filter`/`reduce` all introduce a name for the duration of a body expression) but every binding is immutable, lexically scoped, and evaporates at the end of its body; none of them can be reassigned, and they don't leak into sibling expressions or called macros.

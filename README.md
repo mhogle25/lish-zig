@@ -1,4 +1,4 @@
-# lish-zig
+# lish
 
 A Lisp-family expression language interpreter for Zig. Designed to be embedded in other Zig projects as a scripting/configuration DSL or a shell-like utility.
 
@@ -180,7 +180,7 @@ The chain returns the first non-zero `compare` result â€” preserving the sign â€
 Add as a dependency in your `build.zig.zon`:
 
 ```
-zig fetch --save git+https://github.com/mhogle25/lish-zig.git
+zig fetch --save git+https://github.com/mhogle25/lish.git
 ```
 
 Then in your `build.zig`:

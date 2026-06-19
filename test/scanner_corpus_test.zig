@@ -1,4 +1,4 @@
-//! Runs the shared scanner-boundary corpus against lish-zig.
+//! Runs the shared scanner-boundary corpus against lish.
 //!
 //! Cases come from `lish.scanner_corpus` (which @embedFiles them from
 //! `src/scanner_corpus/`). Two runners share the corpus:
@@ -36,7 +36,7 @@ fn findPipeBoundary(source: []const u8) ?u32 {
     }
 }
 
-test "scanner corpus: every `|` case matches lish-zig's lexer" {
+test "scanner corpus: every `|` case matches lish's lexer" {
     var pipe_count: usize = 0;
 
     for (lish.scanner_corpus.cases) |case| {

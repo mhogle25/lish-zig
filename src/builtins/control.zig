@@ -23,8 +23,8 @@ pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void 
     }));
 
     try g.register("match", Operation.fromFn(matchOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("target"), Param.value("pattern"), Param.variadic("result") }, .returns = "value" },
-        .description = "Returns the result whose pattern equals the target in pattern/result pairs, else $none.",
+        .signature = .{ .params = comptime &.{ Param.value("target"), Param.value("pattern"), Param.variadic("result"), Param.optional("default") }, .returns = "value" },
+        .description = "Returns the result whose pattern equals the target in pattern/result pairs, else the optional trailing default (or $none).",
     }));
 
     try g.register("assert", Operation.fromFn(assertOp, .{
@@ -65,14 +65,19 @@ fn whenOp(args: Args) ExecError!?Value {
 
 fn matchOp(args: Args) ExecError!?Value {
     const count = args.count();
-    if (count < 3 or count % 2 == 0) {
-        return args.env.fail(.arity_mismatch, "'match' expects an odd number of arguments (target + pattern/result pairs)");
+    if (count < 3) {
+        return args.env.fail(.arity_mismatch, "'match' expects a target plus at least one pattern/result pair");
     }
+
+    // After the target, an even number of arguments are pattern/result pairs;
+    // an odd remainder means the final argument is the no-match default.
+    const has_default = (count - 1) % 2 == 1;
+    const pairs_end = if (has_default) count - 1 else count;
 
     const target = try args.at(0).get();
 
     var i: usize = 1;
-    while (i < count) : (i += 2) {
+    while (i < pairs_end) : (i += 2) {
         const pattern = try args.at(i).get();
 
         const matches = if (target == null and pattern == null)
@@ -87,7 +92,7 @@ fn matchOp(args: Args) ExecError!?Value {
         }
     }
 
-    return null;
+    return if (has_default) args.at(count - 1).get() else null;
 }
 
 fn assertOp(args: Args) ExecError!?Value {
@@ -137,6 +142,35 @@ test "control flow: match" {
     defer arena.deinit();
     const result = try testing.evalWithBuiltins(arena.allocator(), "match 2 1 10 2 20 3 30");
     try std.testing.expectEqual(@as(i64, 20), result.?.int);
+}
+
+test "control flow: match returns a matched arm's result" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "match 2 1 10 2 20 99");
+    try std.testing.expectEqual(@as(i64, 20), result.?.int);
+}
+
+test "control flow: match preserves a matched arm whose result is $none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // The arm for 2 legitimately yields $none; the trailing default must NOT shadow it.
+    const result = try testing.evalWithBuiltins(arena.allocator(), "match 2 1 10 2 $none 99");
+    try std.testing.expect(result == null);
+}
+
+test "control flow: match returns the trailing default on a miss" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "match 7 1 10 2 20 99");
+    try std.testing.expectEqual(@as(i64, 99), result.?.int);
+}
+
+test "control flow: match without a default yields $none on a miss" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "match 7 1 10 2 20");
+    try std.testing.expect(result == null);
 }
 
 test "control flow: assert truthy passes through" {

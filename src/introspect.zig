@@ -22,6 +22,7 @@ const exec = @import("exec.zig");
 
 const Registry = exec.Registry;
 const Operation = exec.Operation;
+const Param = exec.Param;
 const Macro = exec.Macro;
 const Allocator = std.mem.Allocator;
 
@@ -41,6 +42,24 @@ const MacroEntry = struct {
 
 fn macroLessByName(_: void, a: MacroEntry, b: MacroEntry) bool {
     return std.mem.order(u8, a.name, b.name) == .lt;
+}
+
+/// Write the structured parameter list as JSON: each param's name plus its
+/// `role` (value/binding/body) and `arity` (single/optional/variadic). This is
+/// what lets a consumer reconstruct the full `Signature` and do binding/scope
+/// analysis, rather than only displaying the rendered `signature` string.
+fn writeParams(writer: *std.Io.Writer, params: []const Param) !void {
+    try writer.writeAll(", \"params\": [");
+    for (params, 0..) |param, i| {
+        try writer.writeAll(if (i == 0) " { \"name\": " else ", { \"name\": ");
+        try writeJsonString(writer, param.name);
+        try writer.writeAll(", \"role\": ");
+        try writeJsonString(writer, @tagName(param.role));
+        try writer.writeAll(", \"arity\": ");
+        try writeJsonString(writer, @tagName(param.arity));
+        try writer.writeAll(" }");
+    }
+    try writer.writeAll(if (params.len == 0) "]" else " ]");
 }
 
 fn writeJsonString(writer: *std.Io.Writer, text: []const u8) !void {
@@ -87,6 +106,10 @@ pub fn serializeOperations(
         try writeJsonString(writer, sig_writer.buffered());
         try writer.writeAll(", \"description\": ");
         try writeJsonString(writer, entry.op.description);
+        try writer.writeAll(", \"returns\": ");
+        try writeJsonString(writer, entry.op.signature.returns);
+        if (entry.op.signature.binding_pairs) try writer.writeAll(", \"binding_pairs\": true");
+        try writeParams(writer, entry.op.signature.params);
         try writer.writeAll(if (i + 1 < entries.items.len) " },\n" else " }\n");
     }
     try writer.writeAll("]\n");

@@ -20,7 +20,7 @@ only falsy value, Optionals compose with existing ops for free:
 ```
 or (kvget :config "port") 8080      ## default on absence
 if (kvget :config "verbose") ...    ## branch on presence
-assert (kvget :config "name")       ## value-or-panic ("expect")
+assert (kvget :config "name") "name is required"   ## value-or-panic ("expect")
 ```
 
 ### `given`: the Optional binding-if
@@ -81,6 +81,8 @@ match (first :r)
 | `pass R` | the payload if `R` is `ok`, else `$none` (Result -> Optional) |
 | `fail R` | the payload if `R` is `err`, else `$none` (Result -> Optional) |
 | `unwrap R` | the payload if `R` is `ok`, else `panic` with the err payload |
+
+All three **panic on a value that isn't a Result** (a tag other than `ok`/`err`), naming the offending value, so a type mix-up surfaces loudly instead of as a silent `$none` indistinguishable from an `err`.
 
 `pass`/`fail` project a Result down to an Optional, so a Result flows straight into
 the Optional tools above:

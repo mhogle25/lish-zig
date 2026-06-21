@@ -6,7 +6,7 @@
 | Arithmetic        | `+`, `-`, `*`, `/`, `%`, `^`                                                                                                     |
 | Comparison        | `<`, `<=`, `>`, `>=`, `is`, `isnt`, `compare`                                                                                    |
 | Logic             | `and`, `or`, `not`                                                                                                               |
-| Control Flow      | `if`, `when`, `match`, `assert`                                                                                                  |
+| Control Flow      | `if`, `when`, `match`, `panic`                                                                                                   |
 | String            | `concat`, `join`, `split`, `chars`, `lines`, `trim`, `upper`, `lower`, `replace`, `format`                                       |
 | String Predicates | `prefix`, `suffix`, `in`, `find`                                                                                                 |
 | Output            | `say`, `error`                                                                                                                   |
@@ -17,18 +17,20 @@
 | Math              | `min`, `max`, `abs`, `floor`, `ceil`, `round`, `even`, `odd`, `sqrt`, `sin`, `cos`, `log`, `exp`                                 |
 | Type              | `type`, `int`, `float`, `string`, `inspect`                                                                                      |
 | Sequencing        | `proc`, `loop`, `while`                                                                                                          |
-| Binding           | `let`, `pipe`, `given`                                                                                                           |
+| Binding           | `let`, `unpack`, `pipe`, `given`                                                                                                 |
 
 > The authoritative, always-current list of every operation, with signatures and
 > descriptions, comes straight from the registry: `zig build run -- --dump-ops`
 > (and `--dump-macros` for the bundled stdlib macros). The table above is a
 > hand-maintained overview; the dump cannot drift.
 
-The bundled stdlib (`src/stdlib.lishmacro`) loaded automatically by `registerCore` adds math helpers (`squared`, `cubed`, `clamp`, `clamp01`, `pi`, `sign`, `lerp`, `smoothstep`, `negate`), list helpers (`fill`, `pop`), string helpers (`repeatstr`, `padleft`, `padright`), predicates (`positive`, `negative`, `zero`, `between`, `numeric`, `blank`), `panic`, a kv-list family (`kvget`, `kvhas`, `kvkeys`, `kvvalues`, `kvset`, `kvmerge`) for working with flat alternating key/value lists, and a Result family (`ok`, `err`, `pass`, `fail`, `unwrap`; see [Error handling](errors.md)).
+The bundled stdlib (`src/stdlib.lishmacro`) loaded automatically by `registerCore` adds math helpers (`squared`, `cubed`, `clamp`, `clamp01`, `pi`, `sign`, `lerp`, `smoothstep`, `negate`), list helpers (`fill`, `pop`), string helpers (`repeatstr`, `padleft`, `padright`), predicates (`positive`, `negative`, `zero`, `between`, `numeric`, `blank`), `assert` (the conditional wrapper over the `panic` builtin), a kv-list family (`kvget`, `kvhas`, `kvkeys`, `kvvalues`, `kvset`, `kvmerge`) for working with flat alternating key/value lists, and a Result family (`ok`, `err`, `pass`, `fail`, `unwrap`; see [Error handling](errors.md)).
 
 `proc` takes its name from three overlapping meanings: **procedure** (execute a sequence of steps), **procure** (retrieve a value), and **process** (transform a sequence). With one argument it returns that argument's value; with multiple arguments it evaluates each in order and returns the last.
 
 `let NAME EXPR BODY` evaluates `EXPR` once, binds the result to `NAME` for the duration of `BODY`, and returns the body's value. Inside `BODY`, references via `:NAME` resolve to the bound value. Bindings are immutable, lexically scoped, and do not leak into sibling expressions or called macros. `let` accepts multiple name/value pairs before the body, evaluated sequentially so later pairs can reference earlier ones.
+
+`unpack NAME... SOURCE BODY` binds each `NAME` to the positional element of `SOURCE` (a list or string) in a new scope, then evaluates `BODY`. A name past the source length binds `$none`; extra elements are ignored. Panics if `SOURCE` is not a list or string. It tears apart a Result or any small positional structure without repeated `at`/`first`/`last`: `unpack tag value :r (concat :tag " => " :value)`.
 
 `pipe NAME INITIAL STEP...` threads a value through a sequence of transformations. The first step is evaluated with `:NAME` bound to `INITIAL`; each subsequent step receives the previous step's result via the same binding. Returns the final step's value. Example: `pipe x 25 (sqrt :x) (+ :x 3)` -> `(+ (sqrt 25) 3)` -> `8`.
 

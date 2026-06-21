@@ -35,7 +35,16 @@ pub const SourceId = union(enum) {
 
 // Runtime errors
 
-/// Category of a runtime error. Hosts use this to distinguish (e.g.) "fuel
+/// lish signals a non-happy path in one of three tiers; pick by asking "would
+/// the caller sensibly handle this, or did they make a mistake?":
+///   - $none:      legitimate absence in the op's domain (out-of-bounds index,
+///                 no match, predicate false). Composable; the caller may handle it.
+///   - Result err: a recoverable failure carrying a reason (the [err msg] type).
+///   - panic:      a contract violation (wrong runtime type/shape, "impossible"
+///                 case). Not meant to be caught. So a wrong type is a panic,
+///                 never a silent $none.
+///
+/// ErrorCategory tags tier-3 panics so hosts can distinguish (e.g.) "fuel
 /// exhausted" from "type mismatch" without parsing the message text.
 pub const ErrorCategory = enum {
     fuel_exhausted,            // bounds: fuel
@@ -48,7 +57,7 @@ pub const ErrorCategory = enum {
     bounds_violation,          // index access out of valid range
     arithmetic,                // divide by zero, integer overflow, etc.
     invalid_argument,          // right type, unacceptable value
-    user,                      // explicit script-raised (assert, future panic)
+    user,                      // explicit script-raised (panic)
     internal,                  // interpreter bug / shouldn't-happen
 };
 

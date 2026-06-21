@@ -17,7 +17,7 @@ See [Syntax](docs/syntax.md) for the full picture.
 
 - **Deferred evaluation**, **macro system** (`|name params| body`), **existential truthiness**
 - **93 built-in operations** plus a bundled stdlib of macros (math, kv-list, Result helpers), loaded automatically
-- **Bindings everywhere:** `let`, `pipe`, `given`, and the iterative ops (`map`/`filter`/`reduce`/...) take an inline binding name + body
+- **Bindings everywhere:** `let`, `unpack`, `pipe`, `given`, and the iterative ops (`map`/`filter`/`reduce`/...) take an inline binding name + body
 - **Session API**, **AST builder + serializer**, **arena allocation**, **expression caching**
 - **Embeddable** as a Zig module via `zig fetch`
 

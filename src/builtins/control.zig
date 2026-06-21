@@ -27,9 +27,9 @@ pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void 
         .description = "Returns the result whose pattern equals the target in pattern/result pairs, else the optional trailing default (or $none).",
     }));
 
-    try g.register("assert", Operation.fromFn(assertOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("cond"), Param.optional("message") }, .returns = "value" },
-        .description = "Returns the condition when truthy, else raises a user error with the optional message.",
+    try g.register("panic", Operation.fromFn(panicOp, .{
+        .signature = .{ .params = comptime &.{Param.value("message")}, .returns = "$none" },
+        .description = "Raise a runtime error with the message; never returns.",
     }));
 }
 
@@ -95,17 +95,11 @@ fn matchOp(args: Args) ExecError!?Value {
     return if (has_default) args.at(count - 1).get() else null;
 }
 
-fn assertOp(args: Args) ExecError!?Value {
-    const count = args.count();
-    if (count < 1 or count > 2) return args.env.fail(.arity_mismatch, "'assert' expects 1 or 2 arguments");
-    const condition = try args.at(0).get();
-    if (condition != null) return condition;
-    if (count == 2) {
-        var msg_buf: [512]u8 = undefined;
-        const message = try args.at(1).resolveString(&msg_buf);
-        return args.env.failFmt(.user, "Assertion failed: {s}", .{message});
-    }
-    return args.env.fail(.user, "Assertion failed");
+fn panicOp(args: Args) ExecError!?Value {
+    if (args.count() != 1) return args.env.fail(.arity_mismatch, "'panic' expects 1 argument");
+    var msg_buf: [512]u8 = undefined;
+    const message = try args.at(0).resolveString(&msg_buf);
+    return args.env.failFmt(.user, "{s}", .{message});
 }
 
 
@@ -173,24 +167,17 @@ test "control flow: match without a default yields $none on a miss" {
     try std.testing.expect(result == null);
 }
 
-test "control flow: assert truthy passes through" {
+test "control flow: panic raises a runtime error" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const result = try testing.evalWithBuiltins(arena.allocator(), "assert 42");
-    try std.testing.expectEqual(@as(i64, 42), result.?.int);
-}
-
-test "control flow: assert falsy errors" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const result = testing.evalWithBuiltins(arena.allocator(), "assert $none");
+    const result = testing.evalWithBuiltins(arena.allocator(), "panic \"boom\"");
     try std.testing.expectError(error.RuntimeError, result);
 }
 
-test "control flow: assert falsy with message errors" {
+test "control flow: panic stringifies a non-string argument" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const result = testing.evalWithBuiltins(arena.allocator(), "assert $none \"expected a value\"");
+    const result = testing.evalWithBuiltins(arena.allocator(), "panic 42");
     try std.testing.expectError(error.RuntimeError, result);
 }
 

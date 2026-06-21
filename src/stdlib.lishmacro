@@ -132,10 +132,10 @@
 
 ## Control-flow helpers
 
-## panic: unconditional failure with a message. Reads more naturally at call
-## sites than `assert $none :msg`.
-| panic msg |
-   assert $none :msg
+## assert: the condition when truthy, else panic with the framed message.
+## (panic is the builtin primitive; assert is the conditional wrapper over it.)
+| assert cond msg |
+   if :cond :cond (panic (concat "Assertion failed: " :msg))
 
 ## Result type
 ##
@@ -143,7 +143,10 @@
 ## failure that carries a reason. (Mere absence uses Optional instead: $none vs
 ## a value, which composes with or/and/if/assert/given directly.) The tag lives
 ## at slot 0 (`first`) and the payload at slot 1 (`last`); no special accessors.
-## Tags are bare-term strings, so `is (first :r) ok` matches the unquoted tag.
+## Tags are bare-term strings, so `match (first :r) ok ...` dispatches on the
+## unquoted tag. The accessors reserve $none for the type's legitimate empty
+## (err for pass, ok for fail) and panic when the tag is neither ok nor err, so
+## a non-Result fails loudly instead of masquerading as an empty $none.
 
 ## ok: construct a success Result wrapping v.
 | ok v |
@@ -155,12 +158,22 @@
 
 ## pass: the payload if this Result is ok, else $none (Result -> Optional).
 | pass r |
-   if (is (first :r) ok) (last :r) $none
+    match (first :r)
+        ok  (last :r) 
+        err $none
+        (panic (concat "pass: Not a Result -> " :r))
 
 ## fail: the payload if this Result is err, else $none (Result -> Optional).
 | fail r |
-   if (is (first :r) err) (last :r) $none
+    match (first :r) 
+        ok  $none
+        err (last :r) 
+        (panic (concat "fail: Not a Result -> " :r))
 
 ## unwrap: the payload if this Result is ok, else panic with the err payload.
 | unwrap r |
-   if (is (first :r) ok) (last :r) (panic (last :r))
+    match (first :r) 
+        ok  (last :r) 
+        err (panic (last :r))
+        (panic (concat "unwrap: Not a Result -> " :r))
+

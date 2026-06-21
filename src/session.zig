@@ -29,7 +29,8 @@ pub const Session = struct {
     registry: Registry,
     env: Env,
     expression_cache: ExpressionCache,
-    arena: std.heap.ArenaAllocator,
+    parse_arena: std.heap.ArenaAllocator, // persistent: cached parses
+    eval_arena: std.heap.ArenaAllocator, // transient: reset each execute()
     session_allocator: Allocator,
 
     pub fn init(allocator: Allocator, config: SessionConfig) !Session {
@@ -38,8 +39,6 @@ pub const Session = struct {
 
         var expression_cache = try ExpressionCache.init(allocator, config.expression_cache_capacity);
         errdefer expression_cache.deinit();
-
-        const arena = std.heap.ArenaAllocator.init(allocator);
 
         var session = Session{
             .io = config.io,
@@ -53,7 +52,8 @@ pub const Session = struct {
                 .bounds = config.bounds,
             },
             .expression_cache = expression_cache,
-            .arena = arena,
+            .parse_arena = std.heap.ArenaAllocator.init(allocator),
+            .eval_arena = std.heap.ArenaAllocator.init(allocator),
             .session_allocator = allocator,
         };
 
@@ -74,40 +74,27 @@ pub const Session = struct {
 
     pub fn deinit(self: *Session) void {
         self.expression_cache.deinit();
-        self.arena.deinit();
+        self.parse_arena.deinit();
+        self.eval_arena.deinit();
         self.registry.deinit(self.session_allocator);
     }
 
-    /// Execute a single line of input. This is the main entry point.
-    /// Terminal REPL calls this in a loop. Raylib calls this from an event.
-    ///
-    /// The arena grows across executions because cached expressions hold
-    /// pointers into arena memory. Call clearCache() + resetArena() to
-    /// reclaim memory when appropriate.
+    /// Execute one input. The returned value is valid until the next execute().
     pub fn execute(self: *Session, input: []const u8) Allocator.Error!ProcessResult {
         self.prepareEnv();
-        return process_mod.processRawCached(
-            &self.env,
-            &self.expression_cache,
-            input,
-            null,
-        );
+        return process_mod.processRawCached(&self.env, self.parse_arena.allocator(), &self.expression_cache, input, null);
     }
 
-    /// Execute with a provided scope.
+    /// Execute with a provided scope. Result valid until the next execute().
     pub fn executeWithScope(self: *Session, input: []const u8, scope: *const Scope) Allocator.Error!ProcessResult {
         self.prepareEnv();
-        return process_mod.processRawCached(
-            &self.env,
-            &self.expression_cache,
-            input,
-            scope,
-        );
+        return process_mod.processRawCached(&self.env, self.parse_arena.allocator(), &self.expression_cache, input, scope);
     }
 
     fn prepareEnv(self: *Session) void {
+        _ = self.eval_arena.reset(.retain_capacity); // reclaim the previous execution's transients
         self.env.registry = &self.registry;
-        self.env.allocator = self.arena.allocator();
+        self.env.allocator = self.eval_arena.allocator();
         self.env.runtime_error = null;
         self.env.call_depth = 0;
         self.env.fuel_remaining = self.env.bounds.fuel;
@@ -128,11 +115,11 @@ pub const Session = struct {
         self.expression_cache.clear();
     }
 
-    /// Clear the cache and reset the arena to reclaim memory.
-    /// Call this periodically in long-running sessions.
+    /// Clear the cache and reset the parse arena. The eval arena self-resets
+    /// each execute(), so this only reclaims cached parses.
     pub fn resetArena(self: *Session) void {
         self.expression_cache.clear();
-        _ = self.arena.reset(.retain_capacity);
+        _ = self.parse_arena.reset(.retain_capacity);
     }
 };
 
@@ -216,4 +203,20 @@ test "session: clear cache" {
 
     session.clearCache();
     try std.testing.expectEqual(@as(usize, 0), session.expression_cache.count());
+}
+
+test "session: eval arena is reclaimed across executions" {
+    var session = try Session.init(std.testing.allocator, .{
+        .io = std.Io.failing,
+        .fragments = &.{&builtins.registerAll},
+    });
+    defer session.deinit();
+
+    // A list-producing expression allocates transient values on every run.
+    _ = try session.execute("range 0 500");
+    const baseline = session.eval_arena.queryCapacity();
+
+    for (0..100) |_| _ = try session.execute("range 0 500");
+    // Each execute resets the eval arena, so 100 more runs don't grow it.
+    try std.testing.expectEqual(baseline, session.eval_arena.queryCapacity());
 }

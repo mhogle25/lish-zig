@@ -86,11 +86,12 @@ pub fn processRaw(
     }
 }
 
-/// Parse, validate, and execute, with expression caching.
-/// On cache hit, skips parsing and validation entirely.
-/// The env's allocator should outlive the cache (e.g. a session-scoped arena).
+/// Parse (cached), validate, and execute. The cached expression is allocated in
+/// `parse_allocator` (must outlive the cache); execution allocates transient
+/// values in `env.allocator`.
 pub fn processRawCached(
     env: *Env,
+    parse_allocator: Allocator,
     expression_cache: *ExpressionCache,
     source: []const u8,
     scope: ?*const Scope,
@@ -100,9 +101,9 @@ pub fn processRawCached(
         return executeExpression(env, expression, scope);
     }
 
-    // Cache miss: parse, validate, cache, execute
-    const ast_root = try expr_parser.parse(env.allocator, source);
-    const validation_result = try validation_mod.validate(env.allocator, ast_root);
+    // Cache miss: parse + validate into parse_allocator, cache, then execute.
+    const ast_root = try expr_parser.parse(parse_allocator, source);
+    const validation_result = try validation_mod.validate(parse_allocator, ast_root);
 
     switch (validation_result) {
         .ok => |expression| {
@@ -263,7 +264,7 @@ test "processRaw: simple expression" {
             try std.testing.expectEqual(@as(i64, 3), maybe_value.?.int);
         },
         .validation_err => return error.TestUnexpectedResult,
-        .runtime_err => return error.TestUnexpectedResult,
+        .runtime_err    => return error.TestUnexpectedResult,
     }
 }
 
@@ -302,7 +303,7 @@ test "processRaw: returns none for none operation" {
             try std.testing.expect(maybe_value == null);
         },
         .validation_err => return error.TestUnexpectedResult,
-        .runtime_err => return error.TestUnexpectedResult,
+        .runtime_err    => return error.TestUnexpectedResult,
     }
 }
 
@@ -334,7 +335,7 @@ test "processRaw: runtime error for unknown operation" {
 
     const result = try processRaw(&env, "nonexistent 1 2", null);
     switch (result) {
-        .ok => return error.TestUnexpectedResult,
+        .ok             => return error.TestUnexpectedResult,
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => |re| {
             try std.testing.expect(std.mem.indexOf(u8, re.message, "nonexistent") != null);
@@ -364,7 +365,7 @@ test "processRaw: with scope" {
             try std.testing.expectEqual(@as(i64, 15), maybe_value.?.int);
         },
         .validation_err => return error.TestUnexpectedResult,
-        .runtime_err => return error.TestUnexpectedResult,
+        .runtime_err    => return error.TestUnexpectedResult,
     }
 }
 
@@ -391,7 +392,7 @@ test "loadMacroModule: load and execute macros" {
             try std.testing.expectEqual(@as(i64, 42), maybe_value.?.int);
         },
         .validation_err => return error.TestUnexpectedResult,
-        .runtime_err => return error.TestUnexpectedResult,
+        .runtime_err    => return error.TestUnexpectedResult,
     }
 }
 
@@ -419,7 +420,7 @@ test "loadMacroModule: multiple macros" {
             try std.testing.expectEqual(@as(i64, 12), maybe_value.?.int);
         },
         .validation_err => return error.TestUnexpectedResult,
-        .runtime_err => return error.TestUnexpectedResult,
+        .runtime_err    => return error.TestUnexpectedResult,
     }
 }
 
@@ -455,7 +456,7 @@ test "loadFragments: load multiple registry fragments" {
             try std.testing.expectEqual(@as(i64, 3), maybe_value.?.int);
         },
         .validation_err => return error.TestUnexpectedResult,
-        .runtime_err => return error.TestUnexpectedResult,
+        .runtime_err    => return error.TestUnexpectedResult,
     }
 }
 
@@ -487,7 +488,7 @@ test "processRaw: full pipeline with macros and scope" {
             try std.testing.expectEqual(@as(i64, 150), maybe_value.?.int);
         },
         .validation_err => return error.TestUnexpectedResult,
-        .runtime_err => return error.TestUnexpectedResult,
+        .runtime_err    => return error.TestUnexpectedResult,
     }
 }
 
@@ -504,20 +505,20 @@ test "processRawCached: cache hit skips parsing" {
     defer expression_cache.deinit();
 
     // First call: cache miss (parse + validate + cache + execute)
-    const result1 = try processRawCached(&env, &expression_cache, "+ 1 2", null);
+    const result1 = try processRawCached(&env, env.allocator, &expression_cache, "+ 1 2", null);
     switch (result1) {
         .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 3), maybe_value.?.int),
         .validation_err => return error.TestUnexpectedResult,
-        .runtime_err => return error.TestUnexpectedResult,
+        .runtime_err    => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqual(@as(usize, 1), expression_cache.count());
 
     // Second call: cache hit (execute only)
-    const result2 = try processRawCached(&env, &expression_cache, "+ 1 2", null);
+    const result2 = try processRawCached(&env, env.allocator, &expression_cache, "+ 1 2", null);
     switch (result2) {
         .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 3), maybe_value.?.int),
         .validation_err => return error.TestUnexpectedResult,
-        .runtime_err => return error.TestUnexpectedResult,
+        .runtime_err    => return error.TestUnexpectedResult,
     }
 }
 
@@ -533,18 +534,18 @@ test "processRawCached: different expressions get separate cache entries" {
     var expression_cache = try ExpressionCache.init(std.testing.allocator, 16);
     defer expression_cache.deinit();
 
-    const result1 = try processRawCached(&env, &expression_cache, "+ 1 2", null);
-    const result2 = try processRawCached(&env, &expression_cache, "* 3 4", null);
+    const result1 = try processRawCached(&env, env.allocator, &expression_cache, "+ 1 2", null);
+    const result2 = try processRawCached(&env, env.allocator, &expression_cache, "* 3 4", null);
 
     switch (result1) {
         .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 3), maybe_value.?.int),
         .validation_err => return error.TestUnexpectedResult,
-        .runtime_err => return error.TestUnexpectedResult,
+        .runtime_err    => return error.TestUnexpectedResult,
     }
     switch (result2) {
         .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 12), maybe_value.?.int),
         .validation_err => return error.TestUnexpectedResult,
-        .runtime_err => return error.TestUnexpectedResult,
+        .runtime_err    => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqual(@as(usize, 2), expression_cache.count());
 }
@@ -560,11 +561,11 @@ test "processRawCached: validation errors are not cached" {
     var expression_cache = try ExpressionCache.init(std.testing.allocator, 16);
     defer expression_cache.deinit();
 
-    const result = try processRawCached(&env, &expression_cache, "", null);
+    const result = try processRawCached(&env, env.allocator, &expression_cache, "", null);
     switch (result) {
         .ok => return error.TestUnexpectedResult,
         .validation_err => |errors| try std.testing.expect(errors.len > 0),
-        .runtime_err => return error.TestUnexpectedResult,
+        .runtime_err    => return error.TestUnexpectedResult,
     }
     try std.testing.expectEqual(@as(usize, 0), expression_cache.count());
 }
@@ -589,7 +590,7 @@ test "let: let-binding does not leak into a called macro's body" {
     // outer `let` binds y=42; macro is called from the body; macro must not see :y
     const result = try processRaw(&env, "let y 42 (grab)", null);
     switch (result) {
-        .ok => return error.TestUnexpectedResult,
+        .ok             => return error.TestUnexpectedResult,
         .validation_err => return error.TestUnexpectedResult,
         .runtime_err => {}, // expected, :y not in macro scope
     }

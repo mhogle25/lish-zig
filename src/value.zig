@@ -107,6 +107,23 @@ pub const Value = union(enum) {
         };
     }
 
+    /// Deep-copy into `allocator` so the value outlives the arena it was produced
+    /// in. Scalars pass through by value; strings and lists are copied recursively.
+    /// Use this to keep a result past the next session execute().
+    pub fn dupe(self: Value, allocator: std.mem.Allocator) std.mem.Allocator.Error!Value {
+        return switch (self) {
+            .int, .float => self,
+            .string => |str| .{ .string = try allocator.dupe(u8, str) },
+            .list => |items| blk: {
+                const copy = try allocator.alloc(?Value, items.len);
+                for (items, copy) |item, *dst| {
+                    dst.* = if (item) |inner| try inner.dupe(allocator) else null;
+                }
+                break :blk .{ .list = copy };
+            },
+        };
+    }
+
     pub fn format(self: Value, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self) {
             .string => |str| try writer.writeAll(str),
@@ -191,4 +208,44 @@ test "value equality" {
 test "condition" {
     try std.testing.expect(toCondition(true) != null);
     try std.testing.expect(toCondition(false) == null);
+}
+
+test "value dupe survives its source arena" {
+    // Build a string + nested list in a scratch arena that we then throw away.
+    var source = std.heap.ArenaAllocator.init(std.testing.allocator);
+    const scratch = source.allocator();
+
+    const inner = try scratch.alloc(?Value, 2);
+    inner[0] = .{ .string = try scratch.dupe(u8, "hi") };
+    inner[1] = null;
+    const original: Value = .{ .list = &[_]?Value{
+        .{ .string = try scratch.dupe(u8, "keep me") },
+        .{ .int = 7 },
+        .{ .list = inner },
+    } };
+
+    const kept = try original.dupe(std.testing.allocator);
+    defer freeValue(std.testing.allocator, kept);
+
+    source.deinit(); // the original's backing memory is now gone
+
+    const items = try kept.getL();
+    try std.testing.expectEqualStrings("keep me", items[0].?.string);
+    try std.testing.expectEqual(@as(i64, 7), items[1].?.int);
+    const nested = try items[2].?.getL();
+    try std.testing.expectEqualStrings("hi", nested[0].?.string);
+    try std.testing.expect(nested[1] == null);
+}
+
+/// Recursively free a value produced by `dupe` (test helper: a real host would
+/// use an arena and free it in one shot).
+fn freeValue(allocator: std.mem.Allocator, value: Value) void {
+    switch (value) {
+        .string => |str| allocator.free(str),
+        .list => |items| {
+            for (items) |item| if (item) |inner| freeValue(allocator, inner);
+            allocator.free(items);
+        },
+        .int, .float => {},
+    }
 }

@@ -17,6 +17,11 @@ pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void 
         .description = "Bind name/value pairs in a new scope, then evaluate the trailing body in it.",
     }));
 
+    try g.register("unpack", Operation.fromFn(unpackOp, .{
+        .signature = .{ .params = comptime &.{ .{ .name = "name", .role = .binding, .arity = .variadic }, Param.value("source"), Param.body("body") }, .returns = "value" },
+        .description = "Bind each name to the source's positional element (a list or string; $none past the end, extras ignored) in a new scope, then evaluate the body. Panics if source is not a list or string.",
+    }));
+
     try g.register("pipe", Operation.fromFn(pipeOp, .{
         .signature = .{ .params = comptime &.{ Param.binding("name"), Param.value("initial"), .{ .name = "step", .role = .body, .arity = .variadic } }, .returns = "value" },
         .description = "Thread an initial value through each step, rebinding name to the running result.",
@@ -66,6 +71,45 @@ fn letOp(args: Args) ExecError!?Value {
         const raw_name = try args.at(i).resolveString(&name_buf);
         const name     = try args.env.allocator.dupe(u8, raw_name);
         const value    = try args.items[i + 1].proc(args.env, &extended_scope);
+        try extended_scope.setValue(args.env.allocator, name, value);
+    }
+
+    return args.items[body_index].proc(args.env, &extended_scope);
+}
+
+fn unpackOp(args: Args) ExecError!?Value {
+    const count = args.count();
+    if (count < 3) {
+        return args.env.fail(.arity_mismatch, "'unpack' expects names, a source list, and a body");
+    }
+
+    const source_index = count - 2;
+    const body_index = count - 1;
+
+    var extended_scope = exec.Scope{ .parent = args.scope };
+    defer extended_scope.deinit(args.env.allocator);
+
+    // The source must be an indexable collection (list or string, like `at`);
+    // anything else (including $none) is a misuse.
+    const source = (try args.items[source_index].proc(args.env, &extended_scope)) orelse
+        return args.env.fail(.type_mismatch, "'unpack' expects a list or string, got none");
+    const len: usize = switch (source) {
+        .list => |xs| xs.len,
+        .string => |s| s.len,
+        else => return args.env.failFmt(.type_mismatch, "'unpack' expects a list or string, got {s}", .{source.typeName()}),
+    };
+
+    // Bind each name positionally; a name past the source length gets $none.
+    var name_buf: [256]u8 = undefined;
+    var i: usize = 0;
+    while (i < source_index) : (i += 1) {
+        const raw_name = try args.at(i).resolveString(&name_buf);
+        const name = try args.env.allocator.dupe(u8, raw_name);
+        const value: ?Value = if (i < len) switch (source) {
+            .list => |xs| xs[i],
+            .string => |s| .{ .string = s[i .. i + 1] },
+            else => unreachable,
+        } else null;
         try extended_scope.setValue(args.env.allocator, name, value);
     }
 
@@ -317,6 +361,48 @@ test "given: wrong arg count fails" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = testing.evalWithBuiltins(arena.allocator(), "given x 5");
+    try std.testing.expectError(error.RuntimeError, result);
+}
+
+test "unpack: binds names to positional elements" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "unpack a b (list 7 8) (+ :a :b)");
+    try std.testing.expectEqual(@as(i64, 15), result.?.int);
+}
+
+test "unpack: a name past the source length is none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "unpack a b c (list 1 2) :c");
+    try std.testing.expect(result == null);
+}
+
+test "unpack: extra source elements are ignored" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "unpack a (list 9 8 7) :a");
+    try std.testing.expectEqual(@as(i64, 9), result.?.int);
+}
+
+test "unpack: destructures a string into chars" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "unpack a b \"hi\" (concat :a :b)");
+    try std.testing.expectEqualStrings("hi", result.?.string);
+}
+
+test "unpack: a non-collection source panics" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = testing.evalWithBuiltins(arena.allocator(), "unpack a 42 :a");
+    try std.testing.expectError(error.RuntimeError, result);
+}
+
+test "unpack: a none source panics" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = testing.evalWithBuiltins(arena.allocator(), "unpack a $none :a");
     try std.testing.expectError(error.RuntimeError, result);
 }
 

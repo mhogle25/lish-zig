@@ -74,18 +74,18 @@ pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void 
     }));
 
     try g.register("first", Operation.fromFn(firstOp, .{
-        .signature = .{ .params = &list_param, .returns = "value|$none" },
-        .description = "First element of a list, else $none.",
+        .signature = .{ .params = &collection_param, .returns = "value|$none" },
+        .description = "First element of a list, or first character of a string; else $none.",
     }));
 
     try g.register("last", Operation.fromFn(lastOp, .{
-        .signature = .{ .params = &list_param, .returns = "value|$none" },
-        .description = "Last element of a list, else $none.",
+        .signature = .{ .params = &collection_param, .returns = "value|$none" },
+        .description = "Last element of a list, or last character of a string; else $none.",
     }));
 
     try g.register("rest", Operation.fromFn(restOp, .{
-        .signature = .{ .params = &list_param, .returns = "list" },
-        .description = "List without its first element.",
+        .signature = .{ .params = &collection_param, .returns = "collection" },
+        .description = "A list without its first element, or a string without its first character.",
     }));
 
     try g.register("at", Operation.fromFn(atOp, .{

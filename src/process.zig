@@ -336,6 +336,41 @@ test "one stamped AST resolves per-registry, not to whoever stamped it" {
     try std.testing.expectEqual(@as(i64, 1), (try env_one.processExpression(stamped, &scope)).?.int);
 }
 
+test "shared Program lets registries with their own macros share one AST" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var program = exec_mod.Program{};
+
+    // reg_macro owns macro `m`; its body call site stamps from the shared space.
+    var reg_macro = Registry.init(alloc);
+    defer reg_macro.deinit(alloc);
+    program.adopt(&reg_macro);
+    try builtins.registerAll(&reg_macro, alloc);
+    _ = try loadMacroModule(&reg_macro, "|m| + 0 7");
+
+    // A second registry stamps a foreign AST that calls `m`. Sharing the program,
+    // its site id is fresh and never aliases reg_macro's macro-body site (without
+    // sharing both would be 0, and the input would read the macro's memoized slot).
+    var reg_input = Registry.init(alloc);
+    defer reg_input.deinit(alloc);
+    program.adopt(&reg_input);
+    try builtins.registerAll(&reg_input, alloc);
+
+    const ast = try expr_parser.parse(alloc, "m");
+    var input = switch (try validation_mod.validate(alloc, ast)) {
+        .ok => |e| e,
+        .err => return error.TestUnexpectedResult,
+    };
+    exec_mod.stampExpression(&input, &reg_input);
+
+    const scope = Scope.EMPTY;
+    var env = Env{ .registry = &reg_macro, .allocator = alloc };
+    // The foreign input resolves `m` against reg_macro and runs its body (+ 0 7).
+    try std.testing.expectEqual(@as(i64, 7), (try env.processExpression(input, &scope)).?.int);
+}
+
 test "processRaw: returns none for none operation" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

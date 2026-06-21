@@ -569,6 +569,10 @@ pub const Registry = struct {
     /// this registry's counter; phase 2 hoists the counter to a shared owner.
     resolution: std.ArrayListUnmanaged(ResolvedSlot) = .empty,
     site_counter: u32 = 0,
+    /// When set, call sites are stamped from this shared counter instead of the
+    /// registry's own, so several registries draw from one id space and can each
+    /// resolve a shared AST without site-id collisions. Null = standalone.
+    site_space: ?*u32 = null,
     base_allocator: Allocator,
 
     pub fn init(allocator: Allocator) Registry {
@@ -580,10 +584,11 @@ pub const Registry = struct {
         };
     }
 
-    /// Allocate the next call-site id.
+    /// Allocate the next call-site id, from the shared id space if linked.
     pub fn nextSite(self: *Registry) u32 {
-        const id = self.site_counter;
-        self.site_counter += 1;
+        const counter = self.site_space orelse &self.site_counter;
+        const id = counter.*;
+        counter.* += 1;
         return id;
     }
 
@@ -640,6 +645,20 @@ pub const Registry = struct {
         if (self.getOperation(name)) |op|    return .{ .resolved_op    = op };
         if (self.getMacro(name))    |macro|  return .{ .resolved_macro = macro };
         return null;
+    }
+};
+
+/// A shared call-site id space. Registries adopted into one Program stamp their
+/// ASTs from a single counter, so a parsed AST can be shared across them and each
+/// resolve it (into its own per-registry table) without site-id collisions. A
+/// later step can fold the shared parse cache in here too.
+pub const Program = struct {
+    site_counter: u32 = 0,
+
+    /// Route a registry's stamping through this Program's id space. Call before
+    /// stamping or loading macros into the registry.
+    pub fn adopt(self: *Program, registry: *Registry) void {
+        registry.site_space = &self.site_counter;
     }
 };
 

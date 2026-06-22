@@ -480,6 +480,9 @@ pub const Macro = struct {
     id: []const u8,
     parameters: []const MacroParameter,
     body: Expression,
+    /// One-line docstring (the `##` comment run directly above the macro head), or
+    /// empty. Surfaced by hover and `--dump-macros`, mirroring an op's description.
+    description: []const u8 = "",
     /// Source the macro body's thunks belong to. Swapped into env.current_source
     /// during execution so positions captured by env.fail resolve to the right
     /// file. Defaults to `.none` for macros constructed in tests.

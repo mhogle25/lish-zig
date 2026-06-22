@@ -474,7 +474,30 @@ fn validateMacro(
         .id = id,
         .parameters = valid_params.items,
         .body = body_thunk.body.expression,
+        .description = try cleanDocstring(allocator, macro.description),
     };
+}
+
+/// Clean a raw docstring comment run into one-line prose: per line strip leading
+/// `#` markers and surrounding space, drop blank lines, join with spaces. Done
+/// once at load so `exec.Macro.description`, hover, and `--dump-macros` all read
+/// like an op's description. Empty in, empty out.
+fn cleanDocstring(allocator: Allocator, raw: []const u8) Allocator.Error![]const u8 {
+    if (raw.len == 0) return "";
+    var out: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer out.deinit(allocator);
+    var lines = std.mem.splitScalar(u8, raw, '\n');
+    var first = true;
+    while (lines.next()) |line_raw| {
+        var line = std.mem.trim(u8, line_raw, " \t\r");
+        while (line.len > 0 and line[0] == tok.COMMENT) line = line[1..];
+        line = std.mem.trimStart(u8, line, " ");
+        if (line.len == 0) continue;
+        if (!first) try out.append(allocator, ' ');
+        try out.appendSlice(allocator, line);
+        first = false;
+    }
+    return out.toOwnedSlice(allocator);
 }
 
 fn macroErrToValidationErr(macro_error: MacroError) validation_mod.ValidationError {

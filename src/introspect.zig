@@ -144,6 +144,8 @@ pub fn serializeMacros(
         try writeJsonString(writer, entry.name);
         try writer.writeAll(", \"signature\": ");
         try writeJsonString(writer, signature.written());
+        try writer.writeAll(", \"description\": ");
+        try writeJsonString(writer, entry.macro.description);
         try writer.writeAll(if (i + 1 < entries.items.len) " },\n" else " }\n");
     }
     try writer.writeAll("]\n");

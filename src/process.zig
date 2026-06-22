@@ -132,8 +132,9 @@ pub fn loadMacroModule(
 ) Allocator.Error!MacroLoadResult {
     const alloc = registry.macroAllocator();
 
-    // 1. Parse macro module
-    const module = try macro_parser_mod.parseMacroModule(alloc, source);
+    // 1. Parse macro module, collecting comments so each macro's `##` docstring
+    //    is captured (plain parseMacroModule leaves descriptions empty).
+    const module = (try macro_parser_mod.parseMacroModuleWithComments(alloc, source)).module;
 
     // 2. Validate
     const validation_result = try macro_parser_mod.validateMacroModule(alloc, module);

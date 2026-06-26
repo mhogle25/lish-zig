@@ -3,6 +3,7 @@ pub const token = @import("token.zig");
 pub const scanner_corpus = @import("scanner_corpus.zig");
 
 pub const Value = value.Value;
+pub const LishType = value.LishType;
 pub const SOME = value.SOME;
 pub const NONE = value.NONE;
 pub const some = value.some;

@@ -8,6 +8,7 @@ const AstExpression = ast_mod.AstExpression;
 const AstBracketError = ast_mod.AstBracketError;
 const Thunk = exec_mod.Thunk;
 const Expression = exec_mod.Expression;
+const Unit = exec_mod.Unit;
 
 
 pub const ValidationError = struct {
@@ -36,20 +37,21 @@ pub const ValidationErrors = struct {
 
 
 pub const ValidationResult = union(enum) {
-    ok: Expression,
+    ok: Unit,
     err: []const ValidationError,
 };
 
 
-/// Validate an AST root node into an executable Expression.
-/// The root must be an expression node; all errors are accumulated.
+/// Validate an AST root into an executable Unit, assigning each expression a local
+/// site id. The root must be an expression node; all errors are accumulated.
 pub fn validate(allocator: Allocator, ast_root: *const AstNode) Allocator.Error!ValidationResult {
     var errors = ValidationErrors{};
+    var site_counter: u32 = 0;
 
-    const maybe_thunk = try validateStep(allocator, ast_root, &errors);
+    const maybe_thunk = try validateStep(allocator, ast_root, &errors, &site_counter);
 
     if (maybe_thunk == null) {
-        if (ast_root.body != .expression) { 
+        if (ast_root.body != .expression) {
             try errors.add(allocator, .{ .message = "Expected the root of the AST to be an expression" });
         }
 
@@ -62,15 +64,18 @@ pub fn validate(allocator: Allocator, ast_root: *const AstNode) Allocator.Error!
         return .{ .err = errors.slice() };
     }
 
-    return if (errors.count() > 0) 
-        .{ .err = errors.slice() } else 
-        .{ .ok = thunk.body.expression };
+    if (errors.count() > 0) return .{ .err = errors.slice() };
+    return .{ .ok = .{
+        .root = thunk.body.expression,
+        .unit_id = exec_mod.nextUnitId(),
+        .site_count = site_counter,
+    } };
 }
 
 
-/// Validate a single AST node into a Thunk, accumulating errors.
-/// Returns null if the node (or any of its children) is invalid.
-pub fn validateStep(allocator: Allocator, node: *const AstNode, errors: *ValidationErrors) Allocator.Error!?*const Thunk {
+/// Validate one AST node into a Thunk, accumulating errors; `site_counter` hands
+/// out local site ids. Returns null if the node or any child is invalid.
+pub fn validateStep(allocator: Allocator, node: *const AstNode, errors: *ValidationErrors, site_counter: *u32) Allocator.Error!?*const Thunk {
     return switch (node.body) {
         .value_literal => |value| {
             const thunk = try allocator.create(Thunk);
@@ -86,18 +91,18 @@ pub fn validateStep(allocator: Allocator, node: *const AstNode, errors: *Validat
         },
 
         .scope_thunk => |id_node| {
-            const id_thunk = try validateStep(allocator, id_node, errors) orelse return null;
+            const id_thunk = try validateStep(allocator, id_node, errors, site_counter) orelse return null;
             const thunk = try allocator.create(Thunk);
 
-            thunk.* = .{ 
-                .position = node.position, 
-                .body = .{ .scope_thunk = id_thunk } 
+            thunk.* = .{
+                .position = node.position,
+                .body = .{ .scope_thunk = id_thunk }
             };
 
             return thunk;
         },
-        
-        .expression => |expr| try validateExpression(allocator, node.position, expr, errors),
+
+        .expression => |expr| try validateExpression(allocator, node.position, expr, errors, site_counter),
 
         .err => |ast_error| {
             try errors.add(allocator, .{
@@ -116,6 +121,7 @@ fn validateExpression(
     position: exec_mod.Position,
     expr: AstExpression,
     errors: *ValidationErrors,
+    site_counter: *u32,
 ) Allocator.Error!?*const Thunk {
     const init_error_count = errors.count();
 
@@ -126,7 +132,7 @@ fn validateExpression(
 
     // Validate ID (continue to args even if ID fails, to accumulate all errors)
     const pre_id_error_count = errors.count();
-    const id_thunk = try validateStep(allocator, expr.id, errors);
+    const id_thunk = try validateStep(allocator, expr.id, errors, site_counter);
     if (id_thunk == null and errors.count() == pre_id_error_count) {
         try errors.add(allocator, .{ .message = "An expression must have an ID" });
     }
@@ -134,7 +140,7 @@ fn validateExpression(
     // Validate all arguments
     var valid_args = std.ArrayListUnmanaged(*const Thunk).empty;
     for (expr.args) |arg_node| {
-        if (try validateStep(allocator, arg_node, errors)) |arg_thunk| {
+        if (try validateStep(allocator, arg_node, errors, site_counter)) |arg_thunk| {
             try valid_args.append(allocator, arg_thunk);
         }
     }
@@ -150,11 +156,15 @@ fn validateExpression(
     // If any errors were introduced during this expression's validation, return null
     if (errors.count() > init_error_count) return null;
 
-    // Success
+    // This call site's local site id.
+    const site = site_counter.*;
+    site_counter.* += 1;
+
     const thunk = try allocator.create(Thunk);
     thunk.* = .{ .position = position, .body = .{ .expression = .{
         .name = id_thunk.?,
         .args = valid_args.items,
+        .site = site,
     } } };
     return thunk;
 }
@@ -182,7 +192,8 @@ test "validate simple expression" {
     const result = try validate(alloc, ast_root);
 
     switch (result) {
-        .ok => |expression| {
+        .ok => |unit| {
+            const expression = unit.root;
             // ID should be a dynamic (unresolved) thunk wrapping a value literal "say"
             try std.testing.expect(expression.name.body == .value_literal);
             try std.testing.expectEqualStrings("say", expression.name.body.value_literal.?.string);
@@ -208,7 +219,8 @@ test "validate nested expression" {
     const result = try validate(alloc, ast_root);
 
     switch (result) {
-        .ok => |expression| {
+        .ok => |unit| {
+            const expression = unit.root;
             try std.testing.expectEqualStrings("add", expression.name.body.value_literal.?.string);
             try std.testing.expectEqual(@as(usize, 2), expression.args.len);
             // First arg should be a nested expression
@@ -228,7 +240,8 @@ test "validate scope thunk" {
     const result = try validate(alloc, ast_root);
 
     switch (result) {
-        .ok => |expression| {
+        .ok => |unit| {
+            const expression = unit.root;
             try std.testing.expectEqualStrings("say", expression.name.body.value_literal.?.string);
             try std.testing.expectEqual(@as(usize, 1), expression.args.len);
             try std.testing.expect(expression.args[0].body == .scope_thunk);
@@ -324,7 +337,7 @@ test "validate end-to-end with execution" {
     // Register an "echo" operation that returns its argument
     var registry = exec_mod.Registry.init(alloc);
     try registry.registerOperation(alloc, "echo", exec_mod.Operation.fromFn(testEchoOp, .{
-        .signature = .{ .params = comptime &.{exec_mod.Param.value("x")}, .returns = "any" },
+        .signature = .{ .params = comptime &.{exec_mod.Param{ .name = "x" }}, .returns = .any },
         .description = "Test op: return its argument unchanged.",
     }));
 
@@ -336,7 +349,8 @@ test "validate end-to-end with execution" {
     const validation_result = try validate(alloc, ast_root);
 
     switch (validation_result) {
-        .ok => |expression| {
+        .ok => |unit| {
+            const expression = unit.root;
             const exec_result = try env.processExpression(expression, &scope);
             try std.testing.expectEqual(@as(i64, 42), exec_result.?.int);
         },
@@ -358,7 +372,8 @@ test "validate list literal" {
     const result = try validate(alloc, ast_root);
 
     switch (result) {
-        .ok => |expression| {
+        .ok => |unit| {
+            const expression = unit.root;
             // Top level: say with one arg (the list expression)
             try std.testing.expectEqualStrings("say", expression.name.body.value_literal.?.string);
             try std.testing.expectEqual(@as(usize, 1), expression.args.len);

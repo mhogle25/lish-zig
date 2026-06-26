@@ -10,79 +10,79 @@ const Operation = exec.Operation;
 const Param = exec.Param;
 const Allocator = std.mem.Allocator;
 
-const ab_variadic = [_]Param{ Param.value("a"), Param.variadic("b") };
-const x_param = [_]Param{Param.value("x")};
-const n_param = [_]Param{Param.value("n")};
+const ab_variadic = [_]Param{ .{ .name = "a", .type = .number }, .{ .name = "b", .type = .number, .arity = .variadic } };
+const x_param = [_]Param{.{ .name = "x", .type = .number }};
+const n_param = [_]Param{.{ .name = "n", .type = .int }};
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "math");
     try g.register("min", Operation.fromFn(minOp, .{
-        .signature = .{ .params = &ab_variadic, .returns = "number" },
+        .signature = .{ .params = &ab_variadic, .returns = .number },
         .description = "Smallest of the arguments.",
     }));
 
     try g.register("max", Operation.fromFn(maxOp, .{
-        .signature = .{ .params = &ab_variadic, .returns = "number" },
+        .signature = .{ .params = &ab_variadic, .returns = .number },
         .description = "Largest of the arguments.",
     }));
 
     try g.register("abs", Operation.fromFn(absOp, .{
-        .signature = .{ .params = &x_param, .returns = "number" },
+        .signature = .{ .params = &x_param, .returns = .number },
         .description = "Absolute value.",
     }));
 
     try g.register("floor", Operation.fromFn(floorOp, .{
-        .signature = .{ .params = &x_param, .returns = "int" },
+        .signature = .{ .params = &x_param, .returns = .int },
         .description = "Round down to the nearest integer.",
     }));
 
     try g.register("ceil", Operation.fromFn(ceilOp, .{
-        .signature = .{ .params = &x_param, .returns = "int" },
+        .signature = .{ .params = &x_param, .returns = .int },
         .description = "Round up to the nearest integer.",
     }));
 
     try g.register("round", Operation.fromFn(roundOp, .{
-        .signature = .{ .params = &x_param, .returns = "int" },
+        .signature = .{ .params = &x_param, .returns = .int },
         .description = "Round to the nearest integer.",
     }));
 
     try g.register("even", Operation.fromFn(evenOp, .{
-        .signature = .{ .params = &n_param, .returns = "$some|$none" },
+        .signature = .{ .params = &n_param, .returns = .{ .one_of = &.{ .some, .none } } },
         .description = "True when the integer is even.",
     }));
 
     try g.register("odd", Operation.fromFn(oddOp, .{
-        .signature = .{ .params = &n_param, .returns = "$some|$none" },
+        .signature = .{ .params = &n_param, .returns = .{ .one_of = &.{ .some, .none } } },
         .description = "True when the integer is odd.",
     }));
 
     try g.register("sqrt", Operation.fromFn(sqrtOp, .{
-        .signature = .{ .params = &x_param, .returns = "float" },
+        .signature = .{ .params = &x_param, .returns = .float },
         .description = "Square root.",
     }));
 
     try g.register("sin", Operation.fromFn(sinOp, .{
-        .signature = .{ .params = &x_param, .returns = "float" },
+        .signature = .{ .params = &x_param, .returns = .float },
         .description = "Sine of an angle in radians.",
     }));
 
     try g.register("cos", Operation.fromFn(cosOp, .{
-        .signature = .{ .params = &x_param, .returns = "float" },
+        .signature = .{ .params = &x_param, .returns = .float },
         .description = "Cosine of an angle in radians.",
     }));
 
     try g.register("atan2", Operation.fromFn(atan2Op, .{
-        .signature = .{ .params = comptime &.{ Param.value("y"), Param.value("x") }, .returns = "float" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "y", .type = .number }, Param{ .name = "x", .type = .number } }, .returns = .float },
         .description = "Arctangent of y/x, using the signs of both to choose the quadrant.",
     }));
 
     try g.register("log", Operation.fromFn(logOp, .{
-        .signature = .{ .params = &x_param, .returns = "float" },
+        .signature = .{ .params = &x_param, .returns = .float },
         .description = "Natural logarithm.",
     }));
 
     try g.register("exp", Operation.fromFn(expOp, .{
-        .signature = .{ .params = &x_param, .returns = "float" },
+        .signature = .{ .params = &x_param, .returns = .float },
         .description = "e raised to the given power.",
     }));
 }

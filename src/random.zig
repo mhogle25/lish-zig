@@ -10,22 +10,22 @@ const Operation = exec.Operation;
 const Param = exec.Param;
 const Allocator = std.mem.Allocator;
 
-const x_y = [_]Param{ Param.value("x"), Param.value("y") };
+const x_y = [_]Param{ .{ .name = "x", .type = .number }, .{ .name = "y", .type = .number } };
 
 pub fn registerAll(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "random");
     try g.register("?", Operation.fromFn(randInclusiveOp, .{
-        .signature = .{ .params = &x_y, .returns = "number" },
+        .signature = .{ .params = &x_y, .returns = .number },
         .description = "Random number in the inclusive range [x, y].",
     }));
 
     try g.register("?<", Operation.fromFn(randExclusiveOp, .{
-        .signature = .{ .params = &x_y, .returns = "number" },
+        .signature = .{ .params = &x_y, .returns = .number },
         .description = "Random number in the upper-exclusive range [x, y).",
     }));
 
     try g.register("??", Operation.fromFn(randPickOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("a"), Param.variadic("b") }, .returns = "value" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "a" }, Param{ .name = "b", .arity = .variadic } }, .returns = .any },
         .description = "Pick one argument at random; only the chosen argument is evaluated.",
     }));
 }

@@ -19,11 +19,13 @@
 
 const std = @import("std");
 const exec = @import("exec.zig");
+const val = @import("value.zig");
 
 const Registry = exec.Registry;
 const Operation = exec.Operation;
 const Param = exec.Param;
 const Macro = exec.Macro;
+const LishType = val.LishType;
 const Allocator = std.mem.Allocator;
 
 const Entry = struct {
@@ -53,6 +55,8 @@ fn writeParams(writer: *std.Io.Writer, params: []const Param) !void {
     for (params, 0..) |param, i| {
         try writer.writeAll(if (i == 0) " { \"name\": " else ", { \"name\": ");
         try writeJsonString(writer, param.name);
+        try writer.writeAll(", \"type\": ");
+        try writeType(writer, param.type);
         try writer.writeAll(", \"role\": ");
         try writeJsonString(writer, @tagName(param.role));
         try writer.writeAll(", \"arity\": ");
@@ -73,6 +77,27 @@ fn writeJsonString(writer: *std.Io.Writer, text: []const u8) !void {
         else => try writer.writeByte(c),
     };
     try writer.writeByte('"');
+}
+
+/// Write a `LishType` as structured JSON: a bare kind string, `{ "literal": s }`,
+/// or `{ "one_of": [...] }`. The lossless counterpart to the display `render`.
+fn writeType(writer: *std.Io.Writer, lish_type: LishType) !void {
+    switch (lish_type) {
+        .literal => |text| {
+            try writer.writeAll("{ \"literal\": ");
+            try writeJsonString(writer, text);
+            try writer.writeAll(" }");
+        },
+        .one_of => |members| {
+            try writer.writeAll("{ \"one_of\": [");
+            for (members, 0..) |member, i| {
+                try writer.writeAll(if (i == 0) " " else ", ");
+                try writeType(writer, member);
+            }
+            try writer.writeAll(" ] }");
+        },
+        else => try writeJsonString(writer, @tagName(lish_type)),
+    }
 }
 
 /// Write every operation in `registry` as a JSON array, sorted by name. The
@@ -107,7 +132,7 @@ pub fn serializeOperations(
         try writer.writeAll(", \"description\": ");
         try writeJsonString(writer, entry.op.description);
         try writer.writeAll(", \"returns\": ");
-        try writeJsonString(writer, entry.op.signature.returns);
+        try writeType(writer, entry.op.signature.returns);
         if (entry.op.signature.binding_pairs) try writer.writeAll(", \"binding_pairs\": true");
         try writeParams(writer, entry.op.signature.params);
         try writer.writeAll(if (i + 1 < entries.items.len) " },\n" else " }\n");

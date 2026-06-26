@@ -12,47 +12,52 @@ const Param = exec.Param;
 const Allocator = std.mem.Allocator;
 
 // `op name list body`: name binds each element, body is evaluated per element.
-const name_list_body = [_]Param{ Param.binding("name"), Param.value("list"), Param.body("body") };
+const name_list_body = [_]Param{ .{ .name = "name", .role = .binding }, .{ .name = "list", .type = .list }, .{ .name = "body", .role = .body } };
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "higher_order");
     try g.register("map", Operation.fromFn(mapOp, .{
-        .signature = .{ .params = &name_list_body, .returns = "list" },
+        .signature = .{ .params = &name_list_body, .returns = .list },
         .description = "Apply the body to each element bound to name, collecting the results into a list.",
     }));
 
     try g.register("for", Operation.fromFn(forOp, .{
-        .signature = .{ .params = &name_list_body, .returns = "$none" },
+        .signature = .{ .params = &name_list_body, .returns = .none },
         .description = "Evaluate the body for each element bound to name, discarding the results.",
     }));
 
     try g.register("filter", Operation.fromFn(filterOp, .{
-        .signature = .{ .params = &name_list_body, .returns = "list" },
+        .signature = .{ .params = &name_list_body, .returns = .list },
         .description = "Keep the elements for which the body bound to name is truthy.",
     }));
 
     try g.register("reduce", Operation.fromFn(reduceOp, .{
-        .signature = .{ .params = comptime &.{ Param.binding("acc"), Param.value("init"), Param.binding("item"), Param.value("list"), Param.body("body") }, .returns = "value" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "acc", .role = .binding }, Param{ .name = "init" }, Param{ .name = "item", .role = .binding }, Param{ .name = "list", .type = .list }, Param{ .name = "body", .role = .body } }, .returns = .any },
         .description = "Fold the list into a single value, binding the accumulator and each item by name.",
     }));
 
+    try g.register("fold", Operation.fromFn(foldOp, .{
+        .signature = .{ .params = comptime &.{ Param{ .name = "acc", .role = .binding }, Param{ .name = "init" }, Param{ .name = "item", .role = .binding }, Param{ .name = "n", .type = .int }, Param{ .name = "body", .role = .body } }, .returns = .any },
+        .description = "Fold over the counter 0..n-1 into a single value, binding the accumulator and each item by name. Like reduce, but counts instead of materializing a list.",
+    }));
+
     try g.register("any", Operation.fromFn(anyOp, .{
-        .signature = .{ .params = &name_list_body, .returns = "$some|$none" },
+        .signature = .{ .params = &name_list_body, .returns = .{ .one_of = &.{ .some, .none } } },
         .description = "True when the body bound to name is truthy for at least one element.",
     }));
 
     try g.register("all", Operation.fromFn(allOp, .{
-        .signature = .{ .params = &name_list_body, .returns = "$some|$none" },
+        .signature = .{ .params = &name_list_body, .returns = .{ .one_of = &.{ .some, .none } } },
         .description = "True when the body bound to name is truthy for every element.",
     }));
 
     try g.register("count", Operation.fromFn(countOp, .{
-        .signature = .{ .params = &name_list_body, .returns = "int" },
+        .signature = .{ .params = &name_list_body, .returns = .int },
         .description = "Number of elements for which the body bound to name is truthy.",
     }));
 
     try g.register("findby", Operation.fromFn(findbyOp, .{
-        .signature = .{ .params = &name_list_body, .returns = "value|$none" },
+        .signature = .{ .params = &name_list_body, .returns = .{ .one_of = &.{ .any, .none } } },
         .description = "First element for which the body bound to name is truthy, else $none.",
     }));
 }
@@ -148,6 +153,33 @@ fn reduceOp(args: Args) ExecError!?Value {
         iter_scope.inline_count = 0;
         try iter_scope.setValue(args.env.allocator, acc_name,  accumulator);
         try iter_scope.setValue(args.env.allocator, item_name, item);
+        accumulator = try body.proc(args.env, &iter_scope);
+    }
+    return accumulator;
+}
+
+fn foldOp(args: Args) ExecError!?Value {
+    try args.expectCount(5);
+
+    var iter_scope = exec.Scope{ .parent = args.scope };
+    defer iter_scope.deinit(args.env.allocator);
+
+    var acc_buf:  [256]u8 = undefined;
+    var item_buf: [256]u8 = undefined;
+    const raw_acc  = try args.at(0).resolveString(&acc_buf);
+    const raw_item = try args.at(2).resolveString(&item_buf);
+    const acc_name  = try args.env.allocator.dupe(u8, raw_acc);
+    const item_name = try args.env.allocator.dupe(u8, raw_item);
+
+    var accumulator = try args.items[1].proc(args.env, &iter_scope);
+    const n = try args.at(3).resolveInt();
+    const body = args.items[4];
+
+    var i: i64 = 0;
+    while (i < n) : (i += 1) {
+        iter_scope.inline_count = 0;
+        try iter_scope.setValue(args.env.allocator, acc_name,  accumulator);
+        try iter_scope.setValue(args.env.allocator, item_name, .{ .int = i });
         accumulator = try body.proc(args.env, &iter_scope);
     }
     return accumulator;
@@ -291,6 +323,21 @@ test "higher-order: reduce with multiply" {
     defer arena.deinit();
     const result = try testing.evalWithBuiltins(arena.allocator(), "reduce acc 1 x [2 3 4] (* :acc :x)");
     try std.testing.expectEqual(@as(i64, 24), result.?.int);
+}
+
+test "higher-order: fold counts without a list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // item runs 0..4; sum of x*x = 0+1+4+9+16 = 30.
+    const result = try testing.evalWithBuiltins(arena.allocator(), "fold acc 0 x 5 (+ :acc (* :x :x))");
+    try std.testing.expectEqual(@as(i64, 30), result.?.int);
+}
+
+test "higher-order: fold with n<=0 returns init" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const result = try testing.evalWithBuiltins(arena.allocator(), "fold acc 99 x 0 (+ :acc :x)");
+    try std.testing.expectEqual(@as(i64, 99), result.?.int);
 }
 
 test "higher-order: any truthy" {

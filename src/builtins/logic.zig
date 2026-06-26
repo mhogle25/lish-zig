@@ -10,22 +10,22 @@ const Operation = exec.Operation;
 const Allocator = std.mem.Allocator;
 const Param = exec.Param;
 
-const ab_variadic = [_]Param{ Param.value("a"), Param.variadic("b") };
+const ab_variadic = [_]Param{ .{ .name = "a" }, .{ .name = "b", .arity = .variadic } };
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "logic");
     try g.register("and", Operation.fromFn(andOp, .{
-        .signature = .{ .params = &ab_variadic, .returns = "value|$none" },
+        .signature = .{ .params = &ab_variadic, .returns = .{ .one_of = &.{ .any, .none } } },
         .description = "Returns the last argument when all are truthy, else $none.",
     }));
 
     try g.register("or", Operation.fromFn(orOp, .{
-        .signature = .{ .params = &ab_variadic, .returns = "value|$none" },
+        .signature = .{ .params = &ab_variadic, .returns = .{ .one_of = &.{ .any, .none } } },
         .description = "Returns the first truthy argument, else $none.",
     }));
 
     try g.register("not", Operation.fromFn(notOp, .{
-        .signature = .{ .params = comptime &.{Param.value("x")}, .returns = "$some|$none" },
+        .signature = .{ .params = comptime &.{Param{ .name = "x" }}, .returns = .{ .one_of = &.{ .some, .none } } },
         .description = "Returns $some when the argument is $none, else $none.",
     }));
 }

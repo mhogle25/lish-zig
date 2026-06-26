@@ -1,8 +1,10 @@
 const std = @import("std");
 const val = @import("value.zig");
 const token = @import("token.zig");
+const cache = @import("cache.zig");
 
 const Value = val.Value;
+const LishType = val.LishType;
 const Allocator = std.mem.Allocator;
 
 // Error types
@@ -112,15 +114,13 @@ pub const ThunkBody = union(enum) {
 
 // Expression
 
-/// A call site's id when it carries no stamped resolution slot: runtime-built
-/// expressions (e.g. `apply`) and anything the stamp pass never reached. Such a
-/// site is always dispatched dynamically and never memoized.
+/// A call site with no slot: runtime-built expressions (e.g. `apply`) and anything
+/// never lowered. Always dispatched dynamically, never memoized.
 pub const NO_SITE: u32 = std.math.maxInt(u32);
 
-/// One memoized resolution of a call site, stored in a registry's resolution
-/// table (never in the AST, so a parsed AST stays immutable and shareable across
-/// registries). `unresolved` is the un-looked-up default; `dynamic` marks a site
-/// whose name is computed or not yet known, so it is looked up at runtime.
+/// One memoized resolution of a call site, stored in a registry's resolution cache
+/// (never in the AST). `unresolved` is the default; `dynamic` marks a computed or
+/// not-yet-known name, looked up at runtime.
 pub const ResolvedSlot = union(enum) {
     unresolved,
     resolved_op:    Operation,
@@ -133,20 +133,55 @@ pub const Expression = struct {
     /// be a computed thunk. Resolution reads this; it is never overwritten.
     name: *const Thunk,
     args: []const *const Thunk,
-    /// Stable, registry-independent call-site id. Indexes a registry's resolution
-    /// table. `NO_SITE` until the stamp pass assigns one.
+    /// Call-site id local to this expression's unit (0..unit.site_count), indexing
+    /// the active unit's slot array. `NO_SITE` for runtime-built expressions.
     site: u32 = NO_SITE,
 };
 
+/// One lowered AST (a top-level parse or a macro body). Its expressions share a
+/// slot array, indexed by local `site` ids. `unit_id` keys the resolution cache;
+/// `site_count` sizes the array.
+pub const Unit = struct {
+    root: Expression,
+    unit_id: u32,
+    site_count: u32,
+};
+
+/// Process-wide unit identities: one per lowered unit, so two units never share an
+/// id and per-unit slot arrays can't alias, with no shared stamping authority.
+var unit_id_counter: std.atomic.Value(u32) = .init(0);
+
+pub fn nextUnitId() u32 {
+    return unit_id_counter.fetchAdd(1, .monotonic);
+}
+
 // Scope 
 
-pub const ScopeEntry = struct {
-    thunk: *const Thunk,
-    scope: *const Scope,
+/// A scope binding is one of two things, and lookup distinguishes them with no
+/// thunk wrapper in between:
+///   - `value`:   a pre-evaluated value (value params, `let`/`loop`/`fold`/`reduce`
+///                bindings). Returned directly; never dispatches.
+///   - `closure`: a deferred thunk plus the scope and unit slots its expressions
+///                dispatch against, captured at bind time (a deferred macro arg
+///                belongs to the caller's unit, not the macro body's).
+pub const ScopeEntry = union(enum) {
+    value: ?Value,
+    closure: struct {
+        thunk: *const Thunk,
+        scope: *const Scope,
+        unit_slots: []ResolvedSlot = &.{},
+    },
 
-    /// Evaluate the thunk using the captured scope (closure semantics).
     pub fn run(self: ScopeEntry, env: *Env) ExecError!?Value {
-        return self.thunk.proc(env, self.scope);
+        switch (self) {
+            .value => |stored| return stored,
+            .closure => |c| {
+                const saved_slots = env.unit_slots;
+                env.unit_slots = c.unit_slots;
+                defer env.unit_slots = saved_slots;
+                return c.thunk.proc(env, c.scope);
+            },
+        }
     }
 };
 
@@ -157,18 +192,7 @@ const INLINE_CAP = 8;
 
 const InlineEntry = struct {
     key: []const u8,
-
-    kind: union(enum) {
-        owned:    Thunk,
-        borrowed: ScopeEntry,
-    },
-
-    fn toScopeEntry(self: *const InlineEntry) ScopeEntry {
-        return switch (self.kind) {
-            .owned    => |*thunk| .{ .thunk = thunk, .scope = &Scope.EMPTY },
-            .borrowed => |entry|  entry,
-        };
-    }
+    entry: ScopeEntry,
 };
 
 pub const Scope = struct {
@@ -179,7 +203,7 @@ pub const Scope = struct {
 
     pub fn get(self: *const Scope, key: []const u8) ?ScopeEntry {
         for (self.inline_entries[0..self.inline_count]) |*entry| {
-            if (std.mem.eql(u8, entry.key, key)) return entry.toScopeEntry();
+            if (std.mem.eql(u8, entry.key, key)) return entry.entry;
         }
         if (self.overflow) |map| {
             if (map.get(key)) |entry| return entry;
@@ -188,35 +212,25 @@ pub const Scope = struct {
         return null;
     }
 
-    /// Bind an arbitrary thunk to a name with an explicit evaluation scope.
-    pub fn setEntry(self: *Scope, allocator: Allocator, key: []const u8, thunk: *const Thunk, thunk_scope: *const Scope) Allocator.Error!void {
-        if (self.inline_count < INLINE_CAP) {
-            self.inline_entries[self.inline_count] = .{
-                .key  = key,
-                .kind = .{ .borrowed = .{ .thunk = thunk, .scope = thunk_scope } },
-            };
-            self.inline_count += 1;
-            return;
-        }
-        try self.spillToOverflow(allocator);
-        try self.overflow.?.put(allocator, key, .{ .thunk = thunk, .scope = thunk_scope });
+    /// Bind an arbitrary thunk to a name with an explicit evaluation scope and the
+    /// unit slots its expressions dispatch against (see `ScopeEntry.closure`).
+    pub fn setEntry(self: *Scope, allocator: Allocator, key: []const u8, thunk: *const Thunk, thunk_scope: *const Scope, unit_slots: []ResolvedSlot) Allocator.Error!void {
+        try self.put(allocator, key, .{ .closure = .{ .thunk = thunk, .scope = thunk_scope, .unit_slots = unit_slots } });
     }
 
-    /// Bind a static value to a name. Stores the thunk inline. No allocation for small scopes.
+    /// Bind a pre-evaluated value to a name. No allocation, inline or overflow.
     pub fn setValue(self: *Scope, allocator: Allocator, key: []const u8, value: ?Value) Allocator.Error!void {
+        try self.put(allocator, key, .{ .value = value });
+    }
+
+    fn put(self: *Scope, allocator: Allocator, key: []const u8, entry: ScopeEntry) Allocator.Error!void {
         if (self.inline_count < INLINE_CAP) {
-            self.inline_entries[self.inline_count] = .{
-                .key  = key,
-                .kind = .{ .owned = .{ .position = Position.synthetic, .body = .{ .value_literal = value } } },
-            };
+            self.inline_entries[self.inline_count] = .{ .key = key, .entry = entry };
             self.inline_count += 1;
             return;
         }
-        // Overflow: must heap-allocate the thunk since HashMap stores *const Thunk.
-        const thunk = try allocator.create(Thunk);
-        thunk.* = .{ .position = Position.synthetic, .body = .{ .value_literal = value } };
         try self.spillToOverflow(allocator);
-        try self.overflow.?.put(allocator, key, .{ .thunk = thunk, .scope = &Scope.EMPTY });
+        try self.overflow.?.put(allocator, key, entry);
     }
 
     pub fn deinit(self: *Scope, allocator: Allocator) void {
@@ -228,7 +242,7 @@ pub const Scope = struct {
         if (self.overflow != null) return;
         self.overflow = std.StringHashMapUnmanaged(ScopeEntry){};
         for (self.inline_entries[0..self.inline_count]) |*entry| {
-            try self.overflow.?.put(allocator, entry.key, entry.toScopeEntry());
+            try self.overflow.?.put(allocator, entry.key, entry.entry);
         }
     }
 
@@ -352,27 +366,12 @@ pub const Args = struct {
 /// the binding is in scope for); `arity` is how it is supplied.
 pub const Param = struct {
     name: []const u8,
+    type: LishType = .any,
     role: Role = .value,
     arity: Arity = .single,
 
     pub const Role = enum { value, binding, body };
     pub const Arity = enum { single, optional, variadic };
-
-    pub fn value(name: []const u8) Param {
-        return .{ .name = name };
-    }
-    pub fn variadic(name: []const u8) Param {
-        return .{ .name = name, .arity = .variadic };
-    }
-    pub fn optional(name: []const u8) Param {
-        return .{ .name = name, .arity = .optional };
-    }
-    pub fn binding(name: []const u8) Param {
-        return .{ .name = name, .role = .binding };
-    }
-    pub fn body(name: []const u8) Param {
-        return .{ .name = name, .role = .body };
-    }
 };
 
 /// An operation's call shape, authored as structured data. The display string
@@ -380,24 +379,27 @@ pub const Param = struct {
 /// parameter roles directly (binding/scope analysis, signature help).
 pub const Signature = struct {
     params: []const Param = &.{},
-    returns: []const u8,
+    returns: LishType,
     /// `let`-style: the params repeat as (binding, value) pairs before the body.
     /// The flat `params` list cannot express this; only `let` sets it.
     binding_pairs: bool = false,
 
-    /// Write the display form `name p1 [opt] vararg ... -> returns`.
+    /// Write the display form `name p1 [opt:type] vararg ... -> returns`.
     pub fn render(self: Signature, writer: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!void {
         try writer.writeAll(name);
         for (self.params) |param| {
             try writer.writeByte(' ');
-            if (param.arity == .optional) {
-                try writer.print("[{s}]", .{param.name});
-            } else {
-                try writer.writeAll(param.name);
+            if (param.arity == .optional) try writer.writeByte('[');
+            try writer.writeAll(param.name);
+            if (param.type != .any) {
+                try writer.writeByte(':');
+                try param.type.render(writer);
             }
+            if (param.arity == .optional) try writer.writeByte(']');
             if (param.arity == .variadic) try writer.writeAll(" ...");
         }
-        try writer.print(" -> {s}", .{self.returns});
+        try writer.writeAll(" -> ");
+        try self.returns.render(writer);
     }
 };
 
@@ -480,6 +482,10 @@ pub const Macro = struct {
     id: []const u8,
     parameters: []const MacroParameter,
     body: Expression,
+    /// The body is its own unit: `unit_id` keys the resolution cache, `site_count`
+    /// sizes its slots. Default 0 for test-built macros (un-cached, dynamic).
+    unit_id: u32 = 0,
+    site_count: u32 = 0,
     /// One-line docstring (the `##` comment run directly above the macro head), or
     /// empty. Surfaced by hover and `--dump-macros`, mirroring an op's description.
     description: []const u8 = "",
@@ -528,14 +534,18 @@ pub const Macro = struct {
                     try macro_scope.setValue(env.allocator, param.id, evaluated);
                 },
                 .deferred => {
-                    // Bind the unevaluated thunk with the caller's scope so it re-evaluates there.
-                    try macro_scope.setEntry(env.allocator, param.id, arg_thunk, caller_scope);
+                    // Bind with the caller's scope and unit slots (still active here,
+                    // before the swap) so it re-evaluates in the caller's context.
+                    try macro_scope.setEntry(env.allocator, param.id, arg_thunk, caller_scope, env.unit_slots);
                 },
             }
         }
 
-        // Switch source context to the macro's source while evaluating its body.
-        // Positions captured during body execution will resolve against self.source.
+        // Enter the body's unit and switch source for body evaluation. The arg
+        // thunks above were bound under the caller's unit/source on purpose.
+        const frame = try env.enterUnit(self.unit_id, self.site_count);
+        defer env.exitUnit(frame);
+
         const saved_source = env.current_source;
         env.current_source = self.source;
         defer env.current_source = saved_source;
@@ -562,52 +572,42 @@ pub const GroupRegistrar = struct {
     }
 };
 
+/// Default resolution-cache capacity, in units. Above the distinct units one
+/// evaluation pins at once (root + macros on the stack), so steady state evicts nothing.
+pub const DEFAULT_RESOLUTION_CAPACITY: usize = 256;
+
 pub const Registry = struct {
     operations: std.StringHashMapUnmanaged(Operation) = .{},
     macros: std.StringHashMapUnmanaged(*const Macro) = .{},
     macro_arena: std.heap.ArenaAllocator,
-    /// Memoized resolution of each call site, indexed by stamped site id. This is
-    /// where name->definition binding lives, kept off the (immutable) AST so one
-    /// parsed AST can run under many registries. Phase 1: site ids are drawn from
-    /// this registry's counter; phase 2 hoists the counter to a shared owner.
-    resolution: std.ArrayListUnmanaged(ResolvedSlot) = .empty,
-    site_counter: u32 = 0,
-    /// When set, call sites are stamped from this shared counter instead of the
-    /// registry's own, so several registries draw from one id space and can each
-    /// resolve a shared AST without site-id collisions. Null = standalone.
-    site_space: ?*u32 = null,
-    base_allocator: Allocator,
+    /// Name->definition binding, kept off the AST: a pin-aware LRU of per-unit slot
+    /// arrays (see `cache.ResolutionCache`), persistent across evaluations.
+    resolution: cache.ResolutionCache,
 
     pub fn init(allocator: Allocator) Registry {
+        return initCapacity(allocator, DEFAULT_RESOLUTION_CAPACITY);
+    }
+
+    pub fn initCapacity(allocator: Allocator, resolution_capacity: usize) Registry {
         return .{
-            .operations     = .{},
-            .macros         = .{},
-            .macro_arena    = std.heap.ArenaAllocator.init(allocator),
-            .base_allocator = allocator,
+            .operations  = .{},
+            .macros      = .{},
+            .macro_arena = std.heap.ArenaAllocator.init(allocator),
+            .resolution  = cache.ResolutionCache.init(allocator, resolution_capacity),
         };
     }
 
-    /// Allocate the next call-site id, from the shared id space if linked.
-    pub fn nextSite(self: *Registry) u32 {
-        const counter = self.site_space orelse &self.site_counter;
-        const id = counter.*;
-        counter.* += 1;
-        return id;
-    }
-
-    /// The resolution slot for a site, growing the table (with `.unresolved`) as
-    /// needed. The table is never shrunk by site retirement; ids are monotonic.
-    pub fn resolutionSlot(self: *Registry, site: u32) Allocator.Error!*ResolvedSlot {
-        while (self.resolution.items.len <= site) {
-            try self.resolution.append(self.base_allocator, .unresolved);
-        }
-        return &self.resolution.items[site];
-    }
-
-    /// Drop all memoized resolutions (they re-resolve lazily). Call after the set
-    /// of names changes, e.g. loading macros, so stale `*Macro` slots are cleared.
+    /// Drop all memoized resolutions (they re-resolve lazily). Called automatically
+    /// by every `register*` mutator so the cache can never serve a stale binding;
+    /// the registry maintains this invariant itself rather than trusting callers.
+    ///
+    /// TODO: this is whole-cache invalidation — any registration discards every
+    /// memoized slot. Cheap today because registration happens before/between eval,
+    /// when the cache is cold and nothing is pinned. If we ever add ops that load
+    /// new ops/macros *during* hot evaluation, make this fine-grained (a
+    /// `name -> units` reverse index) and pin-safe.
     pub fn clearResolution(self: *Registry) void {
-        self.resolution.clearRetainingCapacity();
+        self.resolution.clear();
     }
 
     pub fn macroAllocator(self: *Registry) Allocator {
@@ -626,6 +626,7 @@ pub const Registry = struct {
     /// builtins go through `group(...).register(...)` so their category is set.
     pub fn registerOperation(self: *Registry, allocator: Allocator, id: []const u8, operation: Operation) Allocator.Error!void {
         try self.operations.put(allocator, id, operation);
+        self.clearResolution(); // the definition set changed; invalidate memoized bindings
     }
 
     /// A registrar that stamps everything it registers with `category`.
@@ -635,11 +636,12 @@ pub const Registry = struct {
 
     pub fn registerMacro(self: *Registry, id: []const u8, macro: *const Macro) Allocator.Error!void {
         try self.macros.put(self.macroAllocator(), id, macro);
+        self.clearResolution(); // the definition set changed; invalidate memoized bindings
     }
 
     pub fn deinit(self: *Registry, allocator: Allocator) void {
         self.operations.deinit(allocator);
-        self.resolution.deinit(self.base_allocator);
+        self.resolution.deinit();
         self.macro_arena.deinit();
     }
 
@@ -648,20 +650,6 @@ pub const Registry = struct {
         if (self.getOperation(name)) |op|    return .{ .resolved_op    = op };
         if (self.getMacro(name))    |macro|  return .{ .resolved_macro = macro };
         return null;
-    }
-};
-
-/// A shared call-site id space. Registries adopted into one Program stamp their
-/// ASTs from a single counter, so a parsed AST can be shared across them and each
-/// resolve it (into its own per-registry table) without site-id collisions. A
-/// later step can fold the shared parse cache in here too.
-pub const Program = struct {
-    site_counter: u32 = 0,
-
-    /// Route a registry's stamping through this Program's id space. Call before
-    /// stamping or loading macros into the registry.
-    pub fn adopt(self: *Program, registry: *Registry) void {
-        registry.site_space = &self.site_counter;
     }
 };
 
@@ -723,8 +711,38 @@ pub const Env = struct {
     /// entry (host sets it before kicking off processing).
     current_source: SourceId = .none,
 
-    /// Evaluate an expression: look up its memoized resolution slot (or resolve
-    /// it once) and dispatch. Unstamped sites are dispatched dynamically.
+    /// Slot array of the unit currently executing; an expression's `site` indexes
+    /// it. Empty means dispatch dynamically (un-cached unit or runtime-built site).
+    unit_slots: []ResolvedSlot = &.{},
+
+    /// What `exitUnit` restores: the previous slots, and whether a pin is held.
+    pub const UnitFrame = struct {
+        previous: []ResolvedSlot,
+        unit_id: u32,
+        pinned: bool,
+    };
+
+    /// Bind a unit's slots as active and pin them. A zero-site unit or a fully
+    /// pinned cache runs un-cached (dynamic dispatch): correct, just slower.
+    pub fn enterUnit(self: *Env, unit_id: u32, site_count: u32) Allocator.Error!UnitFrame {
+        const previous = self.unit_slots;
+        if (site_count > 0) {
+            if (try self.registry.resolution.enter(unit_id, site_count)) |slots| {
+                self.unit_slots = slots;
+                return .{ .previous = previous, .unit_id = unit_id, .pinned = true };
+            }
+        }
+        self.unit_slots = &.{};
+        return .{ .previous = previous, .unit_id = unit_id, .pinned = false };
+    }
+
+    pub fn exitUnit(self: *Env, frame: UnitFrame) void {
+        if (frame.pinned) self.registry.resolution.unpin(frame.unit_id);
+        self.unit_slots = frame.previous;
+    }
+
+    /// Evaluate an expression: resolve its slot in the active unit (once) and
+    /// dispatch. Sites outside the unit's slot array are dispatched dynamically.
     pub fn processExpression(self: *Env, expression: Expression, scope: *const Scope) ExecError!?Value {
         // Recursion-depth guard: prevents Zig stack overflow from runaway macros.
         self.call_depth += 1;
@@ -739,12 +757,10 @@ pub const Env = struct {
             fuel.* -= 1;
         }
 
-        // Unstamped sites (runtime-built expressions) never memoize.
-        if (expression.site == NO_SITE) return self.dispatchDynamic(expression, scope);
+        // Resolution lives in the active unit's slot array; the AST is never written.
+        if (expression.site >= self.unit_slots.len) return self.dispatchDynamic(expression, scope);
 
-        // Memoized resolution lives in the registry's per-site table, keyed by the
-        // stamped site id. The AST itself is never written.
-        const slot = try self.registry.resolutionSlot(expression.site);
+        const slot = &self.unit_slots[expression.site];
         if (slot.* == .unresolved) slot.* = resolveSite(self.registry, expression.name);
 
         switch (slot.*) {
@@ -825,11 +841,11 @@ pub fn makeExpression(allocator: Allocator, position: Position, id: *const Thunk
     return thunk;
 }
 
-// Stamp pass
+// Resolution
 
 /// The resolved slot for a call site's name, without memoizing: a registered op
 /// or macro, else `.dynamic` (computed name, or not yet known). The runtime
-/// dispatcher stores the result of this in the registry's resolution table.
+/// dispatcher stores the result of this in the active unit's slot array.
 fn resolveSite(registry: *const Registry, name: *const Thunk) ResolvedSlot {
     const literal = switch (name.body) {
         .value_literal => |v| v orelse return .dynamic,
@@ -840,25 +856,6 @@ fn resolveSite(registry: *const Registry, name: *const Thunk) ResolvedSlot {
         else => return .dynamic,
     };
     return registry.resolveId(id) orelse .dynamic;
-}
-
-/// Stamp every call site in a freshly-parsed tree with a registry-unique site id
-/// so per-registry resolution tables can memoize lookups. Mutates the tree, so
-/// run it once after validation and before the AST is cached or shared. This is
-/// the only write to an AST; it stamps registry-independent identity, never
-/// resolution, so the stamped AST stays runnable under any registry.
-pub fn stampThunk(thunk: *Thunk, registry: *Registry) void {
-    switch (thunk.body) {
-        .value_literal => {},
-        .scope_thunk => |inner| stampThunk(@constCast(inner), registry),
-        .expression => |*expr| stampExpression(expr, registry),
-    }
-}
-
-pub fn stampExpression(expr: *Expression, registry: *Registry) void {
-    expr.site = registry.nextSite();
-    stampThunk(@constCast(expr.name), registry);
-    for (expr.args) |arg| stampThunk(@constCast(arg), registry);
 }
 
 // Tests
@@ -919,7 +916,7 @@ test "scope thunk resolves entry from scope" {
     const empty_scope = try alloc.create(Scope);
     empty_scope.* = Scope.EMPTY;
     var scope = Scope{};
-    try scope.setEntry(alloc, "x", value_thunk, empty_scope);
+    try scope.setEntry(alloc, "x", value_thunk, empty_scope, &.{});
 
     // Create :x (scope thunk that looks up "x")
     const id_thunk = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "x" });
@@ -970,7 +967,7 @@ test "expression evaluates operation" {
 
     var registry = Registry.init(alloc);
     try registry.registerOperation(alloc, "double", Operation.fromFn(testDoubleOp, .{
-        .signature = .{ .params = comptime &.{Param.value("n")}, .returns = "int" },
+        .signature = .{ .params = comptime &.{Param{ .name = "n" }}, .returns = .int },
         .description = "Test op: double an integer.",
     }));
 
@@ -1065,7 +1062,7 @@ test "nested expression evaluation" {
 
     var registry = Registry.init(alloc);
     try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("a"), Param.value("b") }, .returns = "int" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "a" }, Param{ .name = "b" } }, .returns = .int },
         .description = "Test op: add two integers.",
     }));
 
@@ -1099,7 +1096,7 @@ test "macro with value parameters" {
 
     var registry = Registry.init(alloc);
     try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("a"), Param.value("b") }, .returns = "int" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "a" }, Param{ .name = "b" } }, .returns = .int },
         .description = "Test op: add two integers.",
     }));
 
@@ -1143,7 +1140,7 @@ test "macro with deferred parameter" {
 
     var registry = Registry.init(alloc);
     try registry.registerOperation(alloc, "passthrough", Operation.fromFn(testPassthroughOp, .{
-        .signature = .{ .params = comptime &.{Param.value("x")}, .returns = "any" },
+        .signature = .{ .params = comptime &.{Param{ .name = "x" }}, .returns = .any },
         .description = "Test op: return its argument unchanged.",
     }));
 
@@ -1247,7 +1244,7 @@ test "scope entry closure captures scope" {
 
     var registry = Registry.init(alloc);
     try registry.registerOperation(alloc, "add", Operation.fromFn(testAddOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("a"), Param.value("b") }, .returns = "int" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "a" }, Param{ .name = "b" } }, .returns = .int },
         .description = "Test op: add two integers.",
     }));
 
@@ -1259,7 +1256,7 @@ test "scope entry closure captures scope" {
     inner_scope.* = .{};
     const empty_scope = try alloc.create(Scope);
     empty_scope.* = Scope.EMPTY;
-    try inner_scope.setEntry(alloc, "y", y_value, empty_scope);
+    try inner_scope.setEntry(alloc, "y", y_value, empty_scope, &.{});
 
     // Create a thunk that references :y, captured with inner_scope
     const y_id = try makeValueLiteral(alloc, Position.synthetic, .{ .string = "y" });
@@ -1267,7 +1264,7 @@ test "scope entry closure captures scope" {
 
     // Create an outer scope where "my-val" is bound to :y with inner_scope as the captured scope
     var outer_scope = Scope{};
-    try outer_scope.setEntry(alloc, "my-val", y_ref, inner_scope);
+    try outer_scope.setEntry(alloc, "my-val", y_ref, inner_scope, &.{});
 
     // Resolving "my-val" should evaluate :y in inner_scope, finding y=10
     const entry = outer_scope.get("my-val").?;

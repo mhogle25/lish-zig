@@ -19,13 +19,12 @@ pub fn evalWithBuiltins(alloc: Allocator, source: []const u8) ExecError!?Value {
     builtins.registerAll(&registry, alloc) catch return error.OutOfMemory;
 
     var env = makeTestEnv(alloc, &registry);
-    const scope = exec.Scope.EMPTY;
 
     const ast_root = try parser.parse(alloc, source);
     const result = try validation.validate(alloc, ast_root);
 
     return switch (result) {
-        .ok => |expression| try env.processExpression(expression, &scope),
+        .ok => |unit| try runUnit(&env, unit),
         .err => error.RuntimeError,
     };
 }
@@ -39,13 +38,19 @@ pub fn evalWithStdlib(alloc: Allocator, source: []const u8) ExecError!?Value {
     _ = process_mod.loadStdlib(&registry) catch return error.OutOfMemory;
 
     var env = makeTestEnv(alloc, &registry);
-    const scope = exec.Scope.EMPTY;
 
     const ast_root = try parser.parse(alloc, source);
     const result = try validation.validate(alloc, ast_root);
 
     return switch (result) {
-        .ok => |expression| try env.processExpression(expression, &scope),
+        .ok => |unit| try runUnit(&env, unit),
         .err => error.RuntimeError,
     };
+}
+
+// Enter the unit (binding its slot array) and evaluate its root expression.
+fn runUnit(env: *exec.Env, unit: exec.Unit) ExecError!?Value {
+    const frame = try env.enterUnit(unit.unit_id, unit.site_count);
+    defer env.exitUnit(frame);
+    return env.processExpression(unit.root, &exec.Scope.EMPTY);
 }

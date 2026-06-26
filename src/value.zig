@@ -160,6 +160,87 @@ pub fn toCondition(condition: bool) ?Value {
     return if (condition) some() else NONE;
 }
 
+/// The type vocabulary an operation declares in its `Signature` (parameter
+/// types and return type), authored as structured data instead of free-form
+/// strings. `render` is the single source of truth for how each form is
+/// spelled, so the conventions can't drift op-to-op.
+///
+/// The concrete forms mirror `Value` (`string`/`int`/`float`/`list`); `number`
+/// is the `int|float` shorthand; `collection` is the `string|list` (iterable)
+/// shorthand; `any` is any present value; `some`/`none` are the `$some`/`$none`
+/// sentinels; `literal` is one concrete string value (e.g. `"ortho"`); `one_of`
+/// is an arbitrary union — and since it carries `literal` members too, a union
+/// can mix generic types with literals (`string|"ortho"`).
+///
+/// This is a description vocabulary for signatures, NOT a runtime type system:
+/// nothing here is enforced; it guides the programmer and feeds tooling.
+pub const LishType = union(enum) {
+    any,
+    string,
+    int,
+    float,
+    list,
+    number,
+    collection,
+    some,
+    none,
+    // TODO: `literal` is string-only. Add numeric literals (int/float, e.g. `3`,
+    // `3.555`) when a concrete "must be 0|1|2"-style op appears — either sibling
+    // variants (`int_literal: i64`, `float_literal: f64`) or by promoting
+    // `literal` to a typed union. Render numbers bare (unquoted) so they read as
+    // values distinct from the quoted strings.
+    literal: []const u8,
+    // TODO: list shapes (element type, e.g. `list of int`; or tuple shapes like
+    // `[int, string]`) when an op needs them. `list` stays generic until then.
+    one_of: []const LishType,
+
+    /// A union of generic members plus string literals, so a signature can DERIVE
+    /// its literal-set from the op's own source (e.g. `StaticStringMap.keys()`).
+    pub fn oneOf(comptime types: []const LishType, comptime names: []const []const u8) LishType {
+        return .{ .one_of = comptime blk: {
+            var members: [types.len + names.len]LishType = undefined;
+            for (types, 0..) |t, i| members[i] = t;
+            for (names, 0..) |name, i| members[types.len + i] = .{ .literal = name };
+            const frozen = members;
+            break :blk &frozen;
+        } };
+    }
+
+    /// Spell the type in display form. The ONLY place type names are written,
+    /// so changing a convention (e.g. the `$` sentinel sigil) is a one-line edit.
+    pub fn render(self: LishType, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        switch (self) {
+            .some => try writer.writeAll("$some"),
+            .none => try writer.writeAll("$none"),
+            .literal => |value_str| {
+                try writer.writeByte('"');
+                try writer.writeAll(value_str);
+                try writer.writeByte('"');
+            },
+            .one_of => |members| for (members, 0..) |member, i| {
+                if (i > 0) try writer.writeByte('|');
+                try member.render(writer);
+            },
+            else => try writer.writeAll(@tagName(self)),
+        }
+    }
+};
+
+test "LishType.render spells a union mixing generic types and quoted literals" {
+    var buf: [64]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+    const t = LishType{ .one_of = &.{ .number, .{ .literal = "slow" }, .{ .literal = "fast" }, .none } };
+    try t.render(&writer);
+    try std.testing.expectEqualStrings("number|\"slow\"|\"fast\"|$none", writer.buffered());
+}
+
+test "LishType.oneOf derives literal members from a name list" {
+    var buf: [64]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+    const t = LishType.oneOf(&.{.number}, &.{ "slow", "fast" });
+    try t.render(&writer);
+    try std.testing.expectEqualStrings("number|\"slow\"|\"fast\"", writer.buffered());
+}
 
 test "value int" {
     const val: Value = .{ .int = 42 };

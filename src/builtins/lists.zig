@@ -12,109 +12,109 @@ const Operation = exec.Operation;
 const Param = exec.Param;
 const Allocator = std.mem.Allocator;
 
-const x_variadic = [_]Param{Param.variadic("x")};
-const start_end_step = [_]Param{ Param.value("start"), Param.value("end"), Param.optional("step") };
-const list_param = [_]Param{Param.value("list")};
-const collection_param = [_]Param{Param.value("collection")};
-const n_collection = [_]Param{ Param.value("n"), Param.value("collection") };
+const x_variadic = [_]Param{.{ .name = "x", .arity = .variadic }};
+const start_end_step = [_]Param{ .{ .name = "start", .type = .int }, .{ .name = "end", .type = .int }, .{ .name = "step", .type = .int, .arity = .optional } };
+const list_param = [_]Param{.{ .name = "list", .type = .list }};
+const collection_param = [_]Param{.{ .name = "collection", .type = .collection }};
+const n_collection = [_]Param{ .{ .name = "n", .type = .int }, .{ .name = "collection", .type = .collection } };
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "lists");
 
     // List construction / traversal
     try g.register("list", Operation.fromFn(listOp, .{
-        .signature = .{ .params = &x_variadic, .returns = "list" },
+        .signature = .{ .params = &x_variadic, .returns = .list },
         .description = "Collect all arguments into a list.",
     }));
 
     try g.register("flat", Operation.fromFn(flatOp, .{
-        .signature = .{ .params = &x_variadic, .returns = "list" },
+        .signature = .{ .params = &x_variadic, .returns = .list },
         .description = "Concatenate arguments into one list, splicing in one level of nested lists.",
     }));
 
     try g.register("flatten", Operation.fromFn(flattenOp, .{
-        .signature = .{ .params = &x_variadic, .returns = "list" },
+        .signature = .{ .params = &x_variadic, .returns = .list },
         .description = "Concatenate arguments into one list, splicing nested lists at any depth.",
     }));
 
     try g.register("range", Operation.fromFn(rangeOp, .{
-        .signature = .{ .params = &start_end_step, .returns = "list" },
+        .signature = .{ .params = &start_end_step, .returns = .list },
         .description = "List of integers from start to end inclusive, with an optional step.",
     }));
 
     try g.register("until", Operation.fromFn(untilOp, .{
-        .signature = .{ .params = &start_end_step, .returns = "list" },
+        .signature = .{ .params = &start_end_step, .returns = .list },
         .description = "List of integers from start up to but excluding end, with an optional step.",
     }));
 
     try g.register("sort", Operation.fromFn(sortOp, .{
-        .signature = .{ .params = &list_param, .returns = "list" },
+        .signature = .{ .params = &list_param, .returns = .list },
         .description = "Sort a list in ascending order.",
     }));
 
     try g.register("sortby", Operation.fromFn(sortbyOp, .{
-        .signature = .{ .params = comptime &.{ Param.binding("name"), Param.value("list"), Param.body("body") }, .returns = "list" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "name", .role = .binding }, Param{ .name = "list", .type = .list }, Param{ .name = "body", .role = .body } }, .returns = .list },
         .description = "Sort a list ascending by the key the body computes for each element bound to name.",
     }));
 
     try g.register("sortwith", Operation.fromFn(sortwithOp, .{
-        .signature = .{ .params = comptime &.{ Param.binding("a"), Param.binding("b"), Param.value("list"), Param.body("body") }, .returns = "list" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "a", .role = .binding }, Param{ .name = "b", .role = .binding }, Param{ .name = "list", .type = .list }, Param{ .name = "body", .role = .body } }, .returns = .list },
         .description = "Sort a list using a comparator body that returns negative, zero, or positive for the pair bound to a and b.",
     }));
 
     try g.register("fillby", Operation.fromFn(fillbyOp, .{
-        .signature = .{ .params = comptime &.{ .{ .name = "name", .role = .binding, .arity = .optional }, Param.value("n"), Param.body("body") }, .returns = "list" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "name", .role = .binding, .arity = .optional }, Param{ .name = "n", .type = .int }, Param{ .name = "body", .role = .body } }, .returns = .list },
         .description = "Build a list of n elements from the body; the 3-arg form binds the slot index to name.",
     }));
 
     // Collection access
     try g.register("length", Operation.fromFn(lengthOp, .{
-        .signature = .{ .params = &collection_param, .returns = "int" },
+        .signature = .{ .params = &collection_param, .returns = .int },
         .description = "Number of elements in a list or characters in a string.",
     }));
 
     try g.register("first", Operation.fromFn(firstOp, .{
-        .signature = .{ .params = &collection_param, .returns = "value|$none" },
+        .signature = .{ .params = &collection_param, .returns = .{ .one_of = &.{ .any, .none } } },
         .description = "First element of a list, or first character of a string; else $none.",
     }));
 
     try g.register("last", Operation.fromFn(lastOp, .{
-        .signature = .{ .params = &collection_param, .returns = "value|$none" },
+        .signature = .{ .params = &collection_param, .returns = .{ .one_of = &.{ .any, .none } } },
         .description = "Last element of a list, or last character of a string; else $none.",
     }));
 
     try g.register("rest", Operation.fromFn(restOp, .{
-        .signature = .{ .params = &collection_param, .returns = "collection" },
+        .signature = .{ .params = &collection_param, .returns = .collection },
         .description = "A list without its first element, or a string without its first character.",
     }));
 
     try g.register("at", Operation.fromFn(atOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("index"), Param.value("collection") }, .returns = "value|$none" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "index", .type = .int }, Param{ .name = "collection", .type = .collection } }, .returns = .{ .one_of = &.{ .any, .none } } },
         .description = "Element at the index in a list or string, else $none.",
     }));
 
     try g.register("reverse", Operation.fromFn(reverseOp, .{
-        .signature = .{ .params = &collection_param, .returns = "collection" },
+        .signature = .{ .params = &collection_param, .returns = .collection },
         .description = "Reverse a list or string.",
     }));
 
     try g.register("take", Operation.fromFn(takeOp, .{
-        .signature = .{ .params = &n_collection, .returns = "collection" },
+        .signature = .{ .params = &n_collection, .returns = .collection },
         .description = "First n elements of a list or characters of a string.",
     }));
 
     try g.register("drop", Operation.fromFn(dropOp, .{
-        .signature = .{ .params = &n_collection, .returns = "collection" },
+        .signature = .{ .params = &n_collection, .returns = .collection },
         .description = "Collection with the first n elements or characters removed.",
     }));
 
     try g.register("slice", Operation.fromFn(sliceOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("start"), Param.value("end"), Param.value("collection") }, .returns = "collection" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "start", .type = .int }, Param{ .name = "end", .type = .int }, Param{ .name = "collection", .type = .collection } }, .returns = .collection },
         .description = "Sub-range of a list or string from start up to but excluding end.",
     }));
 
     try g.register("zip", Operation.fromFn(zipOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("a"), Param.value("b") }, .returns = "list" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "a", .type = .list }, Param{ .name = "b", .type = .list } }, .returns = .list },
         .description = "Pair up two lists element-wise into a list of two-element lists, truncating to the shorter.",
     }));
 }

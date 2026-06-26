@@ -13,22 +13,22 @@ const Allocator = std.mem.Allocator;
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "binding");
     try g.register("let", Operation.fromFn(letOp, .{
-        .signature = .{ .params = comptime &.{ Param.binding("name"), Param.variadic("value"), Param.body("body") }, .returns = "value", .binding_pairs = true },
+        .signature = .{ .params = comptime &.{ Param{ .name = "name", .role = .binding }, Param{ .name = "value", .arity = .variadic }, Param{ .name = "body", .role = .body } }, .returns = .any, .binding_pairs = true },
         .description = "Bind name/value pairs in a new scope, then evaluate the trailing body in it.",
     }));
 
     try g.register("unpack", Operation.fromFn(unpackOp, .{
-        .signature = .{ .params = comptime &.{ .{ .name = "name", .role = .binding, .arity = .variadic }, Param.value("source"), Param.body("body") }, .returns = "value" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "name", .role = .binding, .arity = .variadic }, Param{ .name = "source", .type = .collection }, Param{ .name = "body", .role = .body } }, .returns = .any },
         .description = "Bind each name to the source's positional element (a list or string; $none past the end, extras ignored) in a new scope, then evaluate the body. Panics if source is not a list or string.",
     }));
 
     try g.register("pipe", Operation.fromFn(pipeOp, .{
-        .signature = .{ .params = comptime &.{ Param.binding("name"), Param.value("initial"), .{ .name = "step", .role = .body, .arity = .variadic } }, .returns = "value" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "name", .role = .binding }, Param{ .name = "initial" }, Param{ .name = "step", .role = .body, .arity = .variadic } }, .returns = .any },
         .description = "Thread an initial value through each step, rebinding name to the running result.",
     }));
 
     try g.register("given", Operation.fromFn(givenOp, .{
-        .signature = .{ .params = comptime &.{ Param.binding("name"), Param.value("source"), Param.body("ok"), .{ .name = "else", .role = .body, .arity = .optional } }, .returns = "value" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "name", .role = .binding }, Param{ .name = "source" }, Param{ .name = "ok", .role = .body }, Param{ .name = "else", .role = .body, .arity = .optional } }, .returns = .any },
         .description = "Evaluate source; if non-$none bind it to name and run the ok body, else run the optional else body (or $none).",
     }));
 }

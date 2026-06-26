@@ -461,8 +461,10 @@ fn validateMacro(
         }
     }
 
-    // Validate body expression (reuse expression validation)
-    const body_thunk = try validation_mod.validateStep(allocator, macro.body, errors) orelse return null;
+    // Validate body expression (reuse expression validation). The body is its own
+    // unit: a fresh counter hands out site ids local to it, starting at 0.
+    var site_counter: u32 = 0;
+    const body_thunk = try validation_mod.validateStep(allocator, macro.body, errors, &site_counter) orelse return null;
     if (body_thunk.body != .expression) {
         try errors.add(allocator, .{ .message = "Macro body must be an expression" });
         return null;
@@ -474,6 +476,8 @@ fn validateMacro(
         .id = id,
         .parameters = valid_params.items,
         .body = body_thunk.body.expression,
+        .unit_id = exec.nextUnitId(),
+        .site_count = site_counter,
         .description = try cleanDocstring(allocator, macro.description),
     };
 }
@@ -621,7 +625,7 @@ test "validate and execute macro" {
     const ast_root = try expr_parser.parse(alloc, "double 21");
     const expr_result = try validation_mod.validate(alloc, ast_root);
     const expression = switch (expr_result) {
-        .ok => |expr| expr,
+        .ok => |unit| unit.root,
         .err => return error.TestUnexpectedResult,
     };
 
@@ -656,7 +660,7 @@ test "end-to-end: macro with deferred parameter" {
     const ast_root = try expr_parser.parse(alloc, "do-twice 42");
     const expr_result = try validation_mod.validate(alloc, ast_root);
     const expression = switch (expr_result) {
-        .ok => |expr| expr,
+        .ok => |unit| unit.root,
         .err => return error.TestUnexpectedResult,
     };
 
@@ -690,7 +694,7 @@ test "end-to-end: multiple macros in module" {
     const ast_root = try expr_parser.parse(alloc, "quadruple 3");
     const expr_result = try validation_mod.validate(alloc, ast_root);
     const expression = switch (expr_result) {
-        .ok => |expr| expr,
+        .ok => |unit| unit.root,
         .err => return error.TestUnexpectedResult,
     };
 

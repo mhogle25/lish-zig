@@ -22,8 +22,8 @@ const op_history_size      = "history-size";
 const op_prompt            = "prompt";
 
 const Param = exec_mod.Param;
-const on_off = [_]Param{Param.optional("$on|$off")};
-const n_off = [_]Param{Param.value("n|$off")};
+const on_off = [_]Param{.{ .name = "on", .arity = .optional }};
+const n_off = [_]Param{.{ .name = "n", .type = .{ .one_of = &.{ .int, .none } } }};
 
 /// Write a result value in the canonical `=> <value>` form, strings quoted to
 /// disambiguate them from other types. The caller frames it (the trailing
@@ -254,62 +254,62 @@ pub fn initConfig(io: std.Io, environ: std.process.Environ, allocator: Allocator
 pub fn registerConfigOps(registry: *exec_mod.Registry, config: *ReplConfig, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "repl-config");
     try g.register(op_autopair_insert, exec_mod.Operation.fromBoundFn(ReplConfig, autopairInsertOp, config, .{
-        .signature = .{ .params = &on_off, .returns = "$none" },
+        .signature = .{ .params = &on_off, .returns = .none },
         .description = "REPL config: insert the matching closer when you type an opening bracket or quote.",
     }));
 
     try g.register(op_autopair_delete, exec_mod.Operation.fromBoundFn(ReplConfig, autopairDeleteOp, config, .{
-        .signature = .{ .params = &on_off, .returns = "$none" },
+        .signature = .{ .params = &on_off, .returns = .none },
         .description = "REPL config: delete the matching closer when you backspace an opening bracket.",
     }));
 
     try g.register(op_bracket_expand, exec_mod.Operation.fromBoundFn(ReplConfig, bracketExpandOp, config, .{
-        .signature = .{ .params = &on_off, .returns = "$none" },
+        .signature = .{ .params = &on_off, .returns = .none },
         .description = "REPL config: Alt+Enter inside a bracket pair expands it across lines; backspace collapses it.",
     }));
 
     try g.register(op_highlight, exec_mod.Operation.fromBoundFn(ReplConfig, highlightOp, config, .{
-        .signature = .{ .params = &on_off, .returns = "$none" },
+        .signature = .{ .params = &on_off, .returns = .none },
         .description = "REPL config: syntax highlighting of the input line.",
     }));
 
     try g.register(op_max_call_depth, exec_mod.Operation.fromBoundFn(ReplConfig, maxCallDepthOp, config, .{
-        .signature = .{ .params = comptime &.{Param.value("n")}, .returns = "$none" },
+        .signature = .{ .params = comptime &.{Param{ .name = "n" }}, .returns = .none },
         .description = "REPL config: maximum operation call-stack depth before recursion is stopped.",
     }));
 
     try g.register(op_fuel, exec_mod.Operation.fromBoundFn(ReplConfig, fuelOp, config, .{
-        .signature = .{ .params = &n_off, .returns = "$none" },
+        .signature = .{ .params = &n_off, .returns = .none },
         .description = "REPL config: maximum evaluation steps per expression, or $off to disable.",
     }));
 
     try g.register(op_max_list_length, exec_mod.Operation.fromBoundFn(ReplConfig, maxListLengthOp, config, .{
-        .signature = .{ .params = &n_off, .returns = "$none" },
+        .signature = .{ .params = &n_off, .returns = .none },
         .description = "REPL config: maximum list length, or $off to disable.",
     }));
 
     try g.register(op_max_string_length, exec_mod.Operation.fromBoundFn(ReplConfig, maxStringLengthOp, config, .{
-        .signature = .{ .params = &n_off, .returns = "$none" },
+        .signature = .{ .params = &n_off, .returns = .none },
         .description = "REPL config: maximum string length, or $off to disable.",
     }));
 
     try g.register("macros", exec_mod.Operation.fromBoundFn(ReplConfig, macrosOp, config, .{
-        .signature = .{ .params = comptime &.{Param.value("path")}, .returns = "$none" },
+        .signature = .{ .params = comptime &.{Param{ .name = "path" }}, .returns = .none },
         .description = "REPL config: add a directory to load macro modules from.",
     }));
 
     try g.register(op_indent_width, exec_mod.Operation.fromBoundFn(ReplConfig, indentWidthOp, config, .{
-        .signature = .{ .params = comptime &.{Param.value("n")}, .returns = "$none" },
+        .signature = .{ .params = comptime &.{Param{ .name = "n" }}, .returns = .none },
         .description = "REPL config: spaces per Tab / indent level.",
     }));
 
     try g.register(op_history_size, exec_mod.Operation.fromBoundFn(ReplConfig, historySizeOp, config, .{
-        .signature = .{ .params = comptime &.{Param.value("n")}, .returns = "$none" },
+        .signature = .{ .params = comptime &.{Param{ .name = "n" }}, .returns = .none },
         .description = "REPL config: lines of command history to retain.",
     }));
 
     try g.register(op_prompt, exec_mod.Operation.fromBoundFn(ReplConfig, promptOp, config, .{
-        .signature = .{ .params = comptime &.{Param.value("text")}, .returns = "$none" },
+        .signature = .{ .params = comptime &.{Param{ .name = "text" }}, .returns = .none },
         .description = "REPL config: the input prompt string.",
     }));
 

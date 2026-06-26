@@ -11,32 +11,32 @@ const Operation = exec.Operation;
 const Param = exec.Param;
 const Allocator = std.mem.Allocator;
 
-const x_param = [_]Param{Param.value("x")};
+const x_param = [_]Param{.{ .name = "x" }};
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "types");
     try g.register("type", Operation.fromFn(typeOp, .{
-        .signature = .{ .params = &x_param, .returns = "string" },
+        .signature = .{ .params = &x_param, .returns = .string },
         .description = "Name of a value's type: int, float, string, list, or none.",
     }));
 
     try g.register("int", Operation.fromFn(intOp, .{
-        .signature = .{ .params = &x_param, .returns = "int" },
+        .signature = .{ .params = &x_param, .returns = .int },
         .description = "Convert a number or string to an integer.",
     }));
 
     try g.register("float", Operation.fromFn(floatOp, .{
-        .signature = .{ .params = &x_param, .returns = "float" },
+        .signature = .{ .params = &x_param, .returns = .float },
         .description = "Convert a number or string to a float.",
     }));
 
     try g.register("string", Operation.fromFn(stringOp, .{
-        .signature = .{ .params = &x_param, .returns = "string" },
+        .signature = .{ .params = &x_param, .returns = .string },
         .description = "Render a value as its plain text form.",
     }));
 
     try g.register("inspect", Operation.fromFn(inspectOp, .{
-        .signature = .{ .params = &x_param, .returns = "string" },
+        .signature = .{ .params = &x_param, .returns = .string },
         .description = "Debug representation of a value with quoted strings and list sugar; for logs and the REPL, not round-trip.",
     }));
 }

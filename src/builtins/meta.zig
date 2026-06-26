@@ -15,17 +15,17 @@ const Allocator = std.mem.Allocator;
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "meta");
     try g.register("apply", Operation.fromFn(applyOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("name"), Param.value("list") }, .returns = "value" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "name", .type = .string }, Param{ .name = "list", .type = .list } }, .returns = .any },
         .description = "Call the operation named by the first argument with the elements of the list as its arguments.",
     }));
 
     try g.register("known", Operation.fromFn(knownOp, .{
-        .signature = .{ .params = comptime &.{Param.value("name")}, .returns = "string|$none" },
+        .signature = .{ .params = comptime &.{Param{ .name = "name", .type = .string }}, .returns = .{ .one_of = &.{ .string, .none } } },
         .description = "Returns the name when it is a registered operation or macro, else $none.",
     }));
 
     try g.register("ops", Operation.fromFn(opsOp, .{
-        .signature = .{ .returns = "list" },
+        .signature = .{ .returns = .list },
         .description = "Returns a list of all registered operation and macro names.",
     }));
 }
@@ -186,7 +186,7 @@ test "ops: includes registered macros" {
     const validated = try validation.validate(alloc, ast_root);
 
     const result = switch (validated) {
-        .ok => |expression| try env.processExpression(expression, &scope),
+        .ok => |unit| try env.processExpression(unit.root, &scope),
         .err => return error.RuntimeError,
     };
     try std.testing.expect(result != null);
@@ -216,7 +216,7 @@ test "known: registered macro" {
     const validated = try validation.validate(alloc, ast_root);
 
     const result = switch (validated) {
-        .ok => |expression| try env.processExpression(expression, &scope),
+        .ok => |unit| try env.processExpression(unit.root, &scope),
         .err => return error.RuntimeError,
     };
 

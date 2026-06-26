@@ -12,6 +12,7 @@ const Env = exec_mod.Env;
 const Scope = exec_mod.Scope;
 const Registry = exec_mod.Registry;
 const Expression = exec_mod.Expression;
+const Unit = exec_mod.Unit;
 const RuntimeErr = exec_mod.RuntimeErr;
 const ValidationError = validation_mod.ValidationError;
 pub const ExpressionCache = cache_mod.ExpressionCache;
@@ -78,15 +79,12 @@ pub fn processRaw(
     const validation_result = try validation_mod.validate(env.allocator, ast_root);
 
     switch (validation_result) {
-        .ok => |expression| {
-            exec_mod.stampExpression(@constCast(&expression), env.registry);
-            return executeExpression(env, expression, scope);
-        },
+        .ok => |unit| return executeUnit(env, unit, scope),
         .err => |errors| return .{ .validation_err = errors },
     }
 }
 
-/// Parse (cached), validate, and execute. The cached expression is allocated in
+/// Parse (cached), validate, and execute. The cached unit is allocated in
 /// `parse_allocator` (must outlive the cache); execution allocates transient
 /// values in `env.allocator`.
 pub fn processRawCached(
@@ -97,8 +95,8 @@ pub fn processRawCached(
     scope: ?*const Scope,
 ) (Allocator.Error)!ProcessResult {
     // Cache hit: skip parse + validate
-    if (expression_cache.get(source)) |expression| {
-        return executeExpression(env, expression, scope);
+    if (expression_cache.get(source)) |unit| {
+        return executeUnit(env, unit, scope);
     }
 
     // Cache miss: parse + validate into parse_allocator, cache, then execute.
@@ -106,18 +104,20 @@ pub fn processRawCached(
     const validation_result = try validation_mod.validate(parse_allocator, ast_root);
 
     switch (validation_result) {
-        .ok => |expression| {
-            exec_mod.stampExpression(@constCast(&expression), env.registry);
-            try expression_cache.put(source, expression);
-            return executeExpression(env, expression, scope);
+        .ok => |unit| {
+            try expression_cache.put(source, unit);
+            return executeUnit(env, unit, scope);
         },
         .err => |errors| return .{ .validation_err = errors },
     }
 }
 
-fn executeExpression(env: *Env, expression: Expression, scope: ?*const Scope) (Allocator.Error)!ProcessResult {
+fn executeUnit(env: *Env, unit: Unit, scope: ?*const Scope) (Allocator.Error)!ProcessResult {
     const exec_scope = scope orelse &Scope.EMPTY;
-    const result = env.processExpression(expression, exec_scope) catch |err| switch (err) {
+    const frame = try env.enterUnit(unit.unit_id, unit.site_count);
+    defer env.exitUnit(frame);
+
+    const result = env.processExpression(unit.root, exec_scope) catch |err| switch (err) {
         error.RuntimeError => return .{ .runtime_err = env.runtime_error orelse .{ .category = .internal, .message = "Unknown runtime error" } },
         error.OutOfMemory => return error.OutOfMemory,
     };
@@ -141,14 +141,12 @@ pub fn loadMacroModule(
 
     switch (validation_result) {
         .ok => |macros| {
-            // 3. Register all macros and stamp their body call sites with site ids.
+            // 3. Register all macros. Their body site ids and unit identity were
+            //    assigned during validation; registerMacro invalidates the
+            //    resolution cache so call sites re-resolve against the new registry.
             for (macros) |*macro| {
                 try registry.registerMacro(macro.id, macro);
-                exec_mod.stampExpression(@constCast(&macro.body), registry);
             }
-            // 4. New names are now visible; drop memoized resolutions so call sites
-            //    re-resolve against the updated registry.
-            registry.clearResolution();
             return .{ .ok = macros.len };
         },
         .err => |errors| return .{ .validation_err = errors },
@@ -291,85 +289,129 @@ test "processRaw: nested expressions" {
     }
 }
 
-fn pingOneOp(_: exec_mod.Args) exec_mod.ExecError!?Value {
+fn constOneOp(_: exec_mod.Args) exec_mod.ExecError!?Value {
     return Value{ .int = 1 };
 }
-fn pingTwoOp(_: exec_mod.Args) exec_mod.ExecError!?Value {
+fn constTwoOp(_: exec_mod.Args) exec_mod.ExecError!?Value {
     return Value{ .int = 2 };
 }
+fn constThreeOp(_: exec_mod.Args) exec_mod.ExecError!?Value {
+    return Value{ .int = 3 };
+}
 
-test "one stamped AST resolves per-registry, not to whoever stamped it" {
+fn intOp(comptime n: i64) exec_mod.Operation {
+    return exec_mod.Operation.fromFn(switch (n) {
+        1 => constOneOp,
+        2 => constTwoOp,
+        else => constThreeOp,
+    }, .{ .signature = .{ .returns = .int }, .description = "const" });
+}
+
+fn validateUnit(alloc: Allocator, source: []const u8) !exec_mod.Unit {
+    const ast_root = try expr_parser.parse(alloc, source);
+    return switch (try validation_mod.validate(alloc, ast_root)) {
+        .ok => |unit| unit,
+        .err => error.TestUnexpectedResult,
+    };
+}
+
+fn runUnit(env: *Env, unit: exec_mod.Unit) exec_mod.ExecError!?Value {
+    const frame = try env.enterUnit(unit.unit_id, unit.site_count);
+    defer env.exitUnit(frame);
+    return env.processExpression(unit.root, &Scope.EMPTY);
+}
+
+test "one lowered unit resolves per-registry, never to whoever ran it first" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    // Same name, different behavior per registry; op-only so site ids can't collide.
+    // Same name, different behavior per registry.
     var reg_one = Registry.init(alloc);
     defer reg_one.deinit(alloc);
-    try reg_one.registerOperation(alloc, "ping", exec_mod.Operation.fromFn(pingOneOp, .{
-        .signature = .{ .returns = "int" },
-        .description = "ping one",
-    }));
+    try reg_one.registerOperation(alloc, "ping", intOp(1));
 
     var reg_two = Registry.init(alloc);
     defer reg_two.deinit(alloc);
-    try reg_two.registerOperation(alloc, "ping", exec_mod.Operation.fromFn(pingTwoOp, .{
-        .signature = .{ .returns = "int" },
-        .description = "ping two",
-    }));
+    try reg_two.registerOperation(alloc, "ping", intOp(2));
 
-    // Parse, validate, and stamp the AST exactly once (against reg_one).
-    const ast_root = try expr_parser.parse(alloc, "ping");
-    var stamped = switch (try validation_mod.validate(alloc, ast_root)) {
-        .ok => |e| e,
-        .err => return error.TestUnexpectedResult,
-    };
-    exec_mod.stampExpression(&stamped, &reg_one);
-
-    const scope = Scope.EMPTY;
+    // Lower the AST exactly once; both registries run the same immutable unit.
+    const unit = try validateUnit(alloc, "ping");
     var env_one = Env{ .registry = &reg_one, .allocator = alloc };
     var env_two = Env{ .registry = &reg_two, .allocator = alloc };
 
-    // The single immutable AST binds to each registry's own definition.
-    try std.testing.expectEqual(@as(i64, 1), (try env_one.processExpression(stamped, &scope)).?.int);
-    try std.testing.expectEqual(@as(i64, 2), (try env_two.processExpression(stamped, &scope)).?.int);
-    // Re-run under one: memoization stayed registry-local.
-    try std.testing.expectEqual(@as(i64, 1), (try env_one.processExpression(stamped, &scope)).?.int);
+    try std.testing.expectEqual(@as(i64, 1), (try runUnit(&env_one, unit)).?.int);
+    try std.testing.expectEqual(@as(i64, 2), (try runUnit(&env_two, unit)).?.int);
+    // Re-run under one: each registry memoized into its own per-unit slot array.
+    try std.testing.expectEqual(@as(i64, 1), (try runUnit(&env_one, unit)).?.int);
 }
 
-test "shared Program lets registries with their own macros share one AST" {
+test "two units with overlapping local site ids never alias (collision regression)" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var program = exec_mod.Program{};
+    var registry = Registry.init(alloc);
+    defer registry.deinit(alloc);
+    try registry.registerOperation(alloc, "a", intOp(1));
+    try registry.registerOperation(alloc, "b", intOp(2));
 
-    // reg_macro owns macro `m`; its body call site stamps from the shared space.
-    var reg_macro = Registry.init(alloc);
-    defer reg_macro.deinit(alloc);
-    program.adopt(&reg_macro);
-    try builtins.registerAll(&reg_macro, alloc);
-    _ = try loadMacroModule(&reg_macro, "|m| + 0 7");
+    // Both root expressions are local site 0; under one registry they must still
+    // resolve to their own op. A flat-array-by-site model would alias them.
+    const unit_a = try validateUnit(alloc, "a");
+    const unit_b = try validateUnit(alloc, "b");
+    var env = Env{ .registry = &registry, .allocator = alloc };
 
-    // A second registry stamps a foreign AST that calls `m`. Sharing the program,
-    // its site id is fresh and never aliases reg_macro's macro-body site (without
-    // sharing both would be 0, and the input would read the macro's memoized slot).
-    var reg_input = Registry.init(alloc);
-    defer reg_input.deinit(alloc);
-    program.adopt(&reg_input);
-    try builtins.registerAll(&reg_input, alloc);
+    try std.testing.expectEqual(@as(i64, 1), (try runUnit(&env, unit_a)).?.int);
+    try std.testing.expectEqual(@as(i64, 2), (try runUnit(&env, unit_b)).?.int);
+    // a's slot stayed its own after b ran and memoized site 0.
+    try std.testing.expectEqual(@as(i64, 1), (try runUnit(&env, unit_a)).?.int);
+}
 
-    const ast = try expr_parser.parse(alloc, "m");
-    var input = switch (try validation_mod.validate(alloc, ast)) {
-        .ok => |e| e,
-        .err => return error.TestUnexpectedResult,
-    };
-    exec_mod.stampExpression(&input, &reg_input);
+test "evicted unit re-resolves correctly on next use" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
 
-    const scope = Scope.EMPTY;
-    var env = Env{ .registry = &reg_macro, .allocator = alloc };
-    // The foreign input resolves `m` against reg_macro and runs its body (+ 0 7).
-    try std.testing.expectEqual(@as(i64, 7), (try env.processExpression(input, &scope)).?.int);
+    // Capacity 2 forces eviction once a third distinct unit runs.
+    var registry = Registry.initCapacity(alloc, 2);
+    defer registry.deinit(alloc);
+    try registry.registerOperation(alloc, "a", intOp(1));
+    try registry.registerOperation(alloc, "b", intOp(2));
+    try registry.registerOperation(alloc, "c", intOp(3));
+
+    const unit_a = try validateUnit(alloc, "a");
+    const unit_b = try validateUnit(alloc, "b");
+    const unit_c = try validateUnit(alloc, "c");
+    var env = Env{ .registry = &registry, .allocator = alloc };
+
+    try std.testing.expectEqual(@as(i64, 1), (try runUnit(&env, unit_a)).?.int);
+    try std.testing.expectEqual(@as(i64, 2), (try runUnit(&env, unit_b)).?.int);
+    try std.testing.expectEqual(@as(i64, 3), (try runUnit(&env, unit_c)).?.int); // evicts a (LRU)
+    try std.testing.expectEqual(@as(usize, 2), registry.resolution.count());     // stays bounded
+    // a was evicted; re-running re-resolves from scratch and is still correct.
+    try std.testing.expectEqual(@as(i64, 1), (try runUnit(&env, unit_a)).?.int);
+}
+
+test "recursion does not evict a live ancestor unit (pinning)" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // Capacity 1: while a unit recurses, its own and the caller's slots are pinned.
+    var registry = Registry.initCapacity(alloc, 1);
+    defer registry.deinit(alloc);
+    try builtins.registerAll(&registry, alloc);
+    const load = try loadMacroModule(&registry, "|countdown n| if (> :n 0) (countdown (- :n 1)) :n");
+    try std.testing.expect(load == .ok);
+
+    var env = Env{ .registry = &registry, .allocator = alloc };
+    // If a pinned ancestor were evicted, its freed slots would corrupt this result.
+    const result = try processRaw(&env, "countdown 50", null);
+    switch (result) {
+        .ok => |maybe_value| try std.testing.expectEqual(@as(i64, 0), maybe_value.?.int),
+        else => return error.TestUnexpectedResult,
+    }
 }
 
 test "processRaw: returns none for none operation" {
@@ -441,7 +483,7 @@ test "processRaw: with scope" {
     const empty_scope = try alloc.create(Scope);
     empty_scope.* = Scope.EMPTY;
     var scope = Scope{};
-    try scope.setEntry(alloc, "x", value_thunk, empty_scope);
+    try scope.setEntry(alloc, "x", value_thunk, empty_scope, &.{});
 
     const result = try processRaw(&env, "+ :x 5", &scope);
     switch (result) {
@@ -563,7 +605,7 @@ test "processRaw: full pipeline with macros and scope" {
     const empty_scope = try alloc.create(Scope);
     empty_scope.* = Scope.EMPTY;
     var scope = Scope{};
-    try scope.setEntry(alloc, "x", value_thunk, empty_scope);
+    try scope.setEntry(alloc, "x", value_thunk, empty_scope, &.{});
 
     var env = Env{ .registry = &registry, .allocator = alloc };
     const result = try processRaw(&env, "add-to-x :x 50", &scope);

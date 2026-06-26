@@ -11,82 +11,83 @@ const Operation = exec.Operation;
 const Param = exec.Param;
 const Allocator = std.mem.Allocator;
 
-const string_param = [_]Param{Param.value("string")};
-const pattern_target = [_]Param{ Param.value("pattern"), Param.value("target") };
-const needle_haystack = [_]Param{ Param.value("needle"), Param.value("haystack") };
+const string_param = [_]Param{.{ .name = "string", .type = .string }};
+const pattern_target = [_]Param{ .{ .name = "pattern", .type = .string }, .{ .name = "target", .type = .string } };
+// `needle` is a substring (string haystack) or element (list haystack), so it stays generic.
+const needle_haystack = [_]Param{ .{ .name = "needle" }, .{ .name = "haystack", .type = .collection } };
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "strings");
 
     // String
     try g.register("concat", Operation.fromFn(concatOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("a"), Param.variadic("b") }, .returns = "string" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "a" }, Param{ .name = "b", .arity = .variadic } }, .returns = .string },
         .description = "Concatenate all arguments into one string.",
     }));
 
     try g.register("join", Operation.fromFn(joinOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("separator"), Param.value("a"), Param.variadic("b") }, .returns = "string" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "separator", .type = .string }, Param{ .name = "a" }, Param{ .name = "b", .arity = .variadic } }, .returns = .string },
         .description = "Join the remaining arguments into a string separated by the first.",
     }));
 
     try g.register("split", Operation.fromFn(splitOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("separator"), Param.value("string") }, .returns = "list" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "separator", .type = .string }, Param{ .name = "string", .type = .string } }, .returns = .list },
         .description = "Split a string on a separator into a list of pieces.",
     }));
 
     try g.register("chars", Operation.fromFn(charsOp, .{
-        .signature = .{ .params = &string_param, .returns = "list" },
+        .signature = .{ .params = &string_param, .returns = .list },
         .description = "Split a string into a list of its single-character strings.",
     }));
 
     try g.register("lines", Operation.fromFn(linesOp, .{
-        .signature = .{ .params = &string_param, .returns = "list" },
+        .signature = .{ .params = &string_param, .returns = .list },
         .description = "Split a string into a list of its lines.",
     }));
 
     try g.register("trim", Operation.fromFn(trimOp, .{
-        .signature = .{ .params = &string_param, .returns = "string" },
+        .signature = .{ .params = &string_param, .returns = .string },
         .description = "Strip leading and trailing whitespace.",
     }));
 
     try g.register("upper", Operation.fromFn(upperOp, .{
-        .signature = .{ .params = &string_param, .returns = "string" },
+        .signature = .{ .params = &string_param, .returns = .string },
         .description = "Convert to uppercase.",
     }));
 
     try g.register("lower", Operation.fromFn(lowerOp, .{
-        .signature = .{ .params = &string_param, .returns = "string" },
+        .signature = .{ .params = &string_param, .returns = .string },
         .description = "Convert to lowercase.",
     }));
 
     try g.register("replace", Operation.fromFn(replaceOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("pattern"), Param.value("replacement"), Param.value("target") }, .returns = "string" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "pattern", .type = .string }, Param{ .name = "replacement", .type = .string }, Param{ .name = "target", .type = .string } }, .returns = .string },
         .description = "Replace every occurrence of a pattern with a replacement in the target string.",
     }));
 
     try g.register("format", Operation.fromFn(formatOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("template"), Param.variadic("arg") }, .returns = "string" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "template", .type = .string }, Param{ .name = "arg", .arity = .variadic } }, .returns = .string },
         .description = "Fill each <> placeholder in the template with the following arguments in order.",
     }));
 
     // Predicates
     try g.register("prefix", Operation.fromFn(prefixOp, .{
-        .signature = .{ .params = &pattern_target, .returns = "string|$none" },
+        .signature = .{ .params = &pattern_target, .returns = .{ .one_of = &.{ .string, .none } } },
         .description = "When the target starts with the pattern, returns the remainder, else $none.",
     }));
 
     try g.register("suffix", Operation.fromFn(suffixOp, .{
-        .signature = .{ .params = &pattern_target, .returns = "string|$none" },
+        .signature = .{ .params = &pattern_target, .returns = .{ .one_of = &.{ .string, .none } } },
         .description = "When the target ends with the pattern, returns the remainder, else $none.",
     }));
 
     try g.register("in", Operation.fromFn(inOp, .{
-        .signature = .{ .params = &needle_haystack, .returns = "value|$none" },
+        .signature = .{ .params = &needle_haystack, .returns = .{ .one_of = &.{ .any, .none } } },
         .description = "Membership test; returns the needle when found in the string or list, else $none.",
     }));
 
     try g.register("find", Operation.fromFn(findOp, .{
-        .signature = .{ .params = &needle_haystack, .returns = "int|$none" },
+        .signature = .{ .params = &needle_haystack, .returns = .{ .one_of = &.{ .int, .none } } },
         .description = "Index of the needle within the string or list, else $none.",
     }));
 }

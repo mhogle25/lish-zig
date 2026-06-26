@@ -30,6 +30,9 @@ pub const SessionConfig = struct {
     fragments: []const RegistryFragment = &.{},
     macro_paths: []const []const u8 = &.{},
     expression_cache_capacity: usize = 256,
+    /// Capacity (in units) of the registry's resolution cache. Size it above the
+    /// distinct units a single evaluation keeps on the stack at once.
+    resolution_cache_capacity: usize = exec_mod.DEFAULT_RESOLUTION_CAPACITY,
     stdout: ?*std.Io.Writer = null,
     stderr: ?*std.Io.Writer = null,
     bounds: exec_mod.Bounds = .{},
@@ -47,7 +50,7 @@ pub const Session = struct {
     session_allocator: Allocator,
 
     pub fn init(allocator: Allocator, config: SessionConfig) !Session {
-        var registry = Registry.init(allocator);
+        var registry = Registry.initCapacity(allocator, config.resolution_cache_capacity);
         try process_mod.loadFragments(&registry, allocator, config.fragments);
 
         var expression_cache = try ExpressionCache.init(allocator, config.expression_cache_capacity);

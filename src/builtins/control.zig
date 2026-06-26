@@ -13,22 +13,22 @@ const Allocator = std.mem.Allocator;
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "control");
     try g.register("if", Operation.fromFn(ifElseOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("cond"), Param.value("then"), Param.optional("else") }, .returns = "value" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "cond" }, Param{ .name = "then" }, Param{ .name = "else", .arity = .optional } }, .returns = .any },
         .description = "If the condition is truthy yield the then-branch, else the optional else-branch (or $none).",
     }));
 
     try g.register("when", Operation.fromFn(whenOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("cond"), Param.variadic("result") }, .returns = "value" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "cond" }, Param{ .name = "result", .arity = .variadic } }, .returns = .any },
         .description = "Returns the result of the first truthy condition in condition/result pairs, else $none.",
     }));
 
     try g.register("match", Operation.fromFn(matchOp, .{
-        .signature = .{ .params = comptime &.{ Param.value("target"), Param.value("pattern"), Param.variadic("result"), Param.optional("default") }, .returns = "value" },
+        .signature = .{ .params = comptime &.{ Param{ .name = "target" }, Param{ .name = "pattern" }, Param{ .name = "result", .arity = .variadic }, Param{ .name = "default", .arity = .optional } }, .returns = .any },
         .description = "Returns the result whose pattern equals the target in pattern/result pairs, else the optional trailing default (or $none).",
     }));
 
     try g.register("panic", Operation.fromFn(panicOp, .{
-        .signature = .{ .params = comptime &.{Param.value("message")}, .returns = "$none" },
+        .signature = .{ .params = comptime &.{Param{ .name = "message", .type = .string }}, .returns = .none },
         .description = "Raise a runtime error with the message; never returns.",
     }));
 }

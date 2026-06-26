@@ -11,43 +11,45 @@ const Operation = exec.Operation;
 const Param = exec.Param;
 const Allocator = std.mem.Allocator;
 
-const ab_variadic = [_]Param{ Param.value("a"), Param.variadic("b") };
-const ab = [_]Param{ Param.value("a"), Param.value("b") };
+// Ordered comparisons fold over numbers; equality (`is`/`isnt`) works on any value.
+const number_variadic = [_]Param{ .{ .name = "a", .type = .number }, .{ .name = "b", .type = .number, .arity = .variadic } };
+const ab_variadic = [_]Param{ .{ .name = "a" }, .{ .name = "b", .arity = .variadic } };
+const ab = [_]Param{ .{ .name = "a" }, .{ .name = "b" } };
 
 pub fn register(registry: *Registry, allocator: Allocator) Allocator.Error!void {
     const g = registry.group(allocator, "comparison");
     try g.register("<", Operation.fromFn(lessThanOp, .{
-        .signature = .{ .params = &ab_variadic, .returns = "$some|$none" },
+        .signature = .{ .params = &number_variadic, .returns = .{ .one_of = &.{ .some, .none } } },
         .description = "True when the arguments are strictly increasing.",
     }));
 
     try g.register("<=", Operation.fromFn(lessThanOrEqualOp, .{
-        .signature = .{ .params = &ab_variadic, .returns = "$some|$none" },
+        .signature = .{ .params = &number_variadic, .returns = .{ .one_of = &.{ .some, .none } } },
         .description = "True when the arguments are non-decreasing.",
     }));
 
     try g.register(">", Operation.fromFn(greaterThanOp, .{
-        .signature = .{ .params = &ab_variadic, .returns = "$some|$none" },
+        .signature = .{ .params = &number_variadic, .returns = .{ .one_of = &.{ .some, .none } } },
         .description = "True when the arguments are strictly decreasing.",
     }));
 
     try g.register(">=", Operation.fromFn(greaterThanOrEqualOp, .{
-        .signature = .{ .params = &ab_variadic, .returns = "$some|$none" },
+        .signature = .{ .params = &number_variadic, .returns = .{ .one_of = &.{ .some, .none } } },
         .description = "True when the arguments are non-increasing.",
     }));
 
     try g.register("is", Operation.fromFn(isOp, .{
-        .signature = .{ .params = &ab_variadic, .returns = "value|$none" },
+        .signature = .{ .params = &ab_variadic, .returns = .{ .one_of = &.{ .any, .none } } },
         .description = "Equality test; returns the first value when all arguments are equal, else $none.",
     }));
 
     try g.register("isnt", Operation.fromFn(isntOp, .{
-        .signature = .{ .params = &ab, .returns = "value|$none" },
+        .signature = .{ .params = &ab, .returns = .{ .one_of = &.{ .any, .none } } },
         .description = "Inequality test; returns the left value when the two differ, else $none.",
     }));
 
     try g.register("compare", Operation.fromFn(compareOp, .{
-        .signature = .{ .params = &ab, .returns = "int" },
+        .signature = .{ .params = comptime &.{ .{ .name = "a", .type = .{ .one_of = &.{ .number, .string } } }, .{ .name = "b", .type = .{ .one_of = &.{ .number, .string } } } }, .returns = .int },
         .description = "Three-way compare; returns -1, 0, or 1 ordering two numbers or strings.",
     }));
 }

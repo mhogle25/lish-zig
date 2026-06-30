@@ -150,9 +150,9 @@ pub const BLOCK_OPEN = '{';
 pub const BLOCK_CLOSE = '}';
 pub const QUOTE_DOUBLE = '"';
 pub const QUOTE_SINGLE = '\'';
-pub const PIPE = '|';
-pub const TILDE = '~';
-pub const SEMICOLON = ';';
+pub const MACRO_SEPARATOR = '|';
+pub const DEFERRED = '~';
+pub const MACRO_BREAK = ';';
 pub const DECIMAL_POINT = '.';
 pub const NEGATIVE_SIGN = '-';
 pub const COMMENT = '#';
@@ -191,7 +191,7 @@ pub fn isReservedChar(char: u8) bool {
         BLOCK_CLOSE,
         QUOTE_DOUBLE,
         QUOTE_SINGLE,
-        SEMICOLON,
+        MACRO_BREAK,
         => true,
         else => false,
     };
@@ -201,7 +201,7 @@ pub fn isReservedChar(char: u8) bool {
 /// and `~` (deferred-param marker). The lexer applies this in HEADER mode so
 /// `~cond` splits into `~` + `cond` and the `|` ends the header.
 pub fn isHeaderWall(char: u8) bool {
-    return isReservedChar(char) or char == PIPE or char == TILDE;
+    return isReservedChar(char) or char == MACRO_SEPARATOR or char == DEFERRED;
 }
 
 /// Standard escape sequences for string literals.
@@ -251,16 +251,16 @@ test "reserved chars" {
 
 test "base walls exclude pipe/tilde, include semicolon" {
     // `|` and `~` are body operators, not base walls.
-    try std.testing.expect(!isReservedChar(PIPE));
-    try std.testing.expect(!isReservedChar(TILDE));
+    try std.testing.expect(!isReservedChar(MACRO_SEPARATOR));
+    try std.testing.expect(!isReservedChar(DEFERRED));
     // `;` terminates a macro body in every mode.
-    try std.testing.expect(isReservedChar(SEMICOLON));
+    try std.testing.expect(isReservedChar(MACRO_BREAK));
 }
 
 test "header walls add pipe and tilde" {
-    try std.testing.expect(isHeaderWall(PIPE));
-    try std.testing.expect(isHeaderWall(TILDE));
-    try std.testing.expect(isHeaderWall(SEMICOLON));
+    try std.testing.expect(isHeaderWall(MACRO_SEPARATOR));
+    try std.testing.expect(isHeaderWall(DEFERRED));
+    try std.testing.expect(isHeaderWall(MACRO_BREAK));
     // Every base wall is also a header wall.
     try std.testing.expect(isHeaderWall('$'));
     try std.testing.expect(isHeaderWall(':'));
@@ -268,9 +268,9 @@ test "header walls add pipe and tilde" {
 }
 
 test "header-wall chars are identifier-escapable" {
-    try std.testing.expectEqual(@as(u8, PIPE), idenEscSymToChar(PIPE).?);
-    try std.testing.expectEqual(@as(u8, TILDE), idenEscSymToChar(TILDE).?);
-    try std.testing.expectEqual(@as(u8, SEMICOLON), idenEscSymToChar(SEMICOLON).?);
+    try std.testing.expectEqual(@as(u8, MACRO_SEPARATOR), idenEscSymToChar(MACRO_SEPARATOR).?);
+    try std.testing.expectEqual(@as(u8, DEFERRED), idenEscSymToChar(DEFERRED).?);
+    try std.testing.expectEqual(@as(u8, MACRO_BREAK), idenEscSymToChar(MACRO_BREAK).?);
 }
 
 test "escape sequences" {

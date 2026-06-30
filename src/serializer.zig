@@ -29,18 +29,18 @@ pub fn serializeMacro(macro: AstMacro, writer: anytype) !void {
         switch (param) {
             .valid => |param_data| {
                 try writer.writeByte(' ');
-                if (param_data.param_type == .deferred) try writer.writeByte(tok.TILDE);
+                if (param_data.param_type == .deferred) try writer.writeByte(tok.DEFERRED);
                 try writer.writeAll(param_data.id);
             },
             .err => return SerializeError.InvalidNode,
         }
     }
     try writer.writeByte(' ');
-    try writer.writeByte(tok.PIPE);
+    try writer.writeByte(tok.MACRO_SEPARATOR);
     try writer.writeByte(' ');
     try serializeNode(macro.body, writer, false);
     try writer.writeByte(' ');
-    try writer.writeByte(tok.SEMICOLON);
+    try writer.writeByte(tok.MACRO_BREAK);
 }
 
 /// Serialize a slice of macro definitions as a .lishmacro module, one per line.

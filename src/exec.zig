@@ -503,7 +503,7 @@ pub const Macro = struct {
         try writer.writeAll(self.id);
         for (self.parameters) |param| {
             try writer.writeByte(' ');
-            if (param.param_type == .deferred) try writer.writeByte(token.TILDE);
+            if (param.param_type == .deferred) try writer.writeByte(token.DEFERRED);
             try writer.writeAll(param.id);
         }
     }

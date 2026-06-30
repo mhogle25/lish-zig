@@ -94,7 +94,7 @@ pub const Highlighter = struct {
             }
 
             // `;` terminates a macro body in every zone; the next header begins.
-            if (c == tok.SEMICOLON) {
+            if (c == tok.MACRO_BREAK) {
                 self.pos += 1;
                 self.mode = .header;
                 self.after_scope_thunk = false;
@@ -103,7 +103,7 @@ pub const Highlighter = struct {
 
             // `|` separates header from body ONLY in a header; in a body it is a
             // bitwise operator (falls through to the identifier scan below).
-            if (c == tok.PIPE and self.mode == .header) {
+            if (c == tok.MACRO_SEPARATOR and self.mode == .header) {
                 self.pos += 1;
                 self.mode = .body;
                 self.after_scope_thunk = false;
@@ -112,7 +112,7 @@ pub const Highlighter = struct {
 
             // `~` is the deferred-param marker ONLY in a header; in a body it is a
             // bitwise operator (falls through to the identifier scan below).
-            if (c == tok.TILDE and self.mode == .header) {
+            if (c == tok.DEFERRED and self.mode == .header) {
                 self.pos += 1;
                 self.after_scope_thunk = false;
                 return .{ .category = .sigil, .start = start, .end = @intCast(self.pos) };
@@ -200,10 +200,10 @@ pub const Highlighter = struct {
                 or isBracket(c)
                 or c == tok.EXPRESSION_SINGLE
                 or c == tok.SCOPE_THUNK
-                or c == tok.SEMICOLON
+                or c == tok.MACRO_BREAK
                 or c == tok.QUOTE_DOUBLE
                 or c == tok.QUOTE_SINGLE
-                or (self.mode == .header and (c == tok.PIPE or c == tok.TILDE))) break;
+                or (self.mode == .header and (c == tok.MACRO_SEPARATOR or c == tok.DEFERRED))) break;
 
             self.pos += 1;
         }

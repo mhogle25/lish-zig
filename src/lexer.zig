@@ -149,7 +149,7 @@ pub const Lexer = struct {
         return switch (first) {
             tok.EXPRESSION_SINGLE => self.singleCharToken(.call_expression_symbol, start),
             tok.SCOPE_THUNK => self.singleCharToken(.call_scope_thunk_symbol, start),
-            tok.SEMICOLON => self.singleCharToken(.macro_break, start),
+            tok.MACRO_BREAK => self.singleCharToken(.macro_break, start),
 
             tok.EXPRESSION_OPEN => self.singleCharToken(.expression_opening_bracket, start),
             tok.EXPRESSION_CLOSE => self.singleCharToken(.expression_closing_bracket, start),
@@ -163,11 +163,11 @@ pub const Lexer = struct {
 
             // `|`/`~` wall only in a macro header; in a body they glob as
             // ordinary operator/term chars (the bitwise ops).
-            tok.PIPE => if (self.mode == .header)
+            tok.MACRO_SEPARATOR => if (self.mode == .header)
                 self.singleCharToken(.macro_separator, start)
             else
                 self.makeTermToken(),
-            tok.TILDE => if (self.mode == .header)
+            tok.DEFERRED => if (self.mode == .header)
                 self.singleCharToken(.deferred_macro_param_symbol, start)
             else
                 self.makeTermToken(),

@@ -1,5 +1,5 @@
 terminator: ;
-boundary: 8
+boundary: 7
 description: a bitwise `|` operator in a body is content; only `;` terminates
 ---
-| :a :b ;next
+| :a :b;next

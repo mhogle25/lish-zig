@@ -19,20 +19,20 @@ say "hello world"
 
 Quoted strings support escape sequences:
 
-| Sequence | Character |
-|----------|-----------|
-| `\\` | Backslash |
-| `\"` | Double quote |
-| `\'` | Single quote |
-| `\n` | Newline |
-| `\r` | Carriage return |
-| `\t` | Tab |
-| `\0` | Null |
-| `\a` | Bell |
-| `\b` | Backspace |
-| `\e` | Escape (0x1B) |
-| `\f` | Form feed |
-| `\v` | Vertical tab |
+| Sequence | Character       |
+|----------|-----------------|
+| `\\`     | Backslash       |
+| `\"`     | Double quote    |
+| `\'`     | Single quote    |
+| `\n`     | Newline         |
+| `\r`     | Carriage return |
+| `\t`     | Tab             |
+| `\0`     | Null            |
+| `\a`     | Bell            |
+| `\b`     | Backspace       |
+| `\e`     | Escape (0x1B)   |
+| `\f`     | Form feed       |
+| `\v`     | Vertical tab    |
 
 `$term` for single-term expressions, `:name` for scope references:
 ```

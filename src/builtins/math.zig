@@ -135,7 +135,8 @@ fn absOp(args: Args) ExecError!?Value {
     try args.expectCount(1);
     const value = try args.at(0).resolve();
     return switch (value) {
-        .int => |int_val| .{ .int = if (int_val < 0) -%int_val else int_val },
+        // |minInt| overflows i64; saturate it to maxInt rather than wrap to minInt.
+        .int => |int_val| .{ .int = if (int_val == std.math.minInt(i64)) std.math.maxInt(i64) else if (int_val < 0) -int_val else int_val },
         .float => |float_val| .{ .float = @abs(float_val) },
         else => args.env.failFmt(.type_mismatch, "'abs' expects a number, got {s}", .{value.typeName()}),
     };
@@ -146,7 +147,7 @@ fn floorOp(args: Args) ExecError!?Value {
     const value = try args.at(0).resolve();
     return switch (value) {
         .int => value,
-        .float => |float_val| .{ .int = @intFromFloat(@floor(float_val)) },
+        .float => |float_val| .{ .int = val.floatToInt(@floor(float_val)) },
         else => args.env.failFmt(.type_mismatch, "'floor' expects a number, got {s}", .{value.typeName()}),
     };
 }
@@ -156,7 +157,7 @@ fn ceilOp(args: Args) ExecError!?Value {
     const value = try args.at(0).resolve();
     return switch (value) {
         .int => value,
-        .float => |float_val| .{ .int = @intFromFloat(@ceil(float_val)) },
+        .float => |float_val| .{ .int = val.floatToInt(@ceil(float_val)) },
         else => args.env.failFmt(.type_mismatch, "'ceil' expects a number, got {s}", .{value.typeName()}),
     };
 }
@@ -166,7 +167,7 @@ fn roundOp(args: Args) ExecError!?Value {
     const value = try args.at(0).resolve();
     return switch (value) {
         .int => value,
-        .float => |float_val| .{ .int = @intFromFloat(@round(float_val)) },
+        .float => |float_val| .{ .int = val.floatToInt(@round(float_val)) },
         else => args.env.failFmt(.type_mismatch, "'round' expects a number, got {s}", .{value.typeName()}),
     };
 }
@@ -300,6 +301,25 @@ test "math: round down" {
     defer arena.deinit();
     const result = try testing.evalWithBuiltins(arena.allocator(), "round 3.4");
     try std.testing.expectEqual(@as(i64, 3), result.?.int);
+}
+
+test "math: abs of i64 min saturates to i64 max instead of wrapping" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // -minInt overflows i64; old wrapping negation returned minInt (still negative).
+    const result = try testing.evalWithBuiltins(arena.allocator(), "abs -9223372036854775808");
+    try std.testing.expectEqual(std.math.maxInt(i64), result.?.int);
+}
+
+test "math: floor/ceil/round saturate on a non-finite float instead of crashing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // `/ 1.0 0.0` is +inf; flooring it used to trap in @intFromFloat.
+    const floored = try testing.evalWithBuiltins(arena.allocator(), "floor (/ 1.0 0.0)");
+    try std.testing.expectEqual(std.math.maxInt(i64), floored.?.int);
+    // `/ 0.0 0.0` is NaN; rounds to 0.
+    const nan_rounded = try testing.evalWithBuiltins(arena.allocator(), "round (/ 0.0 0.0)");
+    try std.testing.expectEqual(@as(i64, 0), nan_rounded.?.int);
 }
 
 test "math: even true" {

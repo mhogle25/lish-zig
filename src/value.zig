@@ -27,7 +27,7 @@ pub const Value = union(enum) {
     pub fn getI(self: Value) error{TypeMismatch}!i64 {
         return switch (self) {
             .int   => |int_val| int_val,
-            .float => |float_val| @intFromFloat(float_val),
+            .float => |float_val| floatToInt(float_val),
             else   => error.TypeMismatch,
         };
     }
@@ -160,6 +160,20 @@ pub fn toCondition(condition: bool) ?Value {
     return if (condition) some() else NONE;
 }
 
+/// Saturating, non-panicking f64 -> i64. A raw `@intFromFloat` traps (crashing
+/// the host) on a non-finite or out-of-range float; this clamps instead: NaN maps
+/// to 0, values at or beyond the i64 bounds saturate to them. Matches lish's
+/// lenient numeric conventions (division by zero -> 0, over-width shift -> 0): a
+/// coercion never aborts the process.
+pub fn floatToInt(float_val: f64) i64 {
+    if (std.math.isNan(float_val)) return 0;
+    const max_f: f64 = @floatFromInt(std.math.maxInt(i64));
+    const min_f: f64 = @floatFromInt(std.math.minInt(i64));
+    if (float_val >= max_f) return std.math.maxInt(i64);
+    if (float_val <= min_f) return std.math.minInt(i64);
+    return @intFromFloat(float_val);
+}
+
 /// The type vocabulary an operation declares in its `Signature` (parameter
 /// types and return type), authored as structured data instead of free-form
 /// strings. `render` is the single source of truth for how each form is
@@ -289,6 +303,18 @@ test "value equality" {
 test "condition" {
     try std.testing.expect(toCondition(true) != null);
     try std.testing.expect(toCondition(false) == null);
+}
+
+test "floatToInt saturates and never traps on non-finite or out-of-range input" {
+    // In range: ordinary truncation toward zero.
+    try std.testing.expectEqual(@as(i64, 3), floatToInt(3.7));
+    try std.testing.expectEqual(@as(i64, -3), floatToInt(-3.7));
+    // Non-finite and out-of-range saturate instead of a @intFromFloat trap.
+    try std.testing.expectEqual(std.math.maxInt(i64), floatToInt(std.math.inf(f64)));
+    try std.testing.expectEqual(std.math.minInt(i64), floatToInt(-std.math.inf(f64)));
+    try std.testing.expectEqual(std.math.maxInt(i64), floatToInt(1e300));
+    try std.testing.expectEqual(std.math.minInt(i64), floatToInt(-1e300));
+    try std.testing.expectEqual(@as(i64, 0), floatToInt(std.math.nan(f64)));
 }
 
 test "value dupe survives its source arena" {

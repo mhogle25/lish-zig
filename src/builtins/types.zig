@@ -47,7 +47,7 @@ fn intOp(args: Args) ExecError!?Value {
     const value = maybe_value orelse return null;
     return switch (value) {
         .int => value,
-        .float => |float_val| .{ .int = @intFromFloat(float_val) },
+        .float => |float_val| .{ .int = val.floatToInt(float_val) },
         .string => |str| {
             const parsed = std.fmt.parseInt(i64, str, 10) catch return null;
             return .{ .int = parsed };
@@ -162,6 +162,14 @@ test "type conversion: int from float" {
     defer arena.deinit();
     const result = try testing.evalWithBuiltins(arena.allocator(), "int 3.14");
     try std.testing.expectEqual(@as(i64, 3), result.?.int);
+}
+
+test "type conversion: int saturates a non-finite float instead of crashing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Converting +inf used to trap in @intFromFloat; now it saturates.
+    const result = try testing.evalWithBuiltins(arena.allocator(), "int (/ 1.0 0.0)");
+    try std.testing.expectEqual(std.math.maxInt(i64), result.?.int);
 }
 
 test "type conversion: int from string" {
